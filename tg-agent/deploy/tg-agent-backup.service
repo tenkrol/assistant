@@ -1,0 +1,53 @@
+# systemd unit for the daily state backup (see tools/backup-state.mjs).
+#
+# Install together with the timer (the timer is what runs this unit):
+#
+#   sudo cp deploy/tg-agent-backup.service deploy/tg-agent-backup.timer /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   systemctl enable --now tg-agent-backup.timer
+#
+# Run a backup by hand:
+#
+#   sudo systemctl start tg-agent-backup.service
+#   journalctl -u tg-agent-backup.service -n 30 --no-pager
+#
+# The unit is oneshot and is triggered by the timer, so it has no [Install]
+# section on purpose: enable the timer, not the service. ReadWritePaths covers
+# the backup directory, and ExecStartPre creates it with the unit's ownership
+# (StateDirectory would create /var/lib/tg-agent-style paths, not /var/backups).
+
+[Unit]
+Description=Back up the tg-agent state directory
+Documentation=file:/opt/tg-agent/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=tgagent
+WorkingDirectory=/opt/tg-agent
+EnvironmentFile=/opt/tg-agent/.env
+Environment=STATE_DIR=/var/lib/tg-agent
+Environment=BACKUP_DIR=/var/backups/tg-agent
+# /var/backups/tg-agent is created by this unit as root: the parent directory
+# belongs to root and the service user cannot create anything inside it. The `+`
+# prefix runs this one command outside the sandbox with full privileges, while
+# the main process stays unprivileged. ReadWritePaths below names the *existing*
+# parent on purpose: systemd builds the mount namespace before ExecStartPre runs
+# and fails with 226/NAMESPACE when a ReadWritePaths entry does not exist yet.
+# Keep the small disk from filling up: the package cache alone reached 1.3 GB of
+# a 4.8 GB volume and left the bot unable to write its state.
+ExecStartPre=+/usr/bin/apt-get clean
+ExecStartPre=+/usr/bin/journalctl --vacuum-size=100M
+ExecStartPre=+/usr/bin/install -d -o tgagent -g tgagent -m 0750 /var/backups/tg-agent
+ExecStart=/usr/bin/node tools/backup-state.mjs --send
+
+# Hardening: same as tg-agent.service, plus the backup directory.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+ReadWritePaths=/var/lib/tg-agent /var/backups

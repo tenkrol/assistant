@@ -1,0 +1,16 @@
+# Hourly release check: the unit runs `deploy-safe.mjs --status`, so a broken
+# symlink or a missing release shows up in the journal instead of waiting for the
+# next deploy. Install next to deploy-verify.service:
+#
+#   sudo cp deploy/deploy-verify.service deploy/deploy-verify.timer /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now deploy-verify.timer
+[Unit]
+Description=Verify the active assistant release hourly
+
+[Timer]
+OnBootSec=10min
+OnUnitActiveSec=1h
+Persistent=true
+
+[Install]
+WantedBy=timers.target

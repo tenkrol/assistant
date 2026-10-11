@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  LaunchAgent template for the external watchdog (tools/watchdog.mjs).
+
+  The watchdog checks the bot from this Mac — outside the server — so it can
+  still alert the owner when the server itself cannot reach Telegram.
+
+  The template is rendered and loaded by tools/install-launchd.mjs, which
+  substitutes the label, the node path, the entry point, the working directory
+  and the log path; do not copy it by hand. Manual install, for reference:
+
+    # 1. Fill in the five "__..." fields yourself, then copy the file into place:
+    #    cp deploy/tg-agent-watchdog.launchd.plist \
+    #       ~/Library/LaunchAgents/com.tg-agent-watchdog.plist
+    launchctl bootstrap gui/$UID ~/Library/LaunchAgents/com.tg-agent-watchdog.plist
+
+  Check it, run it once by hand and remove it:
+
+    launchctl print gui/$UID/com.tg-agent-watchdog
+    launchctl kickstart -k gui/$UID/com.tg-agent-watchdog
+    launchctl bootout gui/$UID/com.tg-agent-watchdog
+
+  RunAtLoad is false on purpose: the first check happens at the first
+  StartInterval tick (up to 30 minutes after install), not at login. The bot's
+  own agent is the one that must start immediately; the watchdog only observes.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>__LABEL__</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>__NODE__</string>
+        <string>__ENTRY__</string>
+        <!-- Silent on success: the log only grows when something is wrong. -->
+        <string>--quiet</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>__DIR__</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+
+    <!-- First run comes with the schedule, not with login (see the header). -->
+    <key>RunAtLoad</key>
+    <false/>
+
+    <!-- One check every 30 minutes; the watchdog exits after each run. -->
+    <key>StartInterval</key>
+    <integer>1800</integer>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+
+    <key>StandardOutPath</key>
+    <string>__LOG__</string>
+    <key>StandardErrorPath</key>
+    <string>__LOG__</string>
+</dict>
+</plist>

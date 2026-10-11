@@ -1,0 +1,67 @@
+# systemd unit for a read-only verification of the release scheme.
+#
+# It reports which release /opt/tg-agent points at and what is kept in
+# /opt/tg-agent-releases, so a broken or half-finished deployment is visible in
+# the journal without logging in. Nothing is written and no service is touched:
+# the unit can run as the unprivileged tgagent user.
+#
+# Run it by hand:
+#
+#   sudo systemctl start deploy-verify.service
+#   journalctl -u deploy-verify.service -n 30 --no-pager
+#   # or directly, without systemd:
+#   node tools/deploy-safe.mjs --status
+#
+# The unit is oneshot and has no [Install] section on purpose: to run it
+# periodically, install a separate timer (there is no deploy-verify.timer in the
+# repository; create it at /etc/systemd/system/deploy-verify.timer):
+#
+#   [Unit]
+#   Description=Hourly verification of the active tg-agent release
+#
+#   [Timer]
+#   OnBootSec=10min
+#   OnUnitActiveSec=1h
+#   Persistent=true
+#   Unit=deploy-verify.service
+#
+#   [Install]
+#   WantedBy=timers.target
+#
+# then:
+#
+#   sudo cp deploy/deploy-verify.service /etc/systemd/system/
+#   sudo install -m 644 /dev/stdin /etc/systemd/system/deploy-verify.timer <<'EOF'
+#   ...unit text above...
+#   EOF
+#   sudo systemctl daemon-reload
+#   systemctl enable --now deploy-verify.timer
+#   systemctl list-timers deploy-verify.timer
+#
+# Enable the timer, not the service: the service itself has no [Install].
+
+[Unit]
+Description=Verify the active tg-agent release
+Documentation=file:/opt/tg-agent/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=tgagent
+WorkingDirectory=/opt/tg-agent
+EnvironmentFile=/opt/tg-agent/.env
+Environment=RELEASES_DIR=/opt/tg-agent-releases
+Environment=CURRENT_LINK=/opt/tg-agent
+ExecStart=/usr/local/bin/node tools/deploy-safe.mjs --status
+
+# Hardening: same as tg-agent.service. --status only reads the symlink and the
+# releases directory, so no ReadWritePaths is declared at all (a missing
+# ReadWritePaths entry would fail the unit with 226/NAMESPACE anyway).
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true

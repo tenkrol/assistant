@@ -1,0 +1,23 @@
+# Run one copy of the bot: two pollers on the same token fight over updates.
+services:
+  tg-agent:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: tg-agent:latest
+    container_name: tg-agent
+    restart: unless-stopped
+    env_file:
+      - ../.env
+    volumes:
+      - tg-agent-data:/data
+    # Uncomment when the host reaches Telegram only through a proxy:
+    # command: ["node", "--use-env-proxy", "src/index.mjs"]
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  tg-agent-data:

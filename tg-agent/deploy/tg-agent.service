@@ -1,0 +1,43 @@
+# systemd unit for a bare-metal or VPS install.
+#
+#   sudo useradd --system --shell /usr/sbin/nologin tgagent
+#   sudo mkdir -p /opt/tg-agent && sudo cp -r . /opt/tg-agent/
+#   sudo cp deploy/tg-agent.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now tg-agent
+#
+# The state directory is declared with StateDirectory, so systemd creates
+# /var/lib/tg-agent with the unit's ownership; no manual mkdir is needed.
+# The bot has no dependencies, so no install step is needed beyond Node 20.6+.
+
+[Unit]
+Description=Telegram agent bot
+Documentation=file:/opt/tg-agent/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=tgagent
+WorkingDirectory=/opt/tg-agent
+EnvironmentFile=/opt/tg-agent/.env
+Environment=PLATFORM=telegram
+Environment=DATA_DIR=/var/lib/tg-agent
+ExecStart=/usr/bin/node src/index.mjs
+Restart=always
+RestartSec=5
+KillSignal=SIGTERM
+TimeoutStopSec=20
+
+# Hardening: the bot only needs to write its own state directory.
+StateDirectory=tg-agent
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+ReadWritePaths=/var/lib/tg-agent
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,25 @@
+# systemd timer that runs the tg-agent state backup every day at 04:00 server time.
+#
+#   sudo cp deploy/tg-agent-backup.service deploy/tg-agent-backup.timer /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   systemctl enable --now tg-agent-backup.timer
+#
+# Check the schedule and the last run:
+#
+#   systemctl list-timers tg-agent-backup.timer
+#   journalctl -u tg-agent-backup.service -n 30 --no-pager
+#
+# Persistent=true runs a missed backup after the machine comes back up, so a
+# reboot at 04:00 does not skip a day.
+
+[Unit]
+Description=Daily backup of the tg-agent state
+Documentation=file:/opt/tg-agent/README.md
+
+[Timer]
+OnCalendar=*-*-* 04:00:00
+Persistent=true
+Unit=tg-agent-backup.service
+
+[Install]
+WantedBy=timers.target

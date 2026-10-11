@@ -1,0 +1,63 @@
+# systemd unit for the VK (VKontakte) adapter of the same assistant.
+#
+# The core is shared with the Telegram unit (`tg-agent.service`); the only
+# difference is PLATFORM, which selects the adapter at startup. Each service
+# keeps its own state files in DATA_DIR (`history-max.json`, `users-max.json`, …),
+# so two processes never write the same file.
+#
+# Install (see also deploy/deploy-remote.sh, which does this automatically):
+#
+#   sudo cp deploy/vk-agent.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   systemctl enable --now vk-agent
+#
+# VK_TOKEN must be set in /opt/tg-agent/.env. If it is missing, the unit stops
+# with a readable error instead of polling.
+#
+# VK uses ordinary public CAs (api.vk.com), so no extra certificates are needed.
+
+[Unit]
+Description=Assistant bot for VK (shared core, VK adapter)
+Documentation=file:/opt/tg-agent/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=tgagent
+WorkingDirectory=/opt/tg-agent
+EnvironmentFile=/opt/tg-agent/.env
+# PLATFORM must be set here, not in .env: systemd applies EnvironmentFile after
+# Environment=, so a PLATFORM line in .env would win over this one.
+Environment=PLATFORM=vk
+Environment=DATA_DIR=/var/lib/tg-agent
+ExecStart=/usr/local/bin/node src/index.mjs
+
+Restart=always
+RestartSec=5
+
+StateDirectory=tg-agent
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectClock=true
+ProtectHostname=true
+ProtectProc=invisible
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+LockPersonality=true
+# MemoryDenyWriteExecute would forbid the writable+executable pages V8 needs
+# for its JIT, and the process dies with SIGTRAP: do not enable it here.
+MemoryDenyWriteExecute=false
+SystemCallArchitectures=native
+ReadWritePaths=/var/lib/tg-agent
+
+[Install]
+WantedBy=multi-user.target

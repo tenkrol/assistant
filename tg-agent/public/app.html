@@ -1,0 +1,511 @@
+<!doctype html>
+<html lang="ru" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark light">
+<title>Домашний ассистент</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  :root {
+    --bg: #17212b;
+    --card: #1f2c38;
+    --fg: #ffffff;
+    --muted: #8b9aa8;
+    --accent: #5eb5f7;
+    --button: #2ea6ff;
+    --button-text: #ffffff;
+    --danger: #ff6b6b;
+    --border: #2b3a48;
+    --input: #24333f;
+    --safe-bottom: 0px;
+  }
+  [data-theme="light"] {
+    --bg: #f2f4f7;
+    --card: #ffffff;
+    --fg: #16212b;
+    --muted: #626f7d;
+    --accent: #1a73e8;
+    --button: #2ea6ff;
+    --button-text: #ffffff;
+    --danger: #d93025;
+    --border: #e2e6ea;
+    --input: #eef1f4;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font: 16px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    padding: 0 0 calc(28px + env(safe-area-inset-bottom, 0px) + var(--safe-bottom));
+    -webkit-text-size-adjust: 100%;
+  }
+  .wrap { max-width: 640px; margin: 0 auto; padding: 16px; }
+  h1 { font-size: 20px; margin: 0 0 2px; }
+  h2 { font-size: 15px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 22px 0 8px; }
+  .who { color: var(--muted); font-size: 14px; margin: 0 0 8px; }
+  .tabs {
+    display: flex; gap: 6px; overflow-x: auto; position: sticky; top: 0; z-index: 5;
+    background: var(--bg); padding: 8px 0; margin: 0 -16px; padding-left: 16px; padding-right: 16px;
+  }
+  .tab {
+    flex: 0 0 auto; border: 1px solid var(--border); background: var(--card); color: var(--fg);
+    padding: 8px 12px; border-radius: 999px; font-size: 14px; cursor: pointer;
+  }
+  .tab[aria-selected="true"] { background: var(--button); border-color: var(--button); color: var(--button-text); }
+  .panel[hidden] { display: none; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 12px; margin: 8px 0; }
+  .row { display: flex; align-items: flex-start; gap: 10px; }
+  .row-info { flex: 1 1 auto; min-width: 0; }
+  .row-title { word-break: break-word; }
+  .row-meta { color: var(--muted); font-size: 13px; margin-top: 2px; }
+  .empty { color: var(--muted); font-size: 14px; }
+  .hint { color: var(--muted); font-size: 13px; }
+  form.form { display: flex; flex-direction: column; gap: 10px; margin-top: 8px; }
+  label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
+  label.check { flex-direction: row; align-items: center; gap: 8px; color: var(--fg); font-size: 15px; }
+  input[type="text"], input[type="datetime-local"], select, input[type="number"] {
+    font: inherit; color: var(--fg); background: var(--input); border: 1px solid var(--border);
+    border-radius: 10px; padding: 10px; width: 100%;
+  }
+  button {
+    font: inherit; border: 0; border-radius: 10px; padding: 10px 14px; cursor: pointer;
+    background: var(--button); color: var(--button-text);
+  }
+  button.del { background: transparent; color: var(--danger); border: 1px solid var(--border); font-size: 13px; padding: 6px 10px; }
+  .stats { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  .stat { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 14px; }
+  .stat .value { font-size: 30px; font-weight: 700; line-height: 1.1; }
+  .stat .label { color: var(--muted); font-size: 13px; margin-top: 4px; }
+  .notice { max-width: 520px; margin: 15vh auto; padding: 20px; text-align: center; }
+  .notice h1 { font-size: 19px; margin-bottom: 10px; }
+  .notice p { color: var(--muted); }
+  #toast {
+    position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%);
+    background: var(--card); color: var(--fg); border: 1px solid var(--border);
+    border-radius: 10px; padding: 10px 14px; max-width: 90vw; z-index: 20;
+  }
+  #toast[hidden] { display: none; }
+</style>
+</head>
+<body>
+<div id="notice" class="notice" hidden></div>
+
+<main id="app" class="wrap" hidden>
+  <header>
+    <h1 id="app-title">Домашний ассистент</h1>
+    <p class="who" id="who"></p>
+  </header>
+
+  <nav class="tabs" id="tabs" role="tablist">
+    <button class="tab" type="button" role="tab" data-tab="reminders" aria-selected="true">Напоминания</button>
+    <button class="tab" type="button" role="tab" data-tab="events" aria-selected="false">Календарь</button>
+    <button class="tab" type="button" role="tab" data-tab="memory" aria-selected="false">Память</button>
+    <button class="tab" type="button" role="tab" data-tab="usage" aria-selected="false">Статистика</button>
+  </nav>
+
+  <section class="panel" data-panel="reminders">
+    <div id="reminders-list"></div>
+    <h2>Новое напоминание</h2>
+    <form class="form" id="reminder-form" autocomplete="off">
+      <label>Текст
+        <input type="text" id="reminder-text" maxlength="500" placeholder="Позвонить маме" required>
+      </label>
+      <label>Когда
+        <input type="datetime-local" id="reminder-when" required>
+      </label>
+      <label>Повтор
+        <select id="reminder-repeat"></select>
+      </label>
+      <button type="submit">Добавить напоминание</button>
+    </form>
+  </section>
+
+  <section class="panel" data-panel="events" hidden>
+    <div id="events-list"></div>
+    <h2>Новое событие</h2>
+    <form class="form" id="event-form" autocomplete="off">
+      <label>Название
+        <input type="text" id="event-title" maxlength="500" placeholder="День рождения" required>
+      </label>
+      <label>Дата и время
+        <input type="datetime-local" id="event-at" required>
+      </label>
+      <label class="check"><input type="checkbox" id="event-yearly"> Каждый год</label>
+      <button type="submit">Добавить событие</button>
+    </form>
+  </section>
+
+  <section class="panel" data-panel="memory" hidden>
+    <p class="hint" id="memory-city"></p>
+    <div id="memory-list"></div>
+    <h2>Новый факт</h2>
+    <form class="form" id="fact-form" autocomplete="off">
+      <label>Что запомнить
+        <input type="text" id="fact-text" maxlength="200" placeholder="любит крепкий кофе" required>
+      </label>
+      <button type="submit">Запомнить</button>
+    </form>
+  </section>
+
+  <section class="panel" data-panel="usage" hidden>
+    <h2>Токены за сегодня</h2>
+    <div class="stats" id="usage-stats"></div>
+  </section>
+</main>
+
+<div id="toast" hidden></div>
+
+<script>
+(function () {
+  'use strict'
+
+  var tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null
+  var initData = tg && typeof tg.initData === 'string' ? tg.initData : ''
+  var TABS = ['reminders', 'events', 'memory', 'usage']
+  var active = 'reminders'
+  var fatalShown = false
+
+  // Repeat choices offered by the form. The server still validates against its
+  // own full list, so an outdated page can only send something that is refused.
+  var REPEAT_CHOICES = [
+    ['none', 'без повтора'],
+    ['daily', 'каждый день'],
+    ['weekdays', 'по будням'],
+    ['weekly', 'каждую неделю'],
+    ['weekly:1', 'каждый понедельник'],
+    ['weekly:2', 'каждый вторник'],
+    ['weekly:3', 'каждую среду'],
+    ['weekly:4', 'каждый четверг'],
+    ['weekly:5', 'каждую пятницу'],
+    ['weekly:6', 'каждую субботу'],
+    ['weekly:7', 'каждое воскресенье'],
+    ['monthly:1', '1-го числа'],
+    ['monthly:15', '15-го числа'],
+    ['monthly:31', '31-го числа'],
+    ['every:15', 'каждые 15 минут'],
+    ['every:30', 'каждые 30 минут'],
+    ['every:60', 'каждый час'],
+    ['every:120', 'каждые 2 часа']
+  ]
+
+  function byId(id) {
+    return document.getElementById(id)
+  }
+
+  /** Small DOM builder: every string goes in as text, never as markup. */
+  function el(tag, className, text) {
+    var node = document.createElement(tag)
+    if (className) node.className = className
+    if (text !== undefined && text !== null) node.textContent = String(text)
+    return node
+  }
+
+  function applyTheme() {
+    var light = tg && tg.colorScheme === 'light'
+    document.documentElement.setAttribute('data-theme', light ? 'light' : 'dark')
+    var params = (tg && tg.themeParams) || {}
+    var mapping = {
+      bg_color: '--bg',
+      secondary_bg_color: '--card',
+      section_bg_color: '--card',
+      text_color: '--fg',
+      hint_color: '--muted',
+      subtitle_text_color: '--muted',
+      link_color: '--accent',
+      accent_text_color: '--accent',
+      button_color: '--button',
+      button_text_color: '--button-text',
+      destructive_text_color: '--danger',
+      section_separator_color: '--border'
+    }
+    Object.keys(mapping).forEach(function (key) {
+      var value = params[key]
+      if (typeof value === 'string' && value) {
+        document.documentElement.style.setProperty(mapping[key], value)
+      }
+    })
+    var inset = tg && tg.contentSafeAreaInset
+    if (inset && typeof inset.bottom === 'number') {
+      document.documentElement.style.setProperty('--safe-bottom', inset.bottom + 'px')
+    }
+  }
+
+  function showNotice(message) {
+    var notice = byId('notice')
+    notice.replaceChildren(el('h1', null, 'Домашний ассистент'), el('p', null, message))
+    notice.hidden = false
+    byId('app').hidden = true
+  }
+
+  function closeApp(message) {
+    fatalShown = true
+    showNotice(message)
+  }
+
+  var toastTimer = null
+  function toast(message) {
+    var node = byId('toast')
+    node.replaceChildren(document.createTextNode(String(message)))
+    node.hidden = false
+    if (toastTimer) clearTimeout(toastTimer)
+    toastTimer = setTimeout(function () { node.hidden = true }, 3500)
+  }
+
+  function request(method, path, body) {
+    var options = { method: method, headers: { 'X-Telegram-Init-Data': initData } }
+    if (body !== undefined) {
+      options.headers['Content-Type'] = 'application/json'
+      options.body = JSON.stringify(body)
+    }
+    return fetch(path, options).then(function (response) {
+      return response.text().then(function (text) {
+        var data = null
+        try { data = text ? JSON.parse(text) : null } catch (error) { data = null }
+        if (response.status === 401) { closeApp('Откройте через Telegram'); throw new Error('unauthorized') }
+        if (response.status === 403) { closeApp('Нет доступа'); throw new Error('forbidden') }
+        if (!response.ok) {
+          var message = data && data.error ? data.error : 'Ошибка ' + response.status
+          throw new Error(message)
+        }
+        return data
+      })
+    })
+  }
+
+  function formatWhen(iso) {
+    var date = new Date(iso)
+    if (Number.isNaN(date.getTime())) return String(iso || '')
+    return date.toLocaleString('ru-RU', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })
+  }
+
+  function renderList(container, items, build) {
+    container.replaceChildren()
+    if (!items || items.length === 0) {
+      container.append(el('p', 'empty', 'Пока пусто.'))
+      return
+    }
+    items.forEach(function (item) {
+      container.append(build(item))
+    })
+  }
+
+  function actionRow(title, meta, onDelete) {
+    var card = el('div', 'card row')
+    var info = el('div', 'row-info')
+    info.append(el('div', 'row-title', title))
+    if (meta) info.append(el('div', 'row-meta', meta))
+    var button = el('button', 'del', 'Удалить')
+    button.type = 'button'
+    button.addEventListener('click', onDelete)
+    card.append(info, button)
+    return card
+  }
+
+  function fillRepeatSelect() {
+    var select = byId('reminder-repeat')
+    REPEAT_CHOICES.forEach(function (choice) {
+      var option = document.createElement('option')
+      option.value = choice[0]
+      option.textContent = choice[1]
+      select.append(option)
+    })
+  }
+
+  function loadReminders() {
+    return request('GET', '/api/reminders').then(function (items) {
+      renderList(byId('reminders-list'), items, function (item) {
+        var meta = formatWhen(item.dueAt) + ' · ' + (item.repeatText || 'без повтора')
+        return actionRow(item.text, meta, function () {
+          request('DELETE', '/api/reminders/' + encodeURIComponent(item.id))
+            .then(loadReminders)
+            .catch(function (error) { toast(error.message) })
+        })
+      })
+    })
+  }
+
+  function loadEvents() {
+    return request('GET', '/api/events?days=14').then(function (items) {
+      renderList(byId('events-list'), items, function (item) {
+        var meta = formatWhen(item.at) + (item.repeat === 'yearly' ? ' · каждый год' : '')
+        if (item.place) meta += ' · ' + item.place
+        return actionRow(item.title, meta, function () {
+          request('DELETE', '/api/events/' + encodeURIComponent(item.id))
+            .then(loadEvents)
+            .catch(function (error) { toast(error.message) })
+        })
+      })
+    })
+  }
+
+  function loadMemory() {
+    return request('GET', '/api/memory').then(function (data) {
+      var city = byId('memory-city')
+      city.textContent = data && data.city
+        ? 'Город: ' + data.city + '. Меняется командой боту.'
+        : 'Город не задан. Задать его можно командой боту.'
+      var facts = data && Array.isArray(data.facts) ? data.facts : []
+      renderList(byId('memory-list'), facts, function (fact) {
+        return actionRow(fact.text, null, function () {
+          request('DELETE', '/api/memory/' + encodeURIComponent(fact.id))
+            .then(loadMemory)
+            .catch(function (error) { toast(error.message) })
+        })
+      })
+    })
+  }
+
+  function loadUsage() {
+    return request('GET', '/api/state').then(function (data) {
+      var today = (data && data.usageToday) || {}
+      var box = byId('usage-stats')
+      box.replaceChildren()
+      var cards = [
+        ['Всего токенов', today.total],
+        ['Запросов', today.requests],
+        ['Токенов запроса', today.prompt],
+        ['Токенов ответа', today.completion]
+      ]
+      cards.forEach(function (entry) {
+        var card = el('div', 'stat')
+        card.append(el('div', 'value', String(entry[1] === undefined ? 0 : entry[1])))
+        card.append(el('div', 'label', entry[0]))
+        box.append(card)
+      })
+      if (data && data.user && data.user.name) byId('who').textContent = data.user.name
+    })
+  }
+
+  function loadTab(name) {
+    if (fatalShown) return Promise.resolve()
+    var loader = name === 'reminders' ? loadReminders
+      : name === 'events' ? loadEvents
+      : name === 'memory' ? loadMemory
+      : loadUsage
+    return loader().catch(function (error) {
+      if (error.message !== 'unauthorized' && error.message !== 'forbidden') toast(error.message)
+    })
+  }
+
+  function selectTab(name) {
+    if (TABS.indexOf(name) === -1) return
+    active = name
+    TABS.forEach(function (tab) {
+      var button = document.querySelector('.tab[data-tab="' + tab + '"]')
+      var panel = document.querySelector('.panel[data-panel="' + tab + '"]')
+      var selected = tab === name
+      if (button) button.setAttribute('aria-selected', selected ? 'true' : 'false')
+      if (panel) panel.hidden = !selected
+    })
+    if (tg && tg.BackButton) {
+      if (TABS.indexOf(name) > 0) tg.BackButton.show()
+      else tg.BackButton.hide()
+    }
+    void loadTab(name)
+  }
+
+  function onSubmit(path, formId, buildBody, reload, resetIds) {
+    var form = byId(formId)
+    form.addEventListener('submit', function (event) {
+      event.preventDefault()
+      var body
+      try {
+        body = buildBody()
+      } catch (error) {
+        toast(error.message)
+        return
+      }
+      var button = form.querySelector('button[type="submit"]')
+      if (button) button.disabled = true
+      request('POST', path, body)
+        .then(function () {
+          resetIds.forEach(function (id) {
+            var field = byId(id)
+            if (!field) return
+            if (field.type === 'checkbox') field.checked = false
+            else field.value = ''
+          })
+          return reload()
+        })
+        .catch(function (error) {
+          if (error.message !== 'unauthorized' && error.message !== 'forbidden') toast(error.message)
+        })
+        .then(function () {
+          if (button) button.disabled = false
+        })
+    })
+  }
+
+  function localToIso(value) {
+    if (!value) throw new Error('Укажите дату и время')
+    var date = new Date(value)
+    if (Number.isNaN(date.getTime())) throw new Error('Некорректная дата')
+    if (date.getTime() <= Date.now()) throw new Error('Дата должна быть в будущем')
+    return date.toISOString()
+  }
+
+  function init() {
+    applyTheme()
+    fillRepeatSelect()
+
+    if (tg) {
+      if (tg.ready) tg.ready()
+      if (tg.expand) tg.expand()
+      if (tg.onEvent) tg.onEvent('themeChanged', applyTheme)
+    }
+
+    if (!initData) {
+      showNotice('Откройте эту страницу через Telegram — в браузере она не может показать ваши данные.')
+      return
+    }
+
+    byId('app').hidden = false
+
+    Array.prototype.forEach.call(document.querySelectorAll('.tab'), function (button) {
+      button.addEventListener('click', function () { selectTab(button.getAttribute('data-tab')) })
+    })
+
+    if (tg && tg.BackButton) {
+      tg.BackButton.onClick(function () {
+        var index = TABS.indexOf(active)
+        if (index > 0) selectTab(TABS[index - 1])
+      })
+    }
+
+    onSubmit('/api/reminders', 'reminder-form', function () {
+      var text = byId('reminder-text').value.trim()
+      if (!text) throw new Error('Введите текст напоминания')
+      return {
+        text: text,
+        dueAt: localToIso(byId('reminder-when').value),
+        repeat: byId('reminder-repeat').value
+      }
+    }, loadReminders, ['reminder-text', 'reminder-when'])
+
+    onSubmit('/api/events', 'event-form', function () {
+      var title = byId('event-title').value.trim()
+      if (!title) throw new Error('Введите название события')
+      return {
+        title: title,
+        at: localToIso(byId('event-at').value),
+        repeat: byId('event-yearly').checked ? 'yearly' : 'none'
+      }
+    }, loadEvents, ['event-title', 'event-at', 'event-yearly'])
+
+    onSubmit('/api/memory', 'fact-form', function () {
+      var text = byId('fact-text').value.trim()
+      if (!text) throw new Error('Введите текст факта')
+      return { text: text }
+    }, loadMemory, ['fact-text'])
+
+    selectTab('reminders')
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init)
+  else init()
+})()
+</script>
+</body>
+</html>
