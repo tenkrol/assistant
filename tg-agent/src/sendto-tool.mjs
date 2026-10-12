@@ -68,8 +68,10 @@ export function createSendToTool({ send, contacts, ownerName = 'владельц
     if (value === '') return { error: 'не понял, кому писать: укажите @ник, имя, id или телефон.' }
 
     if (value.startsWith('@')) {
-      // Каналы и группы открываются по нику всегда; для человека Telegram сам
-      // откажет, если он не начинал диалог с ботом.
+      // Для человека Telegram не принимает @ник: нужен числовой id из справочника.
+      // Для каналов и групп ник работает и так.
+      const known = contacts?.byUsername?.(value)
+      if (known) return { chatId: known.chatId, label: known.name ?? value, how: 'ник из справочника' }
       return { chatId: value, label: value, how: 'ник' }
     }
 
