@@ -237,7 +237,7 @@ function parseCmap(font, view, table) {
     // 3/10 is the full Unicode range, 3/1 the BMP, 0/* the legacy Unicode platform.
     const score = platform === 3 && encoding === 10 ? 4 : platform === 0 && format === 12 ? 3 : platform === 3 && encoding === 1 ? 2 : 1
     const previous = formats.get(format)
-    if (!previous || score > previous.score) formats.set(format, { offset, score })
+    if (!previous || score > previous.score) formats.set(format, { offset, format, score })
   }
   const chosen = formats.get(12) ?? formats.get(4)
   if (!chosen) throw new Error('cmap: нет таблицы формата 4 или 12')
@@ -662,13 +662,14 @@ function serializePdf(objects, title) {
  * @param {Array<object>} [options.blocks] - `{ type, text }`, where type is
  *   `h1`, `h2`, `p`, `bullet` or `spacer` (which uses `height`).
  * @param {string} [options.fontPath] - a TTF to embed; `findFontPath()` is used when omitted.
+ * @param {Array<string>} [options.candidates] - paths `findFontPath()` may try instead of the defaults.
  * @param {number} [options.fontSize] - body point size.
  * @param {number} [options.margin] - page margin in points.
  * @param {string|Array<number>} [options.pageSize] - `a4`, `letter`, `legal` or `[w, h]`.
  * @returns {Buffer} the bytes of the PDF.
  */
-export function createPdf({ title, blocks, fontPath, fontSize = 11, margin = 48, pageSize = 'a4' } = {}) {
-  const path = fontPath ?? findFontPath()
+export function createPdf({ title, blocks, fontPath, candidates, fontSize = 11, margin = 48, pageSize = 'a4' } = {}) {
+  const path = fontPath === undefined || fontPath === null || fontPath === '' ? findFontPath({ candidates }) : fontPath
   if (!path) throw new Error(NO_FONT_MESSAGE)
   const size = Number(fontSize)
   const pad = Number(margin)
@@ -698,6 +699,7 @@ export function createPdf({ title, blocks, fontPath, fontSize = 11, margin = 48,
     cidInfo.set(gid, info)
     return info
   }
+  /** Width of a run in 1/1000 em, the unit `/W` and the content stream both use. */
   const widthOf = (text) => {
     let width = 0
     for (const character of String(text)) width += cidFor(character).width
@@ -738,17 +740,19 @@ export function createPdf({ title, blocks, fontPath, fontSize = 11, margin = 48,
     if (style.spaceBefore > 0) items.push({ kind: 'space', height: style.spaceBefore })
     const indent = type === 'bullet' ? BULLET_INDENT : 0
     const text = block?.text == null ? '' : String(block.text)
+    // `widthOf` is already in 1/1000 em, so only the point size is left to apply here.
     const measure = (value) => (value === '' ? 0 : (widthOf(value) * style.size) / FONT_UNITS_PER_EM)
     let first = true
     for (const line of wrapLines(text, usableWidth - indent, measure)) {
-      const prefix = type === 'bullet' && first ? `${bulletGlyph} ` : ''
       items.push({
         kind: 'line',
         size: style.size,
         leading: style.leading,
         indent,
+        // The bullet marker rides on the first line only, the way a list does.
+        prefix: type === 'bullet' && first ? `${bulletGlyph} ` : '',
         // A blank line still takes vertical space, it just has nothing to show.
-        text: line === '' ? '' : prefix + line,
+        text: line,
       })
       first = false
     }
@@ -779,8 +783,9 @@ export function createPdf({ title, blocks, fontPath, fontSize = 11, margin = 48,
     out.write(`BT\n/F1 ${size.toFixed(2)} Tf\n`)
     let opened = false
     for (const { item, y } of lines) {
-      if (item.text !== '') {
-        const encoded = encode(item.text)
+      const content = item.prefix + item.text
+      if (content !== '') {
+        const encoded = encode(content)
         out.write(`${item.indent} ${y.toFixed(2)} Td\n`)
         if (!opened || item.size !== size) out.write(`/F1 ${item.size.toFixed(2)} Tf\n`)
         out.write(`${showText(encoded.cids, encoded.breaks, encoded.widths, item.size)}\n`)

@@ -18,7 +18,8 @@ const A4_WIDTH = 595.28
 const A4_MARGIN = 48
 const BODY_SIZE = 11
 const LATIN_SAMPLE = 'The quick brown fox jumps over the lazy dog near the river bank today. '
-const LONG_WORD = 'ОченьДлинноеСловоБезЕдиногоПробела'.repeat(4)
+// Long enough that even the real font cannot fit it on one line.
+const LONG_WORD = 'ОченьДлинноеСловоБезЕдиногоПробела'.repeat(30)
 
 /** Text of the `/ToUnicode` CMap, decompressed. */
 function toUnicodeText(buffer) {
@@ -77,9 +78,11 @@ function textLines(stream) {
 
 /** Widths from `/W`, in 1/1000 em, for every glyph the document mentions. */
 function glyphWidths(latin) {
-  const start = latin.indexOf('/W [')
-  assert.ok(start > 0, 'в CIDFont нет массива /W')
-  const end = latin.indexOf(']', start)
+  // Anchor on the key: `/CIDToGIDMap /Identity /W [ ... ]` is the CIDFont's own array.
+  const key = latin.indexOf('/CIDToGIDMap /Identity /W [')
+  assert.ok(key > 0, 'в CIDFont нет массива /W')
+  const start = latin.indexOf('/W [', key)
+  const end = latin.lastIndexOf(']', latin.indexOf('>>', start))
   const widths = new Map()
   for (const entry of latin.slice(start + 4, end).matchAll(/(\d+) \[(\d+)\]/g)) {
     widths.set(Number(entry[1]), Number(entry[2]))
@@ -106,27 +109,47 @@ function minimalTtf() {
   head.writeInt16BE(0, 50)
   const maxp = Buffer.alloc(6)
   maxp.writeUInt16BE(1, 4)
-  const empty = Buffer.alloc(0)
+  const hhea = Buffer.alloc(36)
+  hhea.writeUInt16BE(1, 34)
+  // A format 4 cmap with a single empty segment: parseable, but it maps nothing.
+  // 0..1 version and table count, 4..11 the one encoding record (3/1, subtable at 12),
+  // then the format 4 header and its arrays.
+  const cmap = Buffer.alloc(12 + 16)
+  cmap.writeUInt16BE(0, 0)
+  cmap.writeUInt16BE(1, 2)
+  cmap.writeUInt16BE(3, 4)
+  cmap.writeUInt16BE(1, 6)
+  cmap.writeUInt32BE(12, 8)
+  cmap.writeUInt16BE(4, 12)
+  cmap.writeUInt16BE(16, 14)
+  cmap.writeUInt16BE(0, 16)
+  cmap.writeUInt16BE(2, 18)
+  cmap.writeUInt16BE(0, 20)
+  cmap.writeUInt16BE(0, 22)
+  cmap.writeUInt16BE(0xffff, 24)
+  cmap.writeUInt16BE(0, 26)
+  cmap.writeUInt16BE(0, 28)
   const tables = [
-    makeTable('cmap', empty),
-    makeTable('glyf', empty),
+    makeTable('cmap', cmap),
+    makeTable('glyf', Buffer.alloc(4)),
     makeTable('head', head),
-    makeTable('hhea', Buffer.alloc(36)),
-    makeTable('hmtx', empty),
-    makeTable('loca', empty),
+    makeTable('hhea', hhea),
+    makeTable('hmtx', Buffer.alloc(4)),
+    makeTable('loca', Buffer.alloc(8)),
     makeTable('maxp', maxp),
   ].sort((a, b) => (a.tag < b.tag ? -1 : 1))
   const header = Buffer.alloc(12)
   header.writeUInt32BE(0x00010000, 0)
   header.writeUInt16BE(tables.length, 4)
-  const directory = Buffer.concat(tables.map((table) => table.entry))
-  let offset = 12 + directory.length
+  // The entries must be filled before the concat: Buffer.concat copies eagerly.
+  let offset = 12 + tables.length * 16
   for (const table of tables) {
     table.entry.write(table.tag, 0, 4, 'latin1')
     table.entry.writeUInt32BE(offset, 8)
     table.entry.writeUInt32BE(table.length, 12)
     offset += table.body.length
   }
+  const directory = Buffer.concat(tables.map((table) => table.entry))
   return Buffer.concat([header, directory, ...tables.map((table) => table.body)], offset)
 }
 
@@ -172,7 +195,7 @@ test('шрифт встроен как Type0 / CIDFontType2 с FontFile2', { ski
 })
 
 test('длинный абзац переносится и не вылезает за поля', { skip: !fontPath && 'нет шрифта' }, () => {
-  const text = Array.from({ length: 40 }, (_, index) => `Слово${index}`).join(' ')
+  const text = Array.from({ length: 120 }, (_, index) => `Слово${index}`).join(' ')
   const { buffer, latin } = build({ blocks: [{ type: 'p', text }] })
   const lines = contentStreams(buffer).flatMap((stream) => textLines(stream))
   assert.ok(lines.length >= 5, `ожидалось несколько строк, got ${lines.length}`)
@@ -225,8 +248,11 @@ test('спецсимволы ( ) \\ не ломают файл', { skip: !fontPa
 })
 
 test('без шрифта createPdf падает с понятной ошибкой', () => {
+  // The candidate list is what says "no font here", so hand over one that cannot exist.
+  const candidates = ['/nonexistent/tg-agent/font.ttf']
+  assert.equal(findFontPath({ candidates }), undefined)
   assert.throws(
-    () => createPdf({ fontPath: undefined, blocks: [] }),
+    () => createPdf({ candidates, blocks: [] }),
     /кириллицей; передайте fontPath/,
     'ожидалось сообщение про отсутствующий шрифт с кириллицей',
   )
@@ -245,6 +271,8 @@ test('шрифт без глифов не роняет генератор', () =
   assert.ok(latin.startsWith('%PDF-'))
   assert.ok(latin.trimEnd().endsWith('%%EOF'))
   assert.match(latin, /\/ToUnicode/)
+  // Nothing maps to a real glyph, so every character falls back to the same one.
+  assert.match(toUnicodeText(bytes), /<0000> <003f>/)
 })
 
 test('h1, h2, bullet и spacer дают целый документ', { skip: !fontPath && 'нет шрифта' }, () => {
@@ -260,5 +288,9 @@ test('h1, h2, bullet и spacer дают целый документ', { skip: !f
   const { buffer, latin } = build({ title: 'Полный документ', blocks })
   assert.match(latin, /\/Title \(/)
   const lines = contentStreams(buffer).flatMap((stream) => textLines(stream))
-  assert.ok(lines.length >= 7, `ожидалось не меньше семи строк, got ${lines.length}`)
+  // Four one-line blocks, two wrapped paragraphs, the blank line in the second one.
+  assert.ok(lines.length >= 5, `ожидалось не меньше пяти строк, got ${lines.length}`)
+  // Two heading sizes must appear, or h1/h2 were silently treated as body text.
+  const sizes = new Set([...contentStreams(buffer).join('').matchAll(/\/F1 ([\d.]+) Tf/g)].map((entry) => entry[1]))
+  assert.ok(sizes.size >= 2, `ожидались разные размеры заголовков, got ${[...sizes].join(', ')}`)
 })

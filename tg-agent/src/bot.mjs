@@ -41,9 +41,9 @@ const SPEND_ALERT_RATIO = 0.8
 /** Список напоминаний — это не просьба создать новое, и насильно звать remind нельзя. */
 const REMINDER_LIST = /(покажи|какие|какой|список|что|все|мои)\s+[^.!?]{0,24}?напомин/iu
 /** The user is asking for a reminder; the tool must actually run. */
-const REMINDER_INTENT = /(напомни(?![\p{L}])|напомнить|поставь напоминание|создай напоминание|сделай напоминание|\bremind me\b)/iu
+const REMINDER_INTENT = /(напомни(?![\p{L}])|напомни(?:шь|те|ть|те)?\b|напоминай|напоминалк|(?:поставь|создай|сделай|заведи|новое)\s+напомин|напоминан[\p{L}]*\s+(?:на|в|через|о|к|про)(?![\p{L}])|\bremind me\b)/iu
 /** The answer claims a reminder with a concrete time ("напомню в 01:23"). */
-const REMINDER_CLAIM = /(?:напомн\w*\s+в\s+\d|напоминание\s+(?:создано|поставлено|№)|напомню\s+(?:вам|тебе|в|завтра|сегодня|через))/iu
+const REMINDER_CLAIM = /(?:напомн[\p{L}]*\s+в\s+\d|напоминание\s+(?:создано|поставлено|№)|напомню\s+(?:вам|тебе|в|завтра|сегодня|через))/iu
 /** A request for a document: a table, a letter, an export. */
 const FILE_INTENT = /(таблиц|excel|эксель|xlsx|csv|документ|docx|ворд|\bword\b|презентац|отч[её]т|выгруз|файл|письм[оа]\s+в\s+docx)/i
 /** The model claims a file is on its way without having built one. */
