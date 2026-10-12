@@ -19,6 +19,7 @@ import { parsePollAction, pollKeyboard, pollMessage } from './polls.mjs'
 import { SEARCH_HINT, formatSearchResults, searchMessages } from './history-search.mjs'
 import { dayKey } from './usage.mjs'
 import { zonedTimeToUtc } from './reminders.mjs'
+import { createSendToTool } from './sendto-tool.mjs'
 
 /** Answer modes offered by `/mode`. */
 const MODES = {
@@ -243,6 +244,26 @@ export class Assistant {
     this.platform = platform
     this.model = model
     this.history = history
+    // Отправка другому человеку: справочник — это те, кого бот уже знает.
+    // Телефонов здесь нет: Telegram отдаёт номер только когда человек сам
+    // делится контактом, и связку мы сохраним, когда это случится.
+    const knownPeople = () => [...(this.config.access?.allowedUserIds ?? [])].map((id) => ({
+      chatId: id,
+      name: this.profiles?.store?.displayName?.(id),
+    }))
+    this.sendtoTool = createSendToTool({
+      send: (message) => this.send(message.chatId, message.text),
+      ownerName: this.config.owner?.name ?? 'владельца',
+      contacts: {
+        byPhone: () => undefined,
+        search: (query) => {
+          const needle = String(query ?? '').toLowerCase()
+          return knownPeople().filter((entry) => entry.name && entry.name.toLowerCase().includes(needle))
+        },
+        list: () => knownPeople().map((entry) => ({ chatId: entry.chatId, name: entry.name ?? String(entry.chatId) })),
+      },
+      logger: this.logger,
+    })
     this.webTools = webTools
     this.agentBridge = agentBridge
     this.reminders = reminders
@@ -1285,6 +1306,7 @@ export class Assistant {
         ...(this.polls ? [this.polls.tool.definition] : []),
         ...(this.youtube ? [this.youtube.definition] : []),
         ...(this.server ? [this.server.definition] : []),
+        this.sendtoTool.definition,
         ...(this.history ? [this.historyToolDefinition()] : []),
       ]
       /** Text the `remind` tool returned in this turn, if it ran. */
@@ -1298,6 +1320,7 @@ export class Assistant {
       /** Text the `file` tool returned in this turn, if it ran. */
       let fileResult
       const executeTool = async (name, args, options) => {
+        if (name === 'sendto') return this.sendtoTool.executeDetailed(args)
         if (name === 'remind' && this.reminders) {
           const result = await this.reminders.tool.executeDetailed(args, { chatId, userId })
           remindResult = result.text

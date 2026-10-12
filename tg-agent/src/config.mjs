@@ -85,6 +85,8 @@ const DEFAULTS = {
   MINIAPP_PORT: '8787',
   MINIAPP_HOST: '127.0.0.1',
   MINIAPP_URL: '',
+  // Имя владельца для подписи «От ...:» — в родительном падеже.
+  OWNER_NAME: 'владельца',
   OUTBOX: 'true',
   OUTBOX_PORT: '8788',
   // Токен для агента: без него точка приёма не поднимается вообще.
@@ -519,6 +521,7 @@ export function loadConfig(env = process.env) {
       url: read(env, 'MINIAPP_URL').trim(),
     },
     // Точка приёма сообщений от агента: только localhost, только с токеном.
+    owner: { name: read(env, 'OWNER_NAME') },
     outbox: {
       enabled: read(env, 'OUTBOX').trim().toLowerCase() !== 'false',
       port: Number(read(env, 'OUTBOX_PORT')) || 8788,
