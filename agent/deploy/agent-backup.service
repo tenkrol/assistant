@@ -1,0 +1,19 @@
+# Daily backup of the agent's journal, usage counters and DSH sessions.
+#
+# Installed and enabled by deploy/install-remote.sh. Run once by hand with:
+#   systemctl start agent-backup.service
+#
+# The state is small (kilobytes), so the archive keeps the last few days for free.
+
+[Unit]
+Description=Backup of the Telegram agent state
+Documentation=file:/opt/agent/README.md
+After=dsh-agent.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/agent/deploy/agent-backup.sh
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/agent /var/lib/agent-backups

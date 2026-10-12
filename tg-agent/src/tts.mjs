@@ -45,12 +45,28 @@ export function createSynthesizer({
     if (spoken === '') throw new Error('nothing to say')
     const query = new URLSearchParams({ lang: 'ru-RU', voice, format: 'oggopus', speed: String(speed) })
     if (folderId) query.set('folderId', folderId)
-    const response = await fetchImpl(`${endpoint}?${query}`, {
-      method: 'POST',
-      headers: { authorization: `Api-Key ${apiKey}`, 'content-type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({ text: spoken }),
-      signal: AbortSignal.timeout(timeoutMs),
-    })
+    // Yandex отвечает 503 «no healthy upstream» пачками по несколько минут.
+    // Одна повторная попытка возвращает озвучку в большинстве случаев.
+    let response
+    let lastError
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      try {
+        response = await fetchImpl(`${endpoint}?${query}`, {
+          method: 'POST',
+          headers: { authorization: `Api-Key ${apiKey}`, 'content-type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({ text: spoken }),
+          signal: AbortSignal.timeout(timeoutMs),
+        })
+        lastError = undefined
+      } catch (error) {
+        // Сетевой сбой лечится тем же повтором, что и 5xx.
+        lastError = error
+        response = undefined
+      }
+      if (response && (response.ok || response.status < 500)) break
+      if (attempt < 3) await new Promise((resolve) => setTimeout(resolve, attempt * 1500))
+    }
+    if (!response) throw lastError ?? new Error('TTS: нет ответа')
     if (!response.ok) {
       const detail = (await response.text().catch(() => '')).slice(0, 200)
       logger?.warn('speech synthesis failed', { status: response.status })

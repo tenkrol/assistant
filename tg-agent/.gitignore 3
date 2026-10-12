@@ -1,0 +1,5 @@
+# Secrets and runtime state never belong in a repository.
+.env
+data/
+*.log
+.ssh/

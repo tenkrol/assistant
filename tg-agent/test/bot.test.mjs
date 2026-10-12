@@ -1631,3 +1631,55 @@ test('VK gets a tappable command menu, Telegram does not', async () => {
   })
   assert.equal(telegram.menuKeyboard(), undefined, 'в Telegram меню не нужно: там есть «/»')
 })
+
+test('a thinking model that rejects tool_choice still gets the tool called', async () => {
+  // «Thinking mode does not support this tool_choice» — HTTP 400 от провайдера.
+  // Раньше это ломало весь ход: напоминание не создавалось.
+  const sent = []
+  let rounds = 0
+  const platform = {
+    name: 'telegram',
+    namespace: 'telegram',
+    identity: { id: 1 },
+    async start() {},
+    async stop() {},
+    async sendText({ markdown }) { sent.push(['text', markdown]); return { messageId: 1 } },
+    async editText() { throw new Error('стриминг выключен') },
+    async answerCallback() {},
+    async sendTyping() {},
+  }
+  const model = {
+    name: 'thinking-model',
+    async complete({ executeTool, toolChoice }) {
+      rounds += 1
+      // Первый ход: модель отвечает словами и инструмент не вызывает.
+      if (rounds === 1) return { text: 'Хорошо, напомню.', toolCalls: 0, usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } }
+      // Принудительный ход провайдер отвергает — именно это ломало напоминания.
+      if (toolChoice) throw new Error('provider error (HTTP 400): Thinking mode does not support this tool_choice')
+      // Повтор без принуждения: подсказка сработала, инструмент вызван.
+      await executeTool('remind', { text: 'выпить воды', in_minutes: 30 }, {})
+      return { text: 'Готово', toolCalls: 1, usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } }
+    },
+  }
+  const { Assistant } = await import('../src/bot.mjs')
+  const { ReminderStore } = await import('../src/reminders.mjs')
+  const { createReminderTool } = await import('../src/reminder-tool.mjs')
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'tg-thinking-'))
+  try {
+    const store = new ReminderStore({ file: path.join(dir, 'reminders.json'), logger: silentLogger, timeZone: 'Europe/Moscow' })
+    await store.load()
+    const bot = new Assistant({
+      config: { dataDir: dir, reactions: { enabled: false }, limits: { maxConcurrentRequests: 4, shutdownGraceMs: 100 }, stream: { enabled: false }, time: { timeZone: 'Europe/Moscow' }, model: { name: 'thinking-model' }, web: { enabled: true, maxToolRounds: 4 }, access: { allowedChatTypes: new Set(['private']), allowedUserIds: new Set([ALLOWED]) } },
+      platform,
+      model,
+      history: { voice: () => false, messages: () => [], append: async () => {}, model: () => undefined, setModel: async () => {} },
+      reminders: { store, tool: createReminderTool({ store, timeZone: 'Europe/Moscow' }) },
+      logger: silentLogger,
+    })
+    await bot.handleMessage({ kind: 'message', chat: { id: 555, type: 'private' }, from: { id: ALLOWED, name: 'В' }, text: 'напомни через 30 минут выпить воды', message_id: 7, addressed: true })
+    assert.equal(rounds, 3, 'обычный ход, принудительный и повтор без принуждения')
+    assert.equal(store.list(555, ALLOWED).length, 1, 'напоминание создано, несмотря на отказ провайдера')
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true })
+  }
+})

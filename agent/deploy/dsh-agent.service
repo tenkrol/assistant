@@ -1,0 +1,101 @@
+# systemd unit for the task agent on the Finland server.
+#
+# The agent is not a chat bot: every task starts a headless DSH process that
+# writes files, runs code and may start LibreOffice. The hardening below is what
+# actually contains that work — DSH's own `workspace-write` sandbox is a second
+# layer, not the boundary:
+#
+#   * an unprivileged service user with no login shell;
+#   * ProtectSystem=strict, so the whole filesystem is read-only except
+#     ReadWritePaths — DSH cannot write to /opt, /etc or /root even if its
+#     Landlock runner degrades on this kernel (it reported "partial enforcement"
+#     on the target host);
+#   * PrivateTmp, so the temporary area DSH allows is this service's own.
+#
+# MemoryDenyWriteExecute would forbid the writable+executable pages V8 needs for
+# its JIT and the process dies with SIGTRAP: never enable it (the trap is
+# documented in tg-agent/deploy/vk-agent.service too).
+#
+# Install (the automated path is deploy/install-remote.sh):
+#
+#   sudo cp deploy/dsh-agent.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   systemctl enable --now dsh-agent
+#
+# Secrets live in /etc/agent/agent.env (mode 640, root:agent), outside both the
+# code and the workspace. DSH_HOME cannot be set in that file: DSH rejects
+# DSH_* variables from .env files, so the unit exports it instead.
+
+[Unit]
+Description=Telegram task agent (headless DSH)
+Documentation=file:/opt/agent/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=agent
+Group=agent
+WorkingDirectory=/opt/agent
+EnvironmentFile=/etc/agent/agent.env
+
+# Bootstrap-only variables for DSH and for the agent itself. These must not come
+# from the environment file: systemd applies Environment= after EnvironmentFile=,
+# and DSH refuses DSH_* coming from a file.
+Environment=NODE_ENV=production
+Environment=HOME=/var/lib/agent
+Environment=DSH_HOME=/var/lib/agent/dsh
+Environment=DSH_BIN=/usr/local/bin/dsh
+Environment=DSH_PERMISSION_MODE=workspace-write
+Environment=STATE_DIR=/var/lib/agent/state
+Environment=WORKSPACE_DIR=/var/lib/agent/workspace
+ExecStart=__NODE_BIN__ /opt/agent/src/index.mjs
+
+Restart=always
+RestartSec=5
+TimeoutStopSec=40
+# The agent kills its own DSH process group on shutdown; give it the whole group.
+KillMode=mixed
+UMask=0077
+
+# Per-task limits without root or sudo: the service's cgroup subtree is handed to
+# the service user, and the agent creates one child cgroup per task with its own
+# memory/CPU/process caps (src/cgroup.mjs). DelegateSubgroup keeps the service's
+# own processes in a leaf, which is what makes enabling the controllers in the
+# parent legal under the cgroup v2 "no internal processes" rule.
+Delegate=yes
+DelegateSubgroup=payload
+MemoryAccounting=yes
+# Soft pressure first, then a hard ceiling for the whole service: a runaway task
+# hits its own task limit long before this one.
+MemoryHigh=1500M
+MemoryMax=1800M
+TasksMax=512
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+# ProtectControlGroups=true mounts cgroupfs read-only and thereby disables the
+# delegation above (measured: EROFS on cgroup.subtree_control). The service only
+# writes inside its own delegated subtree, so the protection is off by design.
+ProtectControlGroups=false
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectClock=true
+ProtectHostname=true
+ProtectProc=invisible
+RestrictSUIDSGID=true
+RestrictRealtime=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+LockPersonality=true
+# V8 JIT needs writable+executable pages.
+MemoryDenyWriteExecute=false
+# The DSH sandbox runner may want to create namespaces; leave it able to fail
+# loudly rather than dying with SANDBOX_UNAVAILABLE on an unrelated restriction.
+RestrictNamespaces=false
+ReadWritePaths=/var/lib/agent
+
+[Install]
+WantedBy=multi-user.target

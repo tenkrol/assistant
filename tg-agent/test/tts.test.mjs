@@ -76,3 +76,39 @@ test('empty text is refused before any request', async () => {
 test('a key is required', () => {
   assert.throws(() => createSynthesizer({ apiKey: '' }), /API key/)
 })
+
+test('a temporary provider failure is retried and then succeeds', async () => {
+  // Yandex отдаёт 503 «no healthy upstream» пачками: без повтора озвучка пропадала.
+  let calls = 0
+  const okAudio = Buffer.from('OggS-fake-audio')
+  const fetchImpl = async () => {
+    calls += 1
+    if (calls < 3) return { ok: false, status: 503, text: async () => 'no healthy upstream' }
+    return { ok: true, status: 200, arrayBuffer: async () => okAudio }
+  }
+  const speak = createSynthesizer({ apiKey: 'AQVNsecret', fetchImpl })
+  const audio = await speak('привет')
+  assert.equal(calls, 3, 'должно быть три попытки')
+  assert.ok(audio && audio.length > 0, 'в итоге звук получен')
+})
+
+test('a network error is retried too', async () => {
+  let calls = 0
+  const fetchImpl = async () => {
+    calls += 1
+    if (calls === 1) throw new Error('fetch failed')
+    return { ok: true, status: 200, arrayBuffer: async () => Buffer.from('OggS') }
+  }
+  const speak = createSynthesizer({ apiKey: 'AQVNsecret', fetchImpl })
+  const audio = await speak('привет')
+  assert.equal(calls, 2)
+  assert.ok(audio)
+})
+
+test('a permanent error is not retried beyond the limit', async () => {
+  let calls = 0
+  const fetchImpl = async () => { calls += 1; return { ok: false, status: 401, text: async () => 'unauthorized' } }
+  const speak = createSynthesizer({ apiKey: 'AQVNsecret', fetchImpl })
+  await assert.rejects(() => speak('привет'), /401/)
+  assert.equal(calls, 1, 'на 4xx повторять нечего')
+})
