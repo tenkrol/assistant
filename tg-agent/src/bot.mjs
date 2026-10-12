@@ -20,7 +20,6 @@ import { SEARCH_HINT, formatSearchResults, searchMessages } from './history-sear
 import { dayKey } from './usage.mjs'
 import { zonedTimeToUtc } from './reminders.mjs'
 import { createSendToTool } from './sendto-tool.mjs'
-import { createContactStore } from './contacts.mjs'
 
 /** Answer modes offered by `/mode`. */
 const MODES = {
@@ -245,10 +244,6 @@ export class Assistant {
     this.platform = platform
     this.model = model
     this.history = history
-
-    // Кого бот знает: имена и @ники приходят с сообщениями, телефоны — только
-    // когда человек сам делится контактом. Нужно для sendto.
-    this.contacts = createContactStore({ file: this.config.dataDir ? `${this.config.dataDir}/contacts.json` : undefined, logger: this.logger })
     // Отправка другому человеку: справочник — это те, кого бот уже знает.
     // Телефонов здесь нет: Telegram отдаёт номер только когда человек сам
     // делится контактом, и связку мы сохраним, когда это случится.
@@ -258,13 +253,15 @@ export class Assistant {
     }))
     this.sendtoTool = createSendToTool({
       send: (message) => this.send(message.chatId, message.text),
-      contacts: {
-        byPhone: (phone) => this.contacts?.byPhone?.(phone),
-        byUsername: (username) => this.contacts?.byUsername?.(username),
-        search: (query) => this.contacts?.search?.(query) ?? [],
-        list: () => this.contacts?.list?.() ?? [],
-      },
       ownerName: this.config.owner?.name ?? 'владельца',
+      contacts: {
+        byPhone: () => undefined,
+        search: (query) => {
+          const needle = String(query ?? '').toLowerCase()
+          return knownPeople().filter((entry) => entry.name && entry.name.toLowerCase().includes(needle))
+        },
+        list: () => knownPeople().map((entry) => ({ chatId: entry.chatId, name: entry.name ?? String(entry.chatId) })),
+      },
       logger: this.logger,
     })
     this.webTools = webTools
@@ -1323,7 +1320,7 @@ export class Assistant {
       /** Text the `file` tool returned in this turn, if it ran. */
       let fileResult
       const executeTool = async (name, args, options) => {
-        if (name === 'sendto') return (await this.sendtoTool.executeDetailed(args)).text
+        if (name === 'sendto') return this.sendtoTool.executeDetailed(args)
         if (name === 'remind' && this.reminders) {
           const result = await this.reminders.tool.executeDetailed(args, { chatId, userId })
           remindResult = result.text
@@ -1487,9 +1484,6 @@ export class Assistant {
       // base64 images or whole documents.
       const historyLine = prepared.summary || prompt
       await this.history.append(chatKey, { role: 'user', content: historyLine, ...(authorName ? { author: authorName } : {}) })
-      // Кого бот видел — для sendto: Telegram не даёт писать человеку по @нику,
-      // нужен числовой id, а он есть только у тех, кто уже писал боту.
-      this.contacts?.remember?.({ chatId, name: from?.name, username: from?.username })?.catch?.(() => {})
       if (text === '') {
         // An empty completion is a valid API response. The user still needs an
         // answer, and an empty assistant turn must not enter the history.
