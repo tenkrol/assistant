@@ -1,6 +1,0 @@
-# Секреты не попадают в репозиторий
-.env
-data/
-backups/
-.ssh/
-node_modules/
