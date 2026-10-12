@@ -9,9 +9,10 @@
  * needs nothing installed).
  */
 import { createCsv, createDocx, createText, createXlsx, pickFormat } from './office-write.mjs'
+import { createPdf, findFontPath } from './pdf.mjs'
 
 /** Formats the model may ask for. */
-const FORMATS = ['xlsx', 'docx', 'csv', 'md', 'txt']
+const FORMATS = ['xlsx', 'docx', 'csv', 'md', 'txt', 'pdf']
 
 /** Largest file worth sending through a messenger. */
 const MAX_BYTES = 8 * 1024 * 1024
@@ -43,6 +44,26 @@ function tableOf(rows) {
  * @param {object} [options] - `{ date }` for deterministic tests.
  * @returns {{definition: object, execute: Function, executeDetailed: Function}} the tool.
  */
+/** Текст и таблица инструмента — в блоки PDF: заголовки, абзацы, пункты, строки. */
+function pdfBlocks({ title, text, table }) {
+  const blocks = []
+  if (title) blocks.push({ type: 'h1', text: String(title) })
+  for (const chunk of String(text ?? '').split(/\n{2,}/)) {
+    for (const line of chunk.split('\n')) {
+      const trimmed = line.trim()
+      if (!trimmed) continue
+      if (trimmed.startsWith('## ')) blocks.push({ type: 'h2', text: trimmed.slice(3) })
+      else if (/^[-*•]\s+/.test(trimmed)) blocks.push({ type: 'bullet', text: trimmed.replace(/^[-*•]\s+/, '') })
+      else blocks.push({ type: 'p', text: trimmed.replace(/\*\*/g, '') })
+    }
+  }
+  if (table?.rows?.length) {
+    if (Array.isArray(table.header) && table.header.length > 0) blocks.push({ type: 'h2', text: table.header.join(' | ') })
+    for (const row of table.rows) blocks.push({ type: 'p', text: (Array.isArray(row) ? row : [row]).join(' | ') })
+  }
+  return blocks
+}
+
 export function createFileTool({ date } = {}) {
   const definition = {
     type: 'function',
@@ -54,7 +75,7 @@ export function createFileTool({ date } = {}) {
       parameters: {
         type: 'object',
         properties: {
-          format: { type: 'string', enum: FORMATS, description: 'xlsx — таблица Excel, docx — документ Word, csv — таблица, md/txt — текст.' },
+          format: { type: 'string', enum: FORMATS, description: 'xlsx — таблица Excel, docx — документ Word, csv — таблица, md/txt — текст, pdf — документ PDF.' },
           name: { type: 'string', description: 'Имя файла без расширения, по-русски, коротко: «отчёт за октябрь».' },
           title: { type: 'string', description: 'Заголовок внутри файла (для docx и md).' },
           text: { type: 'string', description: 'Содержимое для docx/md/txt: абзацы через пустую строку, подзаголовки с «## », **жирный**.' },
@@ -98,6 +119,12 @@ export function createFileTool({ date } = {}) {
         if (args.title) paragraphs.push(`# ${args.title}`)
         paragraphs.push(...text.split(/\n{2,}/).map((part) => part.trim()).filter(Boolean))
         bytes = createDocx({ title: args.title, paragraphs, table: header || table.length > 0 ? { header, rows: table } : undefined, date })
+      } else if (format === 'pdf') {
+        const fontPath = findFontPath()
+        if (!fontPath) return { text: 'Ошибка инструмента file: на сервере нет шрифта с кириллицей для PDF.' }
+        const blocks = pdfBlocks({ title: args.title, text, table: header?.length || table.length ? { header, rows: table } : undefined })
+        if (blocks.length === 0) return { text: 'Ошибка инструмента file: для pdf нужен text или table.' }
+        bytes = createPdf({ title: args.title ?? base, blocks, fontPath })
       } else {
         const body = [args.title ? `# ${args.title}` : '', text].filter(Boolean).join('\n\n')
         if (body.trim() === '') return { text: 'Ошибка инструмента file: для текстового файла нужно поле text.' }

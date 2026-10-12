@@ -51,9 +51,13 @@ test('text formats and csv work, and the name is sanitised', async () => {
 })
 
 test('bad requests are refused with a readable reason and no file', async () => {
-  const wrongFormat = await tool.executeDetailed({ format: 'pdf', name: 'x' })
+  const wrongFormat = await tool.executeDetailed({ format: 'rtf', name: 'x' })
   assert.equal(wrongFormat.file, undefined)
   assert.match(wrongFormat.text, /формат должен быть одним из/)
+  // pdf теперь настоящий формат: без содержимого он обязан объяснить, чего не хватает.
+  const emptyPdf = await tool.executeDetailed({ format: 'pdf', name: 'x' })
+  assert.equal(emptyPdf.file, undefined)
+  assert.match(emptyPdf.text, /нужен text или table/)
   const noTable = await tool.executeDetailed({ format: 'xlsx', name: 'x' })
   assert.equal(noTable.file, undefined)
   assert.match(noTable.text, /нужна таблица/)
