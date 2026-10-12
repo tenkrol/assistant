@@ -241,14 +241,14 @@ export class Assistant {
    */
   constructor({ config, platform, model, history, webTools, agentBridge, reminders, profiles, usage, digest, media, tts, files, events, polls, youtube, server, logger }) {
     this.config = config
+    // Кого бот знает: имена и @ники приходят с сообщениями, телефоны — только
+    // когда человек сам делится контактом. Нужно для sendto.
+    this.contacts = createContactStore({ file: this.config.dataDir ? `${this.config.dataDir}/contacts.json` : undefined, logger: this.logger })
     // The core talks to one adapter only; see src/platforms/port.mjs.
     this.platform = platform
     this.model = model
     this.history = history
 
-    // Кого бот знает: имена и @ники приходят с сообщениями, телефоны — только
-    // когда человек сам делится контактом. Нужно для sendto.
-    this.contacts = createContactStore({ file: this.config.dataDir ? `${this.config.dataDir}/contacts.json` : undefined, logger: this.logger })
     // Отправка другому человеку: справочник — это те, кого бот уже знает.
     // Телефонов здесь нет: Telegram отдаёт номер только когда человек сам
     // делится контактом, и связку мы сохраним, когда это случится.
@@ -1489,7 +1489,7 @@ export class Assistant {
       await this.history.append(chatKey, { role: 'user', content: historyLine, ...(authorName ? { author: authorName } : {}) })
       // Кого бот видел — для sendto: Telegram не даёт писать человеку по @нику,
       // нужен числовой id, а он есть только у тех, кто уже писал боту.
-      this.contacts?.remember?.({ chatId, name: from?.name, username: from?.username })?.catch?.(() => {})
+      this.contacts?.remember?.({ chatId: message?.chat?.id, name: message?.from?.name, username: message?.from?.username })?.catch?.(() => {})
       if (text === '') {
         // An empty completion is a valid API response. The user still needs an
         // answer, and an empty assistant turn must not enter the history.

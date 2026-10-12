@@ -98,7 +98,7 @@ test('two bots run side by side with separate state files', async () => {
     for (const { bot } of instances) await bot.stop().catch(() => {})
     await telegramStub.close()
     await modelStub.close()
-    await fs.rm(dir, { recursive: true, force: true })
+    await fs.rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 })
   }
 })
 
@@ -143,7 +143,7 @@ test('each bot digests only to its own platform ids', async () => {
     for (const { bot } of instances) await bot.stop().catch(() => {})
     await telegramStub.close()
     await modelStub.close()
-    await fs.rm(dir, { recursive: true, force: true })
+    await fs.rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 })
   }
 })
 

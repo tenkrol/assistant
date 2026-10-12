@@ -58,7 +58,7 @@ async function setup({ updates = [], responses, overrides = {}, delayMs = 0, wit
       await bot.stop()
       await telegramStub.close()
       await modelStub.close()
-      await fs.rm(dir, { recursive: true, force: true })
+      await fs.rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 })
     },
   }
 }
@@ -207,7 +207,7 @@ test('falls back to plain text when Telegram rejects the HTML entities', async (
     await bot.stop()
     await telegramStub.close()
     await modelStub.close()
-    await fs.rm(dir, { recursive: true, force: true })
+    await fs.rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 })
   }
 })
 
@@ -385,7 +385,7 @@ test('unescapes entities when falling back to plain text', async () => {
     await bot.stop()
     await telegramStub.close()
     await modelStub.close()
-    await fs.rm(dir, { recursive: true, force: true })
+    await fs.rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 })
   }
 })
 
@@ -1038,7 +1038,7 @@ test('the poll loop passes an abort signal to the adapter', async () => {
     assert.equal(seen[0].aborted, true, 'остановка прерывает длинный опрос')
   } finally {
     await bot.stop().catch(() => {})
-    await fs.rm(dir, { recursive: true, force: true })
+    await fs.rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 })
   }
 })
 
@@ -1200,7 +1200,7 @@ test('a photo reaches the model as an image, and the model is told not to deny i
       await ctx.cleanup()
     }
   } finally {
-    await fs.rm(dir, { recursive: true, force: true })
+    await fs.rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 })
   }
 })
 
@@ -1573,7 +1573,7 @@ test('the polling cursor is written atomically and never left truncated', async 
     const leftovers = (await fs.readdir(dir)).filter((name) => name.endsWith('.tmp'))
     assert.deepEqual(leftovers, [], 'временный файл не должен оставаться')
   } finally {
-    await fs.rm(dir, { recursive: true, force: true })
+    await fs.rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 })
   }
 })
 
@@ -1680,7 +1680,7 @@ test('a thinking model that rejects tool_choice still gets the tool called', asy
     assert.equal(rounds, 3, 'обычный ход, принудительный и повтор без принуждения')
     assert.equal(store.list(555, ALLOWED).length, 1, 'напоминание создано, несмотря на отказ провайдера')
   } finally {
-    await fs.rm(dir, { recursive: true, force: true })
+    await fs.rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 })
   }
 })
 
@@ -1731,7 +1731,7 @@ test('a request to list reminders is not forced into creating one', async () => 
     assert.equal(forcedRounds, 0, 'принудительный вызов remind не нужен')
     assert.deepEqual(store.list(555, ALLOWED), [], 'ничего не создано')
   } finally {
-    await fs.rm(dir, { recursive: true, force: true })
+    await fs.rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 })
   }
 })
 
@@ -1775,6 +1775,6 @@ test('an explicit creation request still forces the tool', async () => {
     assert.equal(forcedRounds, 1, 'просьба создать — инструмент вызывается принудительно')
     assert.equal(store.list(555, ALLOWED).length, 1, 'напоминание создано')
   } finally {
-    await fs.rm(dir, { recursive: true, force: true })
+    await fs.rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 })
   }
 })

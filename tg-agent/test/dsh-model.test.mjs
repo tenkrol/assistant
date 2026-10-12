@@ -14,7 +14,7 @@ import { DshModel, DshModelError } from '../src/dsh-model.mjs'
  */
 async function withStub(t, body) {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'dsh-model-'))
-  t.after(() => fs.rm(dir, { recursive: true, force: true }))
+  t.after(() => fs.rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }))
   const file = path.join(dir, 'dsh-stub.sh')
   const script = typeof body === 'function' ? body(dir) : body
   await fs.writeFile(file, `#!/bin/sh\n${script}\n`, 'utf8')

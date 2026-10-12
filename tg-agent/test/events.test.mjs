@@ -29,7 +29,7 @@ async function makeStore() {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'tg-events-'))
   const store = new EventStore({ file: path.join(dir, 'events.json'), logger: silent, timeZone: ZONE })
   await store.load()
-  return { store, dir, cleanup: () => fs.rm(dir, { recursive: true, force: true }) }
+  return { store, dir, cleanup: () => fs.rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }) }
 }
 
 test('an event survives a restart and keeps its local time', async () => {

@@ -35,7 +35,7 @@ test('a reminder created by the tool is on disk right away', async () => {
     await reopened.load()
     assert.equal(reopened.list().length, 1)
   } finally {
-    await fs.rm(dir, { recursive: true, force: true })
+    await fs.rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 })
   }
 })
 
@@ -51,6 +51,6 @@ test('a reminder the tool refuses is not written', async () => {
     assert.match(String(result), /уже прошло/)
     assert.equal(store.list().length, 0)
   } finally {
-    await fs.rm(dir, { recursive: true, force: true })
+    await fs.rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 })
   }
 })

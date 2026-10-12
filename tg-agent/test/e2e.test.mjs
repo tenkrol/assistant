@@ -37,7 +37,7 @@ test('reads .env, answers one message, and shuts down cleanly on SIGTERM', async
   t.after(async () => {
     await telegramStub.close()
     await modelStub.close()
-    await fs.rm(dir, { recursive: true, force: true })
+    await fs.rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 })
   })
 
   // LOG_LEVEL=info on purpose: the test asserts on the startup lines.
@@ -72,7 +72,7 @@ test('reads .env, answers one message, and shuts down cleanly on SIGTERM', async
 
 test('exits with code 2 and a readable message when no configuration is present', async (t) => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'tg-e2e-empty-'))
-  t.after(() => fs.rm(dir, { recursive: true, force: true }))
+  t.after(() => fs.rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }))
 
   const { child, output } = await spawnBot(dir)
   t.after(() => { if (child.exitCode === null) child.kill('SIGKILL') })
