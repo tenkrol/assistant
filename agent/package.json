@@ -1,0 +1,16 @@
+{
+  "name": "agent",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Telegram task agent on the Finland server, backed by headless DSH",
+  "type": "module",
+  "engines": {
+    "node": ">=20.6"
+  },
+  "main": "src/index.mjs",
+  "scripts": {
+    "start": "node src/index.mjs",
+    "test": "node --test test/*.test.mjs"
+  },
+  "license": "MIT"
+}

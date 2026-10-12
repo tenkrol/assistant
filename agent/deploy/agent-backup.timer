@@ -1,0 +1,16 @@
+# Runs the agent state backup every night at 04:30 server time.
+#
+# Persistent=true means a missed run (the box was off) happens once after boot
+# instead of being skipped silently.
+
+[Unit]
+Description=Daily backup of the Telegram agent state
+Documentation=file:/opt/agent/README.md
+
+[Timer]
+OnCalendar=*-*-* 04:30:00
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

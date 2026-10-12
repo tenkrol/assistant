@@ -1368,16 +1368,26 @@ export class Assistant {
        * the tool has to run, and the user must see its own confirmation.
        */
       const forceTool = async (name, nudge) => {
-        const forced = await this.model.complete({
+        const payload = {
           messages: [...messages, { role: 'system', content: nudge }],
           model,
           signal: this.shutdown?.signal,
           ...toolOptions,
-          toolChoice: { type: 'function', function: { name } },
           maxToolRounds: 1,
-        })
-        this.recordUsage(userId, chatId, forced.usage)
-        return forced
+        }
+        try {
+          const forced = await this.model.complete({ ...payload, toolChoice: { type: 'function', function: { name } } })
+          this.recordUsage(userId, chatId, forced.usage)
+          return forced
+        } catch (error) {
+          // Thinking-модели отвечают 400 «Thinking mode does not support this
+          // tool_choice». Повторяем без принуждения: подсказка всё равно просит
+          // инструмент, а вызывающий код проверяет, что он действительно сработал.
+          this.logger.warn('forced tool_choice rejected, retrying without it', { name, error: error?.message ?? error })
+          const relaxed = await this.model.complete(payload)
+          this.recordUsage(userId, chatId, relaxed.usage)
+          return relaxed
+        }
       }
 
       // A reminder promise is a commitment: if the model merely answered in words,
