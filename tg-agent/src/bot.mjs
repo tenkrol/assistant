@@ -1660,6 +1660,25 @@ export class Assistant {
   }
 
   /**
+   * Сообщение от агента о готовой задаче.
+   *
+   * Доставляется в чат владельца и записывается в историю: иначе ответ пользователя
+   * уйдёт в пустоту, ведь бот не знает, что агент ему писал.
+   *
+   * @param {object} message - текст сообщения и необязательный chatId.
+   * @returns {Promise<{chatId: number, messageId: number|undefined}>} куда доставлено.
+   */
+  async deliverAgentMessage({ text, chatId } = {}) {
+    const body = String(text ?? '').trim()
+    if (body === '') throw new Error('пустое сообщение агента')
+    const owner = chatId ?? [...(this.config.access?.allowedUserIds ?? [])][0]
+    if (!owner) throw new Error('некому доставить сообщение агента')
+    const result = await this.send(owner, body)
+    await this.history?.append?.(String(owner), { role: 'assistant', content: body })
+    return { chatId: owner, messageId: result?.messageId }
+  }
+
+  /**
    * When the quiet window ends, if the current moment is inside it.
    *
    * @param {Date} now - moment to test.

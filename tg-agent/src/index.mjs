@@ -27,6 +27,7 @@ import { createYoutubeTool } from './youtube-tool.mjs'
 import { createServerTool } from './server-tool.mjs'
 import { createEventTool } from './event-tool.mjs'
 import { createMiniApp } from './miniapp.mjs'
+import { createOutbox } from './outbox.mjs'
 import { createProfileTool } from './profile-tool.mjs'
 import { UsageStore } from './usage.mjs'
 import { DigestService } from './digest.mjs'
@@ -201,6 +202,7 @@ export async function main({ env, platformFactory } = {}) {
     stopping = true
     logger.info('shutting down', { signal, bots: instances.length })
     for (const { bot } of instances) {
+      await bot.outbox?.stop?.().catch((error) => logger.warn('outbox stop failed', { error: error?.message ?? error }))
       await bot.miniApp?.stop?.().catch((error) => logger.warn('mini app stop failed', { error: error?.message ?? error }))
       await bot.stop().catch((error) => logger.error('shutdown failed', { error }))
     }
@@ -429,6 +431,23 @@ export async function createInstance({ config, logger, instance, shared, platfor
 
   // Mini App: панель управления поверх тех же файлов состояния. Только Telegram
   // (там есть подписанный initData) и только когда задан публичный HTTPS-адрес.
+  // Сообщения от агента: одна точка на бота, только localhost и только с токеном.
+  if (platform.name === 'telegram' && config.outbox?.enabled && config.outbox.token) {
+    try {
+      const outbox = createOutbox({
+        token: config.outbox.token,
+        port: config.outbox.port,
+        host: config.outbox.host,
+        logger,
+        deliver: (message) => bot.deliverAgentMessage(message),
+      })
+      const outboxPort = await outbox.start()
+      bot.outbox = outbox
+      logger.info('outbox listening', { host: config.outbox.host, port: outboxPort })
+    } catch (error) {
+      logger.warn('outbox not started', { error: error?.message ?? error })
+    }
+  }
   if (platform.name === 'telegram' && config.miniapp?.enabled && config.miniapp.url) {
     try {
       const miniApp = createMiniApp({

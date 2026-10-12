@@ -85,6 +85,10 @@ const DEFAULTS = {
   MINIAPP_PORT: '8787',
   MINIAPP_HOST: '127.0.0.1',
   MINIAPP_URL: '',
+  OUTBOX: 'true',
+  OUTBOX_PORT: '8788',
+  // Токен для агента: без него точка приёма не поднимается вообще.
+  OUTBOX_TOKEN: '',
   YOUTUBE: 'true',
   POLLS: 'true',
   SERVER_STATUS: 'true',
@@ -513,6 +517,13 @@ export function loadConfig(env = process.env) {
       port: Number(read(env, 'MINIAPP_PORT')) || 8787,
       host: read(env, 'MINIAPP_HOST') || '127.0.0.1',
       url: read(env, 'MINIAPP_URL').trim(),
+    },
+    // Точка приёма сообщений от агента: только localhost, только с токеном.
+    outbox: {
+      enabled: read(env, 'OUTBOX').trim().toLowerCase() !== 'false',
+      port: Number(read(env, 'OUTBOX_PORT')) || 8788,
+      host: '127.0.0.1',
+      token: read(env, 'OUTBOX_TOKEN').trim(),
     },
     youtube: { enabled: read(env, 'YOUTUBE').trim().toLowerCase() !== 'false' },
     polls: { enabled: read(env, 'POLLS').trim().toLowerCase() !== 'false' },
