@@ -18,6 +18,10 @@ const FONT_CANDIDATES = [
   '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
   '/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf',
   '/usr/share/fonts/truetype/freefont/FreeSans.ttf',
+  // macOS: сначала обычные Arial/Times (в них есть кириллица и они в разы меньше).
+  '/System/Library/Fonts/Supplemental/Arial.ttf',
+  '/Library/Fonts/Arial.ttf',
+  '/System/Library/Fonts/Supplemental/Times New Roman.ttf',
   '/System/Library/Fonts/Supplemental/Arial Unicode.ttf',
   '/Library/Fonts/Arial Unicode.ttf',
   '/System/Library/Fonts/Helvetica.ttc',
@@ -137,25 +141,29 @@ function readTable(font, tables, tag) {
 
 /** `head`: units per em, bounding box and the format of `loca`. */
 function parseHead(view, table) {
+  // Every field below is guarded: a truncated table must not throw out of the reader.
+  const short = (offset) => table.length < offset + 2
   return {
-    unitsPerEm: view.getUint16(table.byteOffset + 18, false),
-    yMin: view.getInt16(table.byteOffset + 38, false),
-    yMax: view.getInt16(table.byteOffset + 42, false),
-    indexToLocFormat: view.getInt16(table.byteOffset + 50, false),
+    unitsPerEm: short(18) ? 0 : view.getUint16(table.byteOffset + 18, false),
+    yMin: short(38) ? 0 : view.getInt16(table.byteOffset + 38, false),
+    yMax: short(42) ? 0 : view.getInt16(table.byteOffset + 42, false),
+    indexToLocFormat: short(50) ? 0 : view.getInt16(table.byteOffset + 50, false),
   }
 }
 
 /** `hhea`: ascent, descent and how many glyphs live in `hmtx`. */
 function parseHhea(view, table) {
+  const short = (offset) => table.length < offset + 2
   return {
-    ascender: view.getInt16(table.byteOffset + 4, false),
-    descender: view.getInt16(table.byteOffset + 6, false),
-    numberOfHMetrics: view.getUint16(table.byteOffset + 34, false),
+    ascender: short(4) ? 0 : view.getInt16(table.byteOffset + 4, false),
+    descender: short(6) ? 0 : view.getInt16(table.byteOffset + 6, false),
+    numberOfHMetrics: short(34) ? 0 : view.getUint16(table.byteOffset + 34, false),
   }
 }
 
 /** `maxp`: the glyph count, used to sanity-check `loca`. */
 function parseMaxp(view, table) {
+  if (table.length < 6) return { numGlyphs: 0 }
   return { numGlyphs: view.getUint16(table.byteOffset + 4, false) }
 }
 
@@ -441,6 +449,13 @@ function utf16Hex(code) {
   return code.toString(16).padStart(4, '0')
 }
 
+/** A whole string as UTF-16BE hex, for the hex strings a PDF text string may use. */
+function utf16HexString(text) {
+  let hex = ''
+  for (const character of String(text)) hex += utf16Hex(character.codePointAt(0))
+  return hex
+}
+
 /** The `/ToUnicode` CMap: it is what makes the text copyable and searchable. */
 function toUnicodeCMap(pairs) {
   const lines = [
@@ -594,16 +609,17 @@ function showText(cids, breaks, widths, size) {
   return `[${items.join(' ')}] TJ`
 }
 
-/** Strip the directory and extension from a path, for `/BaseFont` and `/FontName`. */
+/** The `/BaseFont` and `/FontName` value: a PDF name, so it always carries a leading `/`. */
 function fontName(fontPath) {
   const base = String(fontPath).split(/[\\/]/).pop() ?? 'Embedded'
   const clean = base.replace(/\.(ttf|ttc|otf)$/i, '').replace(/[^\w-]/g, '')
-  return clean === '' ? 'Embedded' : clean
+  return `/${clean === '' ? 'Embedded' : clean}`
 }
 
 /** A PDF name literal, with everything outside the safe set escaped. */
 function pdfName(value) {
-  return String(value).replace(/[^\w-]/g, (character) => `#${character.charCodeAt(0).toString(16).padStart(2, '0')}`)
+  const text = String(value).replace(/^\/+/, '')
+  return `/${text.replace(/[^\w-]/g, (character) => `#${character.charCodeAt(0).toString(16).padStart(2, '0')}`)}`
 }
 
 /** The `/FontDescriptor` of the embedded font. */
@@ -638,7 +654,7 @@ function serializePdf(objects, title) {
   const infoId = objects.length + 1
   const infoAt = out.length
   const info = `<< /Producer (${escapePdfText('tg-agent')}) /Creator (${escapePdfText('tg-agent')})`
-    + (title === '' ? '' : ` /Title (${escapePdfText(title)})`)
+    + (title === '' ? '' : ` /Title <FEFF${utf16HexString(title)}>`)
     + ' >>'
   out.write(`${infoId} 0 obj\n${info}\nendobj\n`)
   const xrefAt = out.length
@@ -781,17 +797,26 @@ export function createPdf({ title, blocks, fontPath, candidates, fontSize = 11, 
   const contentStreams = pages.map((lines) => {
     const out = createWriter()
     out.write(`BT\n/F1 ${size.toFixed(2)} Tf\n`)
-    let opened = false
+    // `Td` is relative to the current line, so the writer tracks where it last stood.
+    let atX = 0
+    let atY = 0
+    let drawnSize = 0
     for (const { item, y } of lines) {
       const content = item.prefix + item.text
-      if (content !== '') {
-        const encoded = encode(content)
-        out.write(`${item.indent} ${y.toFixed(2)} Td\n`)
-        if (!opened || item.size !== size) out.write(`/F1 ${item.size.toFixed(2)} Tf\n`)
-        out.write(`${showText(encoded.cids, encoded.breaks, encoded.widths, item.size)}\n`)
-        opened = true
+      if (content === '') {
+        atX = 0
+        atY = y
+        continue
       }
-      out.write(`${-item.indent} ${(-item.leading).toFixed(2)} Td\n`)
+      out.write(`${(item.indent - atX).toFixed(2)} ${(y - atY).toFixed(2)} Td\n`)
+      atX = item.indent
+      atY = y
+      if (drawnSize !== item.size) {
+        out.write(`/F1 ${item.size.toFixed(2)} Tf\n`)
+        drawnSize = item.size
+      }
+      const encoded = encode(content)
+      out.write(`${showText(encoded.cids, encoded.breaks, encoded.widths, item.size)}\n`)
     }
     out.write('ET\n')
     return out.toBuffer()

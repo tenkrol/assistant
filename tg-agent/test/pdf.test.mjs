@@ -15,6 +15,7 @@ import { createPdf, escapePdfText, findFontPath, wrapLines } from '../src/pdf.mj
 const fontPath = findFontPath()
 
 const A4_WIDTH = 595.28
+const A4_HEIGHT = 841.89
 const A4_MARGIN = 48
 const BODY_SIZE = 11
 const LATIN_SAMPLE = 'The quick brown fox jumps over the lazy dog near the river bank today. '
@@ -61,17 +62,40 @@ function contentStreams(buffer) {
   return streams
 }
 
-/** Text lines of a content stream: the `Td` position and the glyph ids shown there. */
+/** Glyph ids inside a `Tj` or `TJ` operand. */
+function cidsOf(operand) {
+  const cids = []
+  for (const run of operand.matchAll(/<([\da-fA-F]*)>/g)) {
+    for (let at = 0; at + 4 <= run[1].length; at += 4) cids.push(Number.parseInt(run[1].slice(at, at + 4), 16))
+  }
+  return cids
+}
+
+/**
+ * Walk the content stream the way a viewer does.
+ *
+ * `Td` is relative, so the absolute position only falls out of the sequence of moves —
+ * exactly the property that a wrong `Td` would break.
+ */
 function textLines(stream) {
   const lines = []
-  const pattern = /(-?[\d.]+) (-?[\d.]+) Td\n((?:<[\da-fA-F]*> Tj)|(?:\[[^\]]*\] TJ))/g
-  let match
-  while ((match = pattern.exec(stream)) !== null) {
-    const cids = []
-    for (const run of match[3].matchAll(/<([\da-fA-F]*)>/g)) {
-      for (let at = 0; at + 4 <= run[1].length; at += 4) cids.push(Number.parseInt(run[1].slice(at, at + 4), 16))
+  let x = 0
+  let y = 0
+  let size = 0
+  for (const line of stream.split('\n')) {
+    const move = /^(-?[\d.]+) (-?[\d.]+) Td$/.exec(line)
+    if (move) {
+      x += Number(move[1])
+      y += Number(move[2])
+      continue
     }
-    lines.push({ x: Number(match[1]), y: Number(match[2]), cids })
+    const font = /^\/\w+ ([\d.]+) Tf$/.exec(line)
+    if (font) {
+      size = Number(font[1])
+      continue
+    }
+    const show = /^(<[\da-fA-F]*> Tj|\[[^\]]*\] TJ)$/.exec(line)
+    if (show) lines.push({ x, y, size, cids: cidsOf(show[1]) })
   }
   return lines
 }
@@ -95,62 +119,6 @@ function build(options) {
   const buffer = createPdf({ fontPath, ...options })
   assert.ok(Buffer.isBuffer(buffer), 'createPdf должен вернуть Buffer')
   return { buffer, latin: buffer.toString('latin1') }
-}
-
-/** A minimal, table-only TTF: enough for the parser, but carrying no glyph at all. */
-function minimalTtf() {
-  const makeTable = (tag, body) => {
-    const padded = Buffer.alloc((body.length + 3) & ~3)
-    body.copy(padded)
-    return { tag, entry: Buffer.alloc(16), body: padded, length: body.length }
-  }
-  const head = Buffer.alloc(54)
-  head.writeUInt16BE(1000, 18)
-  head.writeInt16BE(0, 50)
-  const maxp = Buffer.alloc(6)
-  maxp.writeUInt16BE(1, 4)
-  const hhea = Buffer.alloc(36)
-  hhea.writeUInt16BE(1, 34)
-  // A format 4 cmap with a single empty segment: parseable, but it maps nothing.
-  // 0..1 version and table count, 4..11 the one encoding record (3/1, subtable at 12),
-  // then the format 4 header and its arrays.
-  const cmap = Buffer.alloc(12 + 16)
-  cmap.writeUInt16BE(0, 0)
-  cmap.writeUInt16BE(1, 2)
-  cmap.writeUInt16BE(3, 4)
-  cmap.writeUInt16BE(1, 6)
-  cmap.writeUInt32BE(12, 8)
-  cmap.writeUInt16BE(4, 12)
-  cmap.writeUInt16BE(16, 14)
-  cmap.writeUInt16BE(0, 16)
-  cmap.writeUInt16BE(2, 18)
-  cmap.writeUInt16BE(0, 20)
-  cmap.writeUInt16BE(0, 22)
-  cmap.writeUInt16BE(0xffff, 24)
-  cmap.writeUInt16BE(0, 26)
-  cmap.writeUInt16BE(0, 28)
-  const tables = [
-    makeTable('cmap', cmap),
-    makeTable('glyf', Buffer.alloc(4)),
-    makeTable('head', head),
-    makeTable('hhea', hhea),
-    makeTable('hmtx', Buffer.alloc(4)),
-    makeTable('loca', Buffer.alloc(8)),
-    makeTable('maxp', maxp),
-  ].sort((a, b) => (a.tag < b.tag ? -1 : 1))
-  const header = Buffer.alloc(12)
-  header.writeUInt32BE(0x00010000, 0)
-  header.writeUInt16BE(tables.length, 4)
-  // The entries must be filled before the concat: Buffer.concat copies eagerly.
-  let offset = 12 + tables.length * 16
-  for (const table of tables) {
-    table.entry.write(table.tag, 0, 4, 'latin1')
-    table.entry.writeUInt32BE(offset, 8)
-    table.entry.writeUInt32BE(table.length, 12)
-    offset += table.body.length
-  }
-  const directory = Buffer.concat(tables.map((table) => table.entry))
-  return Buffer.concat([header, directory, ...tables.map((table) => table.body)], offset)
 }
 
 test('файл — это Buffer от %PDF- до %%EOF', () => {
@@ -191,7 +159,33 @@ test('шрифт встроен как Type0 / CIDFontType2 с FontFile2', { ski
   assert.match(latin, /\/FontFile2 \d+ 0 R/)
   assert.match(latin, /\/Flags 32\b/, 'descriptor должен быть nonsymbolic')
   assert.match(latin, /\/DW 1000\b/)
-  assert.match(latin, /\/BaseFont/)
+  // `/BaseFont` is a PDF name, so the slash is part of it.
+  assert.match(latin, /\/BaseFont \/[A-Za-z]/)
+  assert.match(latin, /\/FontName \/[A-Za-z]/)
+})
+
+test('строки идут сверху вниз внутри полей страницы', { skip: !fontPath && 'нет шрифта' }, () => {
+  // Regression: the coordinates are relative `Td` moves, so a wrong sign or a repeated
+  // absolute value used to throw every line off the page or on top of another one.
+  const blocks = [
+    { type: 'h1', text: 'Заголовок' },
+    { type: 'p', text: 'Первый абзац достаточно длинный, чтобы занять две строки целиком.' },
+    { type: 'bullet', text: 'Пункт' },
+  ]
+  const { buffer } = build({ blocks })
+  // `textLines` accumulates the relative moves, so these are absolute baselines.
+  const drawn = contentStreams(buffer).flatMap((stream) => textLines(stream))
+  // One heading, one paragraph line and one bullet — all three must be on the sheet.
+  assert.ok(drawn.length >= 3, `ожидалось не меньше трёх строк, got ${drawn.length}`)
+  for (const line of drawn) {
+    assert.ok(line.y > A4_MARGIN && line.y < A4_HEIGHT - A4_MARGIN, `базовая линия вне полей: y=${line.y.toFixed(2)}`)
+  }
+  for (let index = 1; index < drawn.length; index += 1) {
+    assert.ok(drawn[index].y < drawn[index - 1].y, `строка ${index} не ниже предыдущей: ${drawn[index].y} >= ${drawn[index - 1].y}`)
+  }
+  // The bullet is indented and the heading is larger than the body text.
+  assert.ok(drawn.some((line) => line.x > 0), 'у пункта списка должен быть отступ')
+  assert.equal(drawn[0].size > drawn[1].size, true, 'заголовок должен быть крупнее абзаца')
 })
 
 test('длинный абзац переносится и не вылезает за поля', { skip: !fontPath && 'нет шрифта' }, () => {
@@ -243,8 +237,10 @@ test('спецсимволы ( ) \\ не ломают файл', { skip: !fontPa
   assert.match(escaped, /\\\(/)
   assert.match(escaped, /\\\)/)
   assert.match(escaped, /\\\\/)
-  // The title lives in the Info dictionary as an escaped literal string.
-  assert.match(latin.slice(latin.lastIndexOf('/Title')), /\\\(/)
+  // The title goes out as a UTF-16BE hex string, which needs no escaping at all.
+  const hex = /^\/Title <FEFF([\dA-Fa-f]+)>/.exec(latin.slice(latin.lastIndexOf('/Title')))
+  assert.ok(hex, 'заголовок должен быть записан как UTF-16BE hex-строка')
+  assert.equal(Number.parseInt(hex[1].slice(0, 4), 16), 'С'.codePointAt(0), 'заголовок должен начинаться с «С»')
 })
 
 test('без шрифта createPdf падает с понятной ошибкой', () => {
@@ -262,17 +258,21 @@ test('нечитаемый файл шрифта даёт понятную ош�
   assert.throws(() => createPdf({ fontPath: '/tmp/tg-agent-pdf-broken.ttf', blocks: [] }), /шрифт/i)
 })
 
-test('шрифт без глифов не роняет генератор', () => {
-  const path = '/tmp/tg-agent-pdf-minimal.ttf'
-  writeFileSync(path, minimalTtf())
-  const bytes = createPdf({ fontPath: path, blocks: [{ type: 'p', text: 'Привет' }] })
-  const latin = bytes.toString('latin1')
-  assert.ok(Buffer.isBuffer(bytes))
+test('символ без глифа заменяется на ? и не роняет генератор', { skip: !fontPath && 'нет шрифта' }, () => {
+  // Private-use code points have no glyph in the usual system fonts.
+  const { latin } = build({ blocks: [{ type: 'p', text: `Есть \uE000 и \uF8FF` }] })
   assert.ok(latin.startsWith('%PDF-'))
   assert.ok(latin.trimEnd().endsWith('%%EOF'))
   assert.match(latin, /\/ToUnicode/)
-  // Nothing maps to a real glyph, so every character falls back to the same one.
-  assert.match(toUnicodeText(bytes), /<0000> <003f>/)
+  // The substitute glyph's cid maps to `?`, so the text stays readable when copied.
+  assert.match(toUnicodeText(Buffer.from(latin, 'latin1')), /<003f>/)
+})
+
+test('обрезанный файл шрифта не роняет процесс', () => {
+  // A short file must fail as a readable error, never as an out-of-bounds crash.
+  const path = '/tmp/tg-agent-pdf-truncated.ttf'
+  writeFileSync(path, Buffer.alloc(64, 7))
+  assert.throws(() => createPdf({ fontPath: path, blocks: [] }), /шрифт/i)
 })
 
 test('h1, h2, bullet и spacer дают целый документ', { skip: !fontPath && 'нет шрифта' }, () => {
@@ -286,7 +286,7 @@ test('h1, h2, bullet и spacer дают целый документ', { skip: !f
     { type: 'p', text: 'Хвост документа.' },
   ]
   const { buffer, latin } = build({ title: 'Полный документ', blocks })
-  assert.match(latin, /\/Title \(/)
+  assert.match(latin, /\/Title <FEFF/)
   const lines = contentStreams(buffer).flatMap((stream) => textLines(stream))
   // Four one-line blocks, two wrapped paragraphs, the blank line in the second one.
   assert.ok(lines.length >= 5, `ожидалось не меньше пяти строк, got ${lines.length}`)
