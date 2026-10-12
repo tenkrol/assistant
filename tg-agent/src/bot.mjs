@@ -38,10 +38,12 @@ const ALERT_COOLDOWN_MS = 60 * 60 * 1000
 /** Warn when this share of the daily token budget is spent. */
 const SPEND_ALERT_RATIO = 0.8
 
+/** Список напоминаний — это не просьба создать новое, и насильно звать remind нельзя. */
+const REMINDER_LIST = /(покажи|какие|какой|список|что|все|мои)\s+[^.!?]{0,24}?напомин/iu
 /** The user is asking for a reminder; the tool must actually run. */
-const REMINDER_INTENT = /(напомн|напомин|\bremind\b)/i
+const REMINDER_INTENT = /(напомни(?![\p{L}])|напомнить|поставь напоминание|создай напоминание|сделай напоминание|\bremind me\b)/iu
 /** The answer claims a reminder with a concrete time ("напомню в 01:23"). */
-const REMINDER_CLAIM = /(?:напомн\w*\s+в\s+\d|напоминание\s+(?:создано|поставлено|№))/i
+const REMINDER_CLAIM = /(?:напомн\w*\s+в\s+\d|напоминание\s+(?:создано|поставлено|№)|напомню\s+(?:вам|тебе|в|завтра|сегодня|через))/iu
 /** A request for a document: a table, a letter, an export. */
 const FILE_INTENT = /(таблиц|excel|эксель|xlsx|csv|документ|docx|ворд|\bword\b|презентац|отч[её]т|выгруз|файл|письм[оа]\s+в\s+docx)/i
 /** The model claims a file is on its way without having built one. */
@@ -1395,6 +1397,7 @@ export class Assistant {
       // a text-only answer used to tell the user "напомню в 01:23" while nothing
       // was stored anywhere.
       const reminderRequested = this.reminders && answer.toolCalls === 0
+        && !REMINDER_LIST.test(prompt)
         && (REMINDER_INTENT.test(prompt) || REMINDER_CLAIM.test(answer.text ?? ''))
       if (reminderRequested) {
         this.logger.warn('reminder requested without a tool call, forcing remind', { chatId })
@@ -1404,8 +1407,13 @@ export class Assistant {
           // a paraphrase, so the user never sees a time that was not stored.
           answer = { ...forced, text: remindResult, toolCalls: forced.toolCalls }
         } else {
-          this.logger.error('forced remind produced no tool call', { chatId, toolCalls: forced.toolCalls })
-          answer = { ...answer, text: 'Не удалось поставить напоминание — инструмент не сработал. Попробуйте сформулировать иначе, например: «напомни через 15 минут проверить духовку».' }
+          this.logger.warn('forced remind produced no tool call', { chatId, toolCalls: forced.toolCalls })
+          // Затираем ответ только если бот успел пообещать напоминание. Иначе
+          // его слова были верными (например, он перечислил список), и подменять
+          // их сообщением об ошибке нельзя.
+          if (REMINDER_CLAIM.test(answer.text ?? '')) {
+            answer = { ...answer, text: 'Не удалось поставить напоминание — инструмент не сработал. Попробуйте сформулировать иначе, например: «напомни через 15 минут проверить духовку».' }
+          }
         }
       }
 

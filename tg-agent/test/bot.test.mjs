@@ -1683,3 +1683,98 @@ test('a thinking model that rejects tool_choice still gets the tool called', asy
     await fs.rm(dir, { recursive: true, force: true })
   }
 })
+
+test('a request to list reminders is not forced into creating one', async () => {
+  // Так было в VK: на «покажи напоминания» бот отвечал «Не удалось поставить
+  // напоминание — инструмент не сработал». Предохранитель видел «напомин» и
+  // насильно звал remind, а затем затирал правильный ответ.
+  const sent = []
+  let forcedRounds = 0
+  const platform = {
+    name: 'vk',
+    namespace: 'vk',
+    identity: { id: 1 },
+    canStream: () => false,
+    async start() {},
+    async stop() {},
+    async sendText({ markdown }) { sent.push(String(markdown)); return { messageId: 1 } },
+    async editText() { throw new Error('в VK без стриминга') },
+    async answerCallback() {},
+    async sendTyping() {},
+  }
+  const model = {
+    name: 'test',
+    async complete({ toolChoice }) {
+      if (toolChoice) forcedRounds += 1
+      return { text: 'Вот ваши напоминания:\n1. в 22:01 — выпить воды', toolCalls: 0, usage: { total_tokens: 3 } }
+    },
+  }
+  const { Assistant } = await import('../src/bot.mjs')
+  const { ReminderStore } = await import('../src/reminders.mjs')
+  const { createReminderTool } = await import('../src/reminder-tool.mjs')
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'tg-list-rem-'))
+  try {
+    const store = new ReminderStore({ file: path.join(dir, 'reminders.json'), logger: silentLogger, timeZone: 'Europe/Moscow' })
+    await store.load()
+    const bot = new Assistant({
+      config: { dataDir: dir, reactions: { enabled: false }, limits: { maxConcurrentRequests: 4, shutdownGraceMs: 100 }, stream: { enabled: false }, time: { timeZone: 'Europe/Moscow' }, model: { name: 'test' }, web: { enabled: false, maxToolRounds: 4 }, access: { allowedChatTypes: new Set(['private']), allowedUserIds: new Set([ALLOWED]) } },
+      platform,
+      model,
+      history: { voice: () => false, messages: () => [], append: async () => {}, model: () => undefined, setModel: async () => {} },
+      reminders: { store, tool: createReminderTool({ store, timeZone: 'Europe/Moscow' }) },
+      logger: silentLogger,
+    })
+    await bot.handleMessage({ kind: 'message', chat: { id: 555, type: 'private' }, from: { id: ALLOWED, name: 'В' }, text: 'покажи напоминания', message_id: 9, addressed: true })
+    const text = sent.join(' ')
+    assert.match(text, /Вот ваши напоминания/, 'ответ со списком сохраняется')
+    assert.doesNotMatch(text, /Не удалось поставить напоминание/, 'ошибки создания быть не должно')
+    assert.equal(forcedRounds, 0, 'принудительный вызов remind не нужен')
+    assert.deepEqual(store.list(555, ALLOWED), [], 'ничего не создано')
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('an explicit creation request still forces the tool', async () => {
+  const sent = []
+  let forcedRounds = 0
+  const platform = {
+    name: 'vk', namespace: 'vk', identity: { id: 1 }, canStream: () => false,
+    async start() {}, async stop() {},
+    async sendText({ markdown }) { sent.push(String(markdown)); return { messageId: 1 } },
+    async editText() { throw new Error('нет') }, async answerCallback() {}, async sendTyping() {},
+  }
+  const { Assistant } = await import('../src/bot.mjs')
+  const { ReminderStore } = await import('../src/reminders.mjs')
+  const { createReminderTool } = await import('../src/reminder-tool.mjs')
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'tg-force-rem-'))
+  try {
+    const store = new ReminderStore({ file: path.join(dir, 'reminders.json'), logger: silentLogger, timeZone: 'Europe/Moscow' })
+    await store.load()
+    const tool = createReminderTool({ store, timeZone: 'Europe/Moscow' })
+    const model = {
+      name: 'test',
+      async complete({ toolChoice, executeTool }) {
+        if (toolChoice) {
+          forcedRounds += 1
+          await executeTool('remind', { text: 'выпить воды', in_minutes: 30 }, {})
+          return { text: 'Готово', toolCalls: 1, usage: { total_tokens: 3 } }
+        }
+        // Первый ход — только словами, как и бывает у thinking-моделей.
+        return { text: 'Хорошо, напомню.', toolCalls: 0, usage: { total_tokens: 3 } }
+      },
+    }
+    const bot = new Assistant({
+      config: { dataDir: dir, reactions: { enabled: false }, limits: { maxConcurrentRequests: 4, shutdownGraceMs: 100 }, stream: { enabled: false }, time: { timeZone: 'Europe/Moscow' }, model: { name: 'test' }, web: { enabled: false, maxToolRounds: 4 }, access: { allowedChatTypes: new Set(['private']), allowedUserIds: new Set([ALLOWED]) } },
+      platform, model,
+      history: { voice: () => false, messages: () => [], append: async () => {}, model: () => undefined, setModel: async () => {} },
+      reminders: { store, tool },
+      logger: silentLogger,
+    })
+    await bot.handleMessage({ kind: 'message', chat: { id: 555, type: 'private' }, from: { id: ALLOWED, name: 'В' }, text: 'напомни через 30 минут выпить воды', message_id: 10, addressed: true })
+    assert.equal(forcedRounds, 1, 'просьба создать — инструмент вызывается принудительно')
+    assert.equal(store.list(555, ALLOWED).length, 1, 'напоминание создано')
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true })
+  }
+})
