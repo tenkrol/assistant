@@ -432,6 +432,22 @@ export class Assistant {
 
   async handleMessage(message) {
     const from = message.from
+    // Контакт, которым поделились, — единственный способ узнать телефон:
+    // Telegram не даёт искать людей по номеру. Сохраняем и подтверждаем.
+    const sharedContacts = (message.attachments ?? message.files ?? []).filter((item) => item?.kind === 'contact')
+    for (const item of sharedContacts) {
+      if (item.userId) {
+        this.contacts?.remember?.({ chatId: item.userId, name: item.name, username: item.username, phone: item.phone })?.catch?.(() => {})
+      }
+      const who = item.name || (item.username ? '@' + item.username : 'контакт')
+      this.logger?.info?.('contact remembered', { hasPhone: Boolean(item.phone), hasUser: Boolean(item.userId) })
+      await this.send?.(
+        message.chat?.id,
+        item.userId
+          ? `Запомнил ${who}${item.phone ? ', телефон ' + item.phone : ''}. Теперь могу написать ему: «напиши ${item.name || 'ему'} …»`
+          : `Запомнил ${who}, но без id в Telegram: написать ему первым не получится — Telegram запрещает.`,
+      ).catch?.(() => {})
+    }
     if (!from || from.isBot) return
     const chatType = message.chat?.type
     if (!this.config.access.allowedChatTypes.has(chatType)) {

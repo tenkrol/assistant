@@ -158,6 +158,17 @@ export class TelegramPlatform {
     if (message.audio) {
       list.push({ kind: 'audio', fileId: message.audio.file_id, name: message.audio.file_name, mime: message.audio.mime_type, duration: message.audio.duration, size: message.audio.file_size })
     }
+    // Переданный контакт: Telegram отдаёт имя, @ник, телефон и user_id.
+    // Это единственный способ узнать телефон — по номеру искать нельзя.
+    if (message.contact) {
+      list.push({
+        kind: 'contact',
+        userId: message.contact.user_id,
+        name: [message.contact.first_name, message.contact.last_name].filter(Boolean).join(' '),
+        username: message.contact.username,
+        phone: message.contact.phone_number,
+      })
+    }
     if (message.document) {
       list.push({ kind: 'document', fileId: message.document.file_id, name: message.document.file_name, mime: message.document.mime_type, size: message.document.file_size })
     }
