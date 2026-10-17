@@ -14,9 +14,11 @@
  */
 import fs from 'node:fs'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { scryptSync, randomBytes, createCipheriv, createDecipheriv } from 'node:crypto'
 
-const root = process.cwd()
+const here = path.dirname(fileURLToPath(import.meta.url))
+const root = process.env.PROJECT_ROOT ?? path.resolve(here, '../..')
 const args = process.argv.slice(2)
 const command = args.find((a) => !a.startsWith('--'))
 const option = (name, fallback) => {
