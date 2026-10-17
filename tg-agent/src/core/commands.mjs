@@ -8,6 +8,7 @@
  */
 import { MOODS, MOOD_NAMES, PERSONAS, PERSONA_NAMES, moodOf } from '../personas.mjs'
 import { capabilityHelp } from './capabilities.mjs'
+import { buildExportDocument, buildExportPdf, exportToMarkdown } from './export.mjs'
 
 /** Режимы ответа, которые предлагает `/mode`. */
 export const MODES = {
@@ -96,46 +97,33 @@ export function createCommandRouter(bot) {
     const chatId = message.chat.id
     switch (name) {
       case 'export': {
-        // Ключ истории — id чата строкой, тот же ключ, что у диалога.
-        const chatKey = String(chatId)
-        const profile = bot.profiles?.store
-        const facts = profile?.facts?.(message.from.id) ?? []
-        const lines = [
-          '# Выгрузка из бота',
-          '',
-          `Дата: ${new Date().toISOString()}`,
-          '',
-          '## Настройки',
-          '',
-          `- город: ${profile?.city?.(message.from.id) ?? 'не задан'}`,
-          `- характер: ${profile?.persona?.(message.from.id) ?? 'обычный'}`,
-          `- настроение: ${profile?.mood?.(message.from.id) ?? 'меняется само'}`,
-          `- модель: ${bot.history?.model?.(chatKey) ?? bot.config.model?.name ?? 'по умолчанию'}`,
-          `- озвучка ответов: ${bot.history?.voice?.(chatKey) ? 'включена' : 'выключена'}`,
-          '',
-          '## Что бот помнит',
-          '',
-          ...(facts.length === 0 ? ['— пока ничего'] : facts.map((fact) => `- №${fact.id}: ${fact.text}`)),
-          '',
-          '## Напоминания',
-          '',
-        ]
-        const activeReminders = bot.reminders?.store.list(chatId, message.from.id) ?? []
-        if (activeReminders.length === 0) lines.push('— нет')
-        for (const reminder of activeReminders) {
-          lines.push(`- №${reminder.id} ${reminder.dueAt} (${reminder.repeat ?? 'none'}): ${reminder.text}`)
-        }
-        lines.push('', '## История диалога (последние сообщения)', '')
-        for (const entry of bot.history?.messages?.(chatKey) ?? []) {
-          const who = entry.role === 'user' ? 'Вы' : entry.role === 'assistant' ? 'Бот' : entry.role
-          const content = typeof entry.content === 'string' ? entry.content : '(вложение)'
-          lines.push(`**${who}:** ${content}`)
-        }
+        // Необязательный аргумент — формат файла. Пустой аргумент оставляет
+        // прежнюю текстовую выгрузку без изменений.
+        const format = String(args ?? '').trim().toLowerCase()
+        const now = new Date()
         // Всё, что бот знает об этом человеке, — в одном файле, который принадлежит ему.
-        const fileName = `vygruzka-${new Date().toISOString().slice(0, 10)}.md`
+        const fileName = `vygruzka-${now.toISOString().slice(0, 10)}`
+        if (format === 'pdf') {
+          try {
+            const document = buildExportDocument({ bot, chatId, userId: message.from.id, now })
+            const bytes = buildExportPdf(document)
+            await bot.sendFile(
+              chatId,
+              { bytes, fileName: `${fileName}.pdf`, caption: 'Ваши данные из бота' },
+              message.message_id,
+            )
+          } catch (error) {
+            // Причина уже сформулирована для человека; бот продолжает работать.
+            await bot.send(chatId, error?.message ?? 'Не удалось собрать PDF. Попробуйте `/export` текстом.')
+          }
+          return
+        }
+        // Любой другой аргумент (и его отсутствие) — прежняя текстовая выгрузка.
+        // Разделы строятся один раз: текст и PDF видят одни и те же данные.
+        const document = buildExportDocument({ bot, chatId, userId: message.from.id, now })
         await bot.sendFile(
           chatId,
-          { bytes: Buffer.from(`${lines.join('\n')}\n`, 'utf8'), fileName, caption: 'Ваши данные из бота' },
+          { bytes: Buffer.from(exportToMarkdown(document), 'utf8'), fileName: `${fileName}.md`, caption: 'Ваши данные из бота' },
           message.message_id,
         )
         return
