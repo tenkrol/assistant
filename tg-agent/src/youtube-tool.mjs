@@ -1,6 +1,6 @@
 /**
  * Прежний путь инструмента YouTube.
  *
- * Реализация переехала в `src/integrations/youtube/`; реэкспорт сохраняет API.
+ * Реализация переехала в `src/tools/youtube-tool.mjs`; реэкспорт сохраняет API.
  */
-export * from './integrations/youtube/tool.mjs'
+export * from './tools/youtube-tool.mjs'

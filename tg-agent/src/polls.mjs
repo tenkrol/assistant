@@ -26,7 +26,6 @@ import {
   castVote,
   cleanOptions,
   isPoll,
-  rulesOfPolls,
   voteIndexOf,
 } from './domain/polls.mjs'
 
@@ -222,76 +221,9 @@ export class PollStore {
   }
 }
 
-/** OpenAI-compatible tool definition. */
-export const POLL_TOOL_DEFINITION = {
-  type: 'function',
-  function: {
-    name: 'poll',
-    description:
-      'Создать опрос (голосование) в этом чате с кнопками-вариантами. Вызывай, когда просят опрос или голосование '
-      + '(«создай опрос», «спросим у всех», «проголосуем», «куда едем в выходные?»). '
-      + 'Кнопки и подсчёт голосов бот берёт на себя: не описывай варианты текстом и не считай голоса сам.',
-    parameters: {
-      type: 'object',
-      properties: {
-        question: { type: 'string', description: 'Вопрос опроса, до 200 символов. Например: «Куда едем в выходные?».' },
-        options: {
-          type: 'array',
-          items: { type: 'string' },
-          description: 'От 2 до 10 разных вариантов ответа, каждый до 60 символов.',
-        },
-      },
-      required: ['question', 'options'],
-      additionalProperties: false,
-    },
-  },
-}
-
-/** Short hint for the model's system instruction. */
-export const POLL_HINT =
-  'Опросы: когда просят «создай опрос», «спросим у всех» или «проголосуем», вызывай инструмент poll '
-  + '(question — вопрос до 200 символов, options — от 2 до 10 разных вариантов до 60 символов). '
-  + 'Кнопки и подсчёт голосов бот делает сам; повторное нажатие переносит голос, а не добавляет второй.'
-
-/**
- * Собрать инструмент `poll`.
- *
- * @param {object} options - параметры инструмента.
- * @param {PollStore} options.store - хранилище опросов.
- */
-export function createPollTool({ store }) {
-  const rules = rulesOfPolls({ store })
-
-  return {
-    definition: POLL_TOOL_DEFINITION,
-
-    /**
-     * Создать один опрос для чата.
-     *
-     * @param {object} args - аргументы (`question`, `options`).
-     * @param {{chatId: number, userId?: number|string}} context - чат и автор.
-     * @returns {Promise<string>} подтверждение или ошибка для модели.
-     */
-    async execute(args, context) {
-      const { text } = await this.executeDetailed(args, context)
-      return text
-    },
-
-    /**
-     * То же, что `execute`, но возвращает и сохранённый опрос.
-     *
-     * Боту нужен весь опрос, чтобы отправить сообщение и кнопки; модель должна
-     * видеть только текст.
-     *
-     * @param {object} args - аргументы (`question`, `options`).
-     * @param {{chatId: number, userId?: number|string}} context - чат и автор.
-     * @returns {Promise<{text: string, poll?: object}>} текст и опрос.
-     */
-    async executeDetailed(args, context) {
-      return rules.create(args, context)
-    },
-  }
-}
+// Инструмент переехал в `src/tools/poll-tool.mjs`; старый путь остаётся
+// реэкспортом, чтобы `src/index.mjs` и тесты не меняли импорты.
+export { POLL_HINT, POLL_TOOL_DEFINITION, createPollTool } from './tools/poll-tool.mjs'
 
 // Тексты опроса, клавиатура и разбор кнопок живут в `src/domain/polls.mjs`
-// и реэкспортированы выше: здесь остаётся только хранилище и инструмент.
+// и реэкспортированы выше: здесь остаётся только хранилище.

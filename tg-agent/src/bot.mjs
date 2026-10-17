@@ -16,13 +16,12 @@ import { prepareAttachments } from './media-handler.mjs'
 import { detectFacts } from './auto-memory.mjs'
 import { MOODS, MOOD_NAMES, PERSONAS, PERSONA_NAMES, characterHint, moodOf } from './personas.mjs'
 import { parsePollAction, pollKeyboard, pollMessage } from './polls.mjs'
-import { SEARCH_HINT, formatSearchResults, searchMessages } from './history-search.mjs'
 import { dayKey } from './usage.mjs'
 import { rulesOfProfiles } from './domain/profiles.mjs'
 import { rulesOfReminders } from './domain/reminders.mjs'
 import { rulesOfEvents } from './domain/events.mjs'
 import { rulesOfPolls } from './domain/polls.mjs'
-import { createSendToTool } from './sendto-tool.mjs'
+import { createToolRegistry } from './tools/registry.mjs'
 import { createContactStore } from './contacts.mjs'
 
 /** Answer modes offered by `/mode`. */
@@ -255,24 +254,6 @@ export class Assistant {
     this.model = model
     this.history = history
 
-    // Отправка другому человеку: справочник — это те, кого бот уже знает.
-    // Телефонов здесь нет: Telegram отдаёт номер только когда человек сам
-    // делится контактом, и связку мы сохраним, когда это случится.
-    const knownPeople = () => [...(this.config.access?.allowedUserIds ?? [])].map((id) => ({
-      chatId: id,
-      name: this.profiles?.store?.displayName?.(id),
-    }))
-    this.sendtoTool = createSendToTool({
-      send: (message) => this.send(message.chatId, message.text),
-      contacts: {
-        byPhone: (phone) => this.contacts?.byPhone?.(phone),
-        byUsername: (username) => this.contacts?.byUsername?.(username),
-        search: (query) => this.contacts?.search?.(query) ?? [],
-        list: () => this.contacts?.list?.() ?? [],
-      },
-      ownerName: this.config.owner?.name ?? 'владельца',
-      logger: this.logger,
-    })
     this.webTools = webTools
     this.agentBridge = agentBridge
     this.reminders = reminders
@@ -299,6 +280,27 @@ export class Assistant {
       events: rulesOfEvents({ store: events?.store, reminders: reminders?.store, timeZone: config.time?.timeZone ?? '', logger }),
       polls: rulesOfPolls({ store: polls?.store }),
     }
+    // Единый реестр инструментов: ядро получает готовый список схем и один
+    // диспетчер, а не собирает их вручную. Доставка текста в чат — зависимость
+    // самого бота, поэтому передаётся сюда.
+    this.tools = createToolRegistry({
+      config,
+      domains: this.domain,
+      logger,
+      history,
+      webTools,
+      agentBridge,
+      reminders,
+      profiles,
+      events,
+      polls,
+      files,
+      youtube,
+      server,
+      contacts: this.contacts,
+      ownerName: config.owner?.name ?? 'владельца',
+      sendText: (chatId, markdown, replyToMessageId, keyboard) => this.send(chatId, markdown, replyToMessageId, keyboard),
+    })
     // Built once from the configuration: the model and /help describe exactly what
     // this deployment can do, never more.
     this.capabilities = capabilityLines({ config, media, platformName: platform?.name })
@@ -727,37 +729,23 @@ export class Assistant {
     }
   }
 
-  /** Definition of the history search tool, built from the shared hint. */
+  /** Схема инструмента поиска по истории (совместимость со старым API). */
   historyToolDefinition() {
-    return {
-      type: 'function',
-      function: {
-        name: 'find_history',
-        description: SEARCH_HINT,
-        parameters: {
-          type: 'object',
-          properties: { query: { type: 'string', description: 'Что искать в прошлой переписке: 1–3 ключевых слова.' } },
-          required: ['query'],
-        },
-      },
-    }
+    return this.tools.definitionOf('find_history')
   }
 
   /**
-   * Search this chat history and format the answer.
+   * Найти в истории этого чата и собрать готовый ответ.
    *
-   * A multi-word question needs one solid word match, not just any incidental one:
-   * with the default floor a question like «что мы решали» matches half the chat.
+   * Сам поиск и форматирование живут в инструменте `find_history`; ядро только
+   * передаёт ключ чата и текст запроса.
    *
-   * @param {string} chatKey - chat whose history is searched.
-   * @param {string} query - what to look for.
-   * @returns {Promise<string>} the ready-to-send answer.
+   * @param {string} chatKey - ключ чата для истории.
+   * @param {string} query - что искать.
+   * @returns {Promise<string>} готовый текст ответа.
    */
   async searchHistory(chatKey, query) {
-    const messages = this.history?.messages?.(chatKey) ?? []
-    const words = String(query).split(/\s+/).filter((word) => word.length > 1)
-    const found = searchMessages(messages, query, { minScore: words.length >= 2 ? 120 : 1 })
-    return formatSearchResults(found, { query, timeZone: this.config.time?.timeZone ?? '' })
+    return this.tools.executeTool('find_history', { query }, { chatId: chatKey })
   }
 
   /** Who voted in a poll, by their display name where we know it. */
@@ -1223,88 +1211,33 @@ export class Assistant {
       // in VK conversations it is not, so the adapter answers that question.
       const streamable = this.config.stream?.enabled && (typeof this.platform.canStream !== 'function' || this.platform.canStream({ chatId }))
       const streamer = streamable ? this.createStreamer(chatId) : undefined
-      // Web tools are optional: without them the model answers from its own
-      // knowledge and says so, with them it can search and read pages.
-      const tools = [
-        ...(this.webTools?.definitions ?? []),
-        ...(this.agentBridge?.enabled ? this.agentBridge.definitions : []),
-        ...(this.reminders ? [this.reminders.tool.definition] : []),
-        ...(this.profiles ? [this.profiles.tool.definition] : []),
-        ...(this.files ? [this.files.definition] : []),
-        ...(this.events ? [this.events.tool.definition] : []),
-        ...(this.polls ? [this.polls.tool.definition] : []),
-        ...(this.youtube ? [this.youtube.definition] : []),
-        ...(this.server ? [this.server.definition] : []),
-        this.sendtoTool.definition,
-        ...(this.history ? [this.historyToolDefinition()] : []),
-      ]
-      /** Text the `remind` tool returned in this turn, if it ran. */
-      let remindResult
-      /** Text the `remember` tool returned in this turn, if it ran. */
-      let rememberResult
-      /** Reminder created in this turn; drives the inline buttons. */
+      // Список схем и диспетчер приходят из реестра: ядро не знает, какие
+      // инструменты бывают и что с ними делать. Дальше нужны только результаты
+      // этого хода — напоминание для кнопок и файл для отправки.
+      const tools = this.tools.definitions
+      /** Результаты инструментов этого хода по имени. */
+      const toolResults = new Map()
+      /** Напоминание, созданное в этом ходе: под ответом будут кнопки. */
       let createdReminder
-      /** File built by the `file` tool in this turn; sent right after the answer. */
+      /** Файл, собранный в этом ходе: отправится сразу после текста. */
       let createdFile
-      /** Text the `file` tool returned in this turn, if it ran. */
-      let fileResult
-      const executeTool = async (name, args, options) => {
-        if (name === 'sendto') return (await this.sendtoTool.executeDetailed(args)).text
-        if (name === 'remind' && this.reminders) {
-          const result = await this.reminders.tool.executeDetailed(args, { chatId, userId })
-          remindResult = result.text
-          if (result.reminder) createdReminder = result.reminder
-          return remindResult
-        }
-        if (name === 'poll' && this.polls) {
-          const result = await this.polls.tool.executeDetailed(args, { chatId, userId })
-          if (result.poll) {
-            await this.send(chatId, pollMessage(result.poll, { names: this.namesOf(result.poll) }), message.message_id, pollKeyboard(result.poll))
-          }
-          return result.text
-        }
-        if (name === 'youtube' && this.youtube) {
-          const result = await this.youtube.executeDetailed(args)
-          return result.text
-        }
-        if (name === 'find_history' && this.history) {
-          return await this.searchHistory(String(chatId), String(args.query ?? ''))
-        }
-        if (name === 'server' && this.server) {
-          return (await this.server.executeDetailed()).text
-        }
-        if (name === 'event' && this.events) {
-          const result = await this.events.tool.executeDetailed(args, { chatId, userId })
-          return result.text
-        }
-        if (name === 'file' && this.files) {
-          const result = await this.files.executeDetailed(args, { chatId, userId })
-          fileResult = result.text
-          if (result.file) createdFile = result.file
-          return result.text
-        }
-        if (name === 'remember' && this.profiles) {
-          rememberResult = await this.profiles.tool.execute(args, { userId })
-          return rememberResult
-        }
-        // Weather without a city means "my city": the profile supplies it, so the
-        // user does not have to repeat where they live. Never in a group — that
-        // would tell everybody in the chat where the speaker lives.
-        if (name === 'weather' && this.webTools) {
-          const city = typeof args?.city === 'string' ? args.city.trim() : ''
-          if (city === '' && !isGroup) {
-            const saved = userId === undefined ? undefined : this.profiles?.store.city(userId)
-            if (saved) return this.webTools.execute(name, { ...args, city: saved }, options)
-          }
-          return this.webTools.execute(name, args, options)
-        }
-        if (name === 'ask_agent' && this.agentBridge?.enabled) return this.agentBridge.execute(name, args, options)
-        if (this.webTools) return this.webTools.execute(name, args, options)
-        return `Инструмент ${name} не поддерживается.`
-      }
+      const executeTool = async (name, args, options = {}) => this.tools.executeTool(name, args, {
+        chatId,
+        userId,
+        isGroup,
+        replyTo: message.message_id,
+        signal: options?.signal,
+        onResult: (outcome) => {
+          toolResults.set(outcome.name, outcome)
+          if (outcome.reminder) createdReminder = outcome.reminder
+          if (outcome.file) createdFile = outcome.file
+        },
+      })
       const toolOptions = tools.length > 0
         ? { tools, executeTool, maxToolRounds: this.config.web.maxToolRounds }
         : {}
+      /** Текст, который вернул инструмент в этом ходе. */
+      const toolResultText = (name) => toolResults.get(name)?.text
       let answer = await this.model.complete({
         messages,
         model,
@@ -1354,10 +1287,10 @@ export class Assistant {
       if (reminderRequested) {
         this.logger.warn('reminder requested without a tool call, forcing remind', { chatId })
         const forced = await forceTool('remind', 'Пользователь просит напоминание. Немедленно вызови инструмент remind и передай время, посчитанное от текущего момента из системного сообщения о времени.')
-        if (forced.toolCalls > 0 && remindResult) {
+        if (forced.toolCalls > 0 && toolResultText('remind')) {
           // The tool's own text states exactly what is scheduled; prefer it over
           // a paraphrase, so the user never sees a time that was not stored.
-          answer = { ...forced, text: remindResult, toolCalls: forced.toolCalls }
+          answer = { ...forced, text: toolResultText('remind'), toolCalls: forced.toolCalls }
         } else {
           this.logger.warn('forced remind produced no tool call', { chatId, toolCalls: forced.toolCalls })
           // Затираем ответ только если бот успел пообещать напоминание. Иначе
@@ -1371,12 +1304,12 @@ export class Assistant {
 
       // Same guarantee for memory: "мой город — Казань" used to get the answer
       // "Записал!" with the profile left untouched, so the city never stuck.
-      const memoryRequested = this.profiles && !rememberResult && isMemoryRequest(prompt)
+      const memoryRequested = this.profiles && !toolResultText('remember') && isMemoryRequest(prompt)
       if (memoryRequested) {
         this.logger.warn('memory request without a tool call, forcing remember', { chatId })
         const forced = await forceTool('remember', 'Пользователь сообщает о себе факт. Немедленно вызови инструмент remember: factual text в параметре text, а если он назвал свой город — обязательно заполни параметр city.')
-        if (forced.toolCalls > 0 && rememberResult) {
-          answer = { ...forced, text: rememberResult, toolCalls: forced.toolCalls }
+        if (forced.toolCalls > 0 && toolResultText('remember')) {
+          answer = { ...forced, text: toolResultText('remember'), toolCalls: forced.toolCalls }
         } else {
           this.logger.error('forced remember produced no tool call', { chatId, toolCalls: forced.toolCalls })
           answer = { ...answer, text: 'Не удалось сохранить — инструмент памяти не сработал. Попробуйте ещё раз или задайте город командой `/city Москва`.' }
@@ -1391,7 +1324,7 @@ export class Assistant {
         this.logger.warn('file requested without a tool call, forcing file', { chatId })
         const forced = await forceTool('file', 'Пользователь просит файл. Немедленно вызови инструмент file: выбери формат (xlsx для таблицы, docx для документа, csv для данных), придумай короткое имя и передай содержимое в параметрах text или table.')
         if (forced.toolCalls > 0 && createdFile) {
-          answer = { ...forced, text: fileResult ?? forced.text, toolCalls: forced.toolCalls }
+          answer = { ...forced, text: toolResultText('file') ?? forced.text, toolCalls: forced.toolCalls }
         } else {
           this.logger.error('forced file produced no file', { chatId, toolCalls: forced.toolCalls })
           answer = { ...answer, text: 'Не удалось собрать файл — инструмент не сработал. Попробуйте иначе, например: «сделай таблицу в Excel со столбцами Название и Год».' }
