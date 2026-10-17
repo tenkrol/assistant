@@ -3,6 +3,11 @@
 !/tg-agent/
 !/agent/
 !/README.md
+!/openspec/
+!/AGENTS.md
+!/secrets/
+secrets/*.env
+!secrets/*.enc
 !/.gitignore
 
 # Служебный мусор macOS и системные файлы
