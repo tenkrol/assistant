@@ -30,7 +30,7 @@ function dirs(at) {
 for (const entry of dirs(changesDir)) {
   if (entry.name === '_template' || entry.name === 'archive') continue
   const dir = path.join(changesDir, entry.name)
-  if (!/^\d{4}-\d{2}-\d{2}-[\p{L}0-9-]+$/u.test(entry.name)) {
+  if (!/^PLB-\d{3}$/.test(entry.name)) {
     problems.push(`change «${entry.name}»: имя должно быть ГГГГ-ММ-ДД-слаг`)
   }
   for (const required of ['proposal.md', 'design.md', 'tasks.md']) {
