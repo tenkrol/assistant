@@ -34,6 +34,8 @@ function sameToken(given, expected) {
 export function createOutbox({
   token,
   deliver,
+  events,
+  deliverEvent,
   port = 8788,
   host = '127.0.0.1',
   maxBodyBytes = DEFAULT_MAX_BODY,
@@ -85,6 +87,26 @@ export function createOutbox({
         payload = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}')
       } catch {
         return send(400, { ok: false, error: 'не разобрал JSON' })
+      }
+      // Событие контракта v2 (PLB-009): постоянный eventId и подтверждение.
+      if (payload && typeof payload.eventId === 'string' && Number(payload.contract) === 2) {
+        if (!events || typeof deliverEvent !== 'function') {
+          return send(503, { ok: false, error: 'приём событий не настроен' })
+        }
+        const eventId = payload.eventId
+        if (events.seen(eventId)) {
+          logger?.info?.('agent event duplicate', { eventId, type: payload.type })
+          return send(200, { ok: true, eventId, processed: true, duplicate: true })
+        }
+        try {
+          await deliverEvent(payload)
+          await events.mark(eventId, { taskId: payload.taskId, type: payload.type })
+          logger?.info?.('agent event delivered', { eventId, type: payload.type })
+          return send(200, { ok: true, eventId, processed: true, duplicate: false })
+        } catch (error) {
+          logger?.warn?.('agent event delivery failed', { eventId, error: error?.message ?? error })
+          return send(500, { ok: false, error: 'не удалось доставить событие' })
+        }
       }
       const text = typeof payload?.text === 'string' ? payload.text.trim() : ''
       if (text === '') return send(400, { ok: false, error: 'нужно поле text' })

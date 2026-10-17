@@ -121,7 +121,7 @@ export function createToolRegistry({
       if (!name) continue
       add(createTool({
         definition,
-        executeDetailed: async (args = {}) => ({ text: await agentBridge.execute(name, args) }),
+        executeDetailed: async (args = {}, context = {}) => ({ text: await agentBridge.execute(name, args, context) }),
       }))
     }
   }

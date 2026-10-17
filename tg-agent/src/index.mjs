@@ -28,6 +28,8 @@ import { createServerTool } from './server-tool.mjs'
 import { createEventTool } from './event-tool.mjs'
 import { createMiniApp } from './miniapp.mjs'
 import { createOutbox } from './outbox.mjs'
+import { createAgentEventsStore } from './storage/agent-events.mjs'
+import { createAgentLink } from './agent-link/index.mjs'
 import { createProfileTool } from './profile-tool.mjs'
 import { UsageStore } from './usage.mjs'
 import { DigestService } from './digest.mjs'
@@ -205,6 +207,7 @@ export async function main({ env, platformFactory } = {}) {
       await bot.outbox?.stop?.().catch((error) => logger.warn('outbox stop failed', { error: error?.message ?? error }))
       await bot.miniApp?.stop?.().catch((error) => logger.warn('mini app stop failed', { error: error?.message ?? error }))
       await bot.stop().catch((error) => logger.error('shutdown failed', { error }))
+      await bot.agentEvents?.flush?.().catch?.(() => {})
     }
     process.exit(0)
   }
@@ -273,8 +276,26 @@ export async function createInstance({ config, logger, instance, shared, platfor
     url: botConfig.agentBridge?.url,
     token: botConfig.agentBridge?.token,
     platformName: instance.platform,
+    contract: botConfig.agentBridge?.contract,
+    maxFileBytes: botConfig.agentBridge?.filesMaxBytes,
     logger,
   })
+  // Журнал событий и ожидающих вопросов агента: только Telegram.
+  const agentEvents = instance.platform === 'telegram'
+    ? await createAgentEventsStore({
+      file: stateFile(botConfig.dataDir, 'agent-events', instance.namespace),
+      logger,
+      retentionDays: botConfig.agentBridge?.eventsRetentionDays,
+    }).load()
+    : undefined
+  const agentLink = instance.platform === 'telegram'
+    ? createAgentLink({
+      bridge: agentBridge,
+      events: agentEvents,
+      answerTimeoutMs: botConfig.agentBridge?.answerTimeoutMs,
+      logger,
+    })
+    : undefined
   // Reminders live on disk: the store is read before the bot starts so overdue
   // reminders can be delivered right away, and the scheduler is built once the
   // bot exists because delivery goes through its `send`.
@@ -366,7 +387,8 @@ export async function createInstance({ config, logger, instance, shared, platfor
     polls.tool = createPollTool({ store: polls.store })
   }
 
-  const bot = new Assistant({ config: botConfig, platform, model, history, webTools, agentBridge, reminders, profiles, usage, media, tts, files, events, polls, youtube, server, logger })
+  const bot = new Assistant({ config: botConfig, platform, model, history, webTools, agentBridge, agentLink, reminders, profiles, usage, media, tts, files, events, polls, youtube, server, logger })
+  bot.agentEvents = agentEvents
 
   // The digest needs the bot for delivery and the profile for the city, so it is
   // built after the bot and attached to it.
@@ -432,6 +454,37 @@ export async function createInstance({ config, logger, instance, shared, platfor
   // Mini App: панель управления поверх тех же файлов состояния. Только Telegram
   // (там есть подписанный initData) и только когда задан публичный HTTPS-адрес.
   // Сообщения от агента: одна точка на бота, только localhost и только с токеном.
+  /** Доставить событие агента v2: текст, файлы, вопрос, предложение памяти. */
+  async function deliverAgentEvent(event) {
+    const owners = [...(botConfig.access?.allowedUserIds ?? [])].map(String)
+    const chatId = event.route?.chatId === undefined ? owners[0] : String(event.route.chatId)
+    if (owners.length === 0 || !owners.includes(String(chatId))) throw new Error('чужой маршрут события')
+    if (event.type === 'memory_proposal') {
+      const fact = String(event.proposal?.text ?? '').trim()
+      if (fact !== '') {
+        try {
+          bot.profiles?.store?.addFact?.(chatId, fact)
+        } catch (error) {
+          logger.warn('memory proposal rejected', { error: error?.message ?? error })
+        }
+      }
+      return
+    }
+    const text = [event.title, event.text].filter((part) => typeof part === 'string' && part !== '').join('\n\n')
+    if (text !== '') await bot.deliverAgentMessage({ text, chatId })
+    for (const file of event.files ?? []) {
+      const data = await agentBridge.downloadFile(file.fileId).catch((error) => ({ ok: false, error: error?.message ?? error }))
+      if (data.ok) {
+        await bot.platform.sendDocument({ chatId, bytes: data.bytes, fileName: file.name, caption: file.caption }).catch((error) => {
+          logger.warn('agent file delivery failed', { file: file.name, error: error?.message ?? error })
+        })
+      } else {
+        await bot.deliverAgentMessage({ text: '⚠️ Файл «' + file.name + '» недоступен: ' + (data.error ?? 'ошибка'), chatId }).catch(() => {})
+      }
+    }
+    if (event.type === 'question') await agentLink?.rememberQuestion(event, chatId)
+  }
+
   if (platform.name === 'telegram' && config.outbox?.enabled && config.outbox.token) {
     try {
       const outbox = createOutbox({
@@ -439,6 +492,8 @@ export async function createInstance({ config, logger, instance, shared, platfor
         port: config.outbox.port,
         host: config.outbox.host,
         logger,
+        events: agentEvents,
+        deliverEvent: (event) => deliverAgentEvent(event),
         deliver: (message) => bot.deliverAgentMessage(message),
       })
       const outboxPort = await outbox.start()

@@ -140,6 +140,12 @@ export function createConversation(bot) {
       await bot.runCommand(command, message)
       return
     }
+    // Если бот ждёт ответа агента, обычное сообщение — этот ответ.
+    const agentAnswer = await bot.agentLink?.handleOwnerMessage?.({ chatId: message.chat.id, text })
+    if (agentAnswer?.handled) {
+      await bot.send(message.chat.id, agentAnswer.message)
+      return
+    }
     const prompt = chatType === 'private' ? text : stripMention(text, bot.username)
     if (prompt.trim() === '' && attachments.length === 0) return
     // Квитанция — статус: человек видит, что бот принял сообщение, ещё до ответа модели.
@@ -313,6 +319,9 @@ export function createConversation(bot) {
         isGroup,
         replyTo: message.message_id,
         signal: options?.signal,
+        botId: bot.botId,
+        attachments: message.attachments ?? [],
+        downloadFile: (fileId, options = {}) => bot.platform.downloadFile({ fileId, ...options }),
         onResult: (outcome) => {
           toolResults.set(outcome.name, outcome)
           if (outcome.reminder) createdReminder = outcome.reminder

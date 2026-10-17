@@ -20,13 +20,16 @@
  */
 import { createLogger } from '../../logger.mjs'
 import { deadlineSignal } from '../connection.mjs'
+import { createAgentBridgeV2 } from './v2.mjs'
+
+export { AgentBridgeError } from './v2.mjs'
 
 /** The tool name the model sees. */
 export const AGENT_TOOL_NAME = 'ask_agent'
 
 const DEFAULT_URL = 'http://127.0.0.1:8787/bridge'
 
-export function createAgentBridge({
+function createAgentBridgeLegacy({
   url = DEFAULT_URL,
   token = '',
   platformName = 'telegram',
@@ -100,4 +103,12 @@ export function createAgentBridge({
         + 'предупреди пользователя и не повторяй сама эту задачу.'
     },
   }
+}
+
+
+/** Выбрать режим контракта: v2 (по умолчанию) или прежний /bridge. */
+export function createAgentBridge(options = {}) {
+  return String(options.contract ?? 'v1').toLowerCase() === 'v1'
+    ? createAgentBridgeLegacy(options)
+    : createAgentBridgeV2(options)
 }

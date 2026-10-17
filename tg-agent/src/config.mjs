@@ -48,6 +48,10 @@ const DEFAULTS = {
   // Bridge to the task agent, reached through an SSH tunnel; empty = off.
   AGENT_BRIDGE_URL: 'http://127.0.0.1:8787/bridge',
   AGENT_BRIDGE_TOKEN: '',
+  AGENT_CONTRACT: 'v2',
+  AGENT_FILES_MAX_BYTES: '20971520',
+  AGENT_EVENTS_RETENTION_DAYS: '30',
+  AGENT_ANSWER_TIMEOUT_MS: '86400000',
   // The Telegram group stays a manual entry point for the owner, not a bot path.
   AGENT_BRIDGE_GROUP_ID: '',
   WEB_SEARCH_MAX_USES: '3',
@@ -464,6 +468,10 @@ export function loadConfig(env = process.env) {
       // Inert without url + token: the chat bot behaves exactly as before.
       url: read(env, 'AGENT_BRIDGE_URL').trim(),
       token: read(env, 'AGENT_BRIDGE_TOKEN').trim(),
+      contract: read(env, 'AGENT_CONTRACT').trim().toLowerCase() === 'v1' ? 'v1' : 'v2',
+      filesMaxBytes: readInt(env, 'AGENT_FILES_MAX_BYTES', { min: 1024, max: 500_000_000 }),
+      eventsRetentionDays: readInt(env, 'AGENT_EVENTS_RETENTION_DAYS', { min: 1, max: 3650 }),
+      answerTimeoutMs: readInt(env, 'AGENT_ANSWER_TIMEOUT_MS', { min: 60_000, max: 2_592_000_000 }),
     },
     web: {
       // Only the openai backend needs these: the dsh backend brings its own tools.

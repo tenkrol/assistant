@@ -66,7 +66,7 @@ export class Assistant {
    * @param {object} [options.digest] - утренний дайджест.
    * @param {object} options.logger - логгер.
    */
-  constructor({ config, platform, model, history, webTools, agentBridge, reminders, profiles, usage, digest, media, tts, files, events, polls, youtube, server, logger }) {
+  constructor({ config, platform, model, history, webTools, agentBridge, agentLink, reminders, profiles, usage, digest, media, tts, files, events, polls, youtube, server, logger }) {
     this.config = config
     // Кого бот знает: имена и @ники приходят с сообщениями, телефоны — только
     // когда человек сам делится контактом. Нужно для sendto.
@@ -78,6 +78,7 @@ export class Assistant {
 
     this.webTools = webTools
     this.agentBridge = agentBridge
+    this.agentLink = agentLink
     this.reminders = reminders
     this.profiles = profiles
     this.usage = usage
