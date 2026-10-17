@@ -11,6 +11,20 @@
 const PLATFORM_LABEL = { telegram: 'Telegram', vk: 'VK', 'vk-teams': 'VK Teams', max: 'MAX' }
 
 /**
+ * Что платформа умеет на выход.
+ *
+ * `files` — отправка документов (`sendDocument`), `voiceAnswers` — озвучка
+ * ответов (`sendVoice`), а не распознавание входящих голосовых. VK отправляет
+ * PDF, Excel, Word и CSV, но голосом отвечать не умеет — это отдельное
+ * изменение (PLB-011). Остальные платформы сохраняют прежний список, поэтому
+ * для них ключа нет и берётся значение по умолчанию.
+ */
+const PLATFORM_OUTPUT = {
+  vk: { files: true, voiceAnswers: false },
+}
+const DEFAULT_OUTPUT = { files: true, voiceAnswers: true }
+
+/**
  * Что эта установка действительно умеет.
  *
  * @param {object} options - конфигурация и подключённые возможности.
@@ -21,6 +35,7 @@ const PLATFORM_LABEL = { telegram: 'Telegram', vk: 'VK', 'vk-teams': 'VK Teams',
  */
 export function capabilityLines({ config, media, platformName }) {
   const messenger = PLATFORM_LABEL[platformName] ?? platformName
+  const output = PLATFORM_OUTPUT[platformName] ?? DEFAULT_OUTPUT
   // Каждая строка говорит, что вещь делает *и* как её попросить: именно этот
   // список модель пересказывает, когда пользователь спрашивает «что ты умеешь».
   const lines = [
@@ -43,7 +58,10 @@ export function capabilityLines({ config, media, platformName }) {
     lines.push('— документы (PDF, DOCX, XLSX, PPTX, CSV, JSON, TXT): пришлите файл и спросите «что в нём», «посчитай итоги»;')
   }
   if (media?.transcribe) {
-    lines.push('— голосовые: запишите голосом — расшифрую и выполню; отвечать голосом — /voice вкл в этом чате;')
+    // Распознавание входящих голосовых и озвучка ответов — разные вещи: VK
+    // первое умеет, второго у него нет.
+    const answers = output.voiceAnswers ? '; отвечать голосом — /voice вкл в этом чате' : ''
+    lines.push(`— голосовые: запишите голосом — расшифрую и выполню${answers};`)
   }
   if (config?.smartHome?.baseUrl && config?.smartHome?.token) {
     lines.push('— умный дом через Home Assistant: «включи свет на кухне», «какая температура дома»;')
@@ -51,7 +69,9 @@ export function capabilityLines({ config, media, platformName }) {
   if (config?.digest?.enabled) {
     lines.push('— утренний дайджест в 8:00: погода, праздники (официальные, церковные, народные и профессиональные), совет для здоровья, напоминания на день, анекдот; прислать сейчас — /digest;')
   }
-  lines.push('— файлы на выход: PDF, Excel, Word, CSV — «сделай PDF с отчётом»;')
+  if (output.files) {
+    lines.push('— файлы на выход: PDF, Excel, Word, CSV — «сделай PDF с отчётом»;')
+  }
   lines.push('— написать другому человеку от вашего имени: «напиши Марии, что задержусь»; телефон — если человек сам делился контактом;')
   lines.push('— агент присылает результат длинной задачи прямо в этот чат;')
   lines.push('— выгрузка своих данных (память, напоминания, история) — /export; расход токенов — /stats; начать диалог заново — /new; ваш ID — /whoami; полная справка — /help.')

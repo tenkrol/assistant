@@ -57,6 +57,15 @@
  *   Button labels are capped at 40 characters and `payload` at 255 characters,
  *   and a `payload` must be a JSON string delimited by braces
  *   (https://dev.vk.com/ru/api/bots/development/keyboard/key-types).
+ * - Документы в сообщениях: `docs.getMessagesUploadServer?peer_id=&type=doc`
+ *   → `{upload_url}` (https://dev.vk.com/ru/method/docs.getMessagesUploadServer),
+ *   POST `multipart/form-data` с полем `file` на этот адрес → `{file}`
+ *   (https://dev.vk.com/ru/api/upload/document-in-profile), `docs.save?file=&title=`
+ *   → `{type: 'doc', doc: {owner_id, id, …}}`
+ *   (https://dev.vk.com/ru/method/docs.save), затем `messages.send` с
+ *   `attachment=doc<owner_id>_<id>`. Адрес загрузки одноразовый и не требует
+ *   токена; имя файла задаётся в `docs.save` полем `title`, подпись — текстом
+ *   сообщения.
  * - Attachments (https://dev.vk.com/ru/reference/objects/attachments-message):
  *   `photo` with a `sizes` array of `{url, width, height, type}` (older objects
  *   use `src` — https://dev.vk.com/ru/reference/objects/photo-sizes), `doc`
@@ -141,6 +150,13 @@ export const VK_PAYLOAD_LIMIT = 255
 export const VK_SNACKBAR_LIMIT = 90
 /** Download cap, matching the other adapters' default. */
 export const DEFAULT_MAX_DOWNLOAD_BYTES = 20_000_000
+/**
+ * Имя документа для `docs.save`.
+ *
+ * Точный предел VK не документирует; 256 символов с запасом покрывают имена
+ * файлов инструмента `file` и при этом не раздувают запрос.
+ */
+export const VK_DOCUMENT_TITLE_LIMIT = 256
 /** How many of our own message ids are remembered for reply detection. */
 export const OWN_MESSAGE_CACHE_SIZE = 200
 /** How many `message_event`s are remembered so `answerCallback` can reply. */
@@ -254,6 +270,34 @@ const firstString = (...values) => {
     if (typeof value === 'string' && value !== '') return value
   }
   return ''
+}
+
+/**
+ * Короткая причина сбоя без URL и токена.
+ *
+ * У `VkError` берём описание VK, у таймаута — понятную фразу, у сетевой
+ * ошибки — только код: текст `fetch` цитирует URL, а в адресе загрузки лежит
+ * одноразовая подпись.
+ */
+function failureDetail(error) {
+  if (error instanceof VkError) {
+    return firstString(error.description, error.message) || 'неизвестная ошибка VK'
+  }
+  if (error?.name === 'TimeoutError') return 'истекло время ожидания'
+  const code = error?.cause?.code ?? error?.code
+  return code ? `сетевая ошибка ${code}` : 'сеть недоступна'
+}
+
+/** Обернуть сбой шага отправки документа в `VkError` с русским объяснением. */
+function documentError(error, summary, method) {
+  return new VkError(`${summary}: ${failureDetail(error)}`, {
+    method,
+    code: error?.code,
+    description: error?.description,
+    status: error?.status,
+    fatal: error?.fatal,
+    cause: error,
+  })
 }
 
 const escapeRegExp = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -768,14 +812,25 @@ export class VkClient {
   }
 
   /** `messages.send` → the new message id. */
-  sendMessage({ peerId, message, randomId, replyTo, keyboard }, options) {
+  sendMessage({ peerId, message, randomId, replyTo, keyboard, attachment }, options) {
     return this.call('messages.send', {
       peer_id: peerId,
       message,
       random_id: randomId,
       reply_to: replyTo,
       keyboard: keyboard === undefined ? undefined : JSON.stringify(keyboard),
+      attachment,
     }, options)
+  }
+
+  /** `docs.getMessagesUploadServer` — одноразовый адрес загрузки документа. */
+  getMessagesUploadServer({ peerId, type = 'doc' }, options) {
+    return this.call('docs.getMessagesUploadServer', { peer_id: peerId, type }, options)
+  }
+
+  /** `docs.save` — сохранить загруженный файл и получить его id. */
+  saveDocument({ file, title }, options) {
+    return this.call('docs.save', { file, title }, options)
   }
 
   /** `messages.edit` — rewrite the text (and optionally the keyboard). */
@@ -1262,6 +1317,145 @@ export class VkPlatform {
       this.rememberLastMessage(chatId, messageId)
     }
     return { messageId }
+  }
+
+  /**
+   * Отправить файл (PDF, Excel, Word, CSV) в чат VK.
+   *
+   * VK принимает документы только через загрузку: адрес → multipart → сохранение
+   * → сообщение с вложением `doc<owner_id>_<id>`. Имя файла сохраняется в
+   * `docs.save` (`title`), подпись — текст сообщения. Любой сбой шага
+   * превращается в `VkError` с русским объяснением: ядро покажет пользователю
+   * понятный текст, а бот продолжит работу.
+   *
+   * @param {object} request - `chatId`, `bytes`, `fileName`, optional `caption`, `replyToMessageId`.
+   * @returns {Promise<{messageId?: number|string}>} id отправленного сообщения.
+   */
+  async sendDocument({ chatId, bytes, fileName, caption, replyToMessageId }) {
+    if (!bytes || bytes.length === 0) {
+      throw new VkError('Не удалось отправить файл: содержимое пустое', { method: 'sendDocument' })
+    }
+    const name = firstString(fileName).trim().slice(0, VK_DOCUMENT_TITLE_LIMIT) || 'file.bin'
+    const peerId = idOrUndefined(chatId)
+    if (peerId === undefined) {
+      throw new VkError('Не удалось отправить файл: не указан получатель', { method: 'sendDocument' })
+    }
+
+    let uploadUrl
+    try {
+      const { data } = await this.client.getMessagesUploadServer({ peerId, type: 'doc' })
+      uploadUrl = typeof data?.upload_url === 'string' ? data.upload_url : ''
+    } catch (error) {
+      throw documentError(error, `Не удалось получить адрес загрузки файла «${name}»`, 'docs.getMessagesUploadServer')
+    }
+    if (uploadUrl === '') {
+      throw new VkError(`Не удалось получить адрес загрузки файла «${name}»: VK не вернул upload_url`, {
+        method: 'docs.getMessagesUploadServer',
+      })
+    }
+
+    const file = await this.uploadDocument({ uploadUrl, bytes, fileName: name })
+
+    let saved
+    try {
+      const { data } = await this.client.saveDocument({ file, title: name })
+      saved = data
+    } catch (error) {
+      throw documentError(error, `Не удалось сохранить файл «${name}»`, 'docs.save')
+    }
+    // API отвечает `{type: 'doc', doc: {…}}`; старые версии — массивом документов.
+    const doc = Array.isArray(saved) ? saved[0] : (saved?.doc ?? saved)
+    const ownerId = idOrUndefined(doc?.owner_id)
+    const docId = idOrUndefined(doc?.id)
+    if (ownerId === undefined || docId === undefined) {
+      throw new VkError(`Не удалось сохранить файл «${name}»: VK не вернул идентификатор документа`, {
+        method: 'docs.save',
+      })
+    }
+
+    const body = markdownToVkText(caption).slice(0, VK_TEXT_LIMIT)
+    let sent
+    try {
+      const { data } = await this.client.sendMessage({
+        peerId,
+        message: body === '' ? undefined : body,
+        randomId: this.nextRandomId(),
+        replyTo: replyToMessageId,
+        attachment: `doc${ownerId}_${docId}`,
+      })
+      sent = data
+    } catch (error) {
+      throw documentError(error, `Не удалось отправить файл «${name}»`, 'messages.send')
+    }
+    const messageId = idOrUndefined(sent)
+    if (messageId !== undefined) {
+      this.rememberOwnMessage(messageId, chatId)
+      this.rememberLastMessage(chatId, messageId)
+    }
+    return { messageId }
+  }
+
+  /**
+   * Загрузить документ на выданный VK адрес.
+   *
+   * Это единственный запрос, который идёт не в `api.vk.com` и не несёт токен:
+   * адрес уже содержит одноразовую подпись. Тело — `multipart/form-data` с полем
+   * `file`; имя файла важно сохранить, по нему VK строит `title`.
+   *
+   * @param {object} request - `uploadUrl`, `bytes`, `fileName`.
+   * @returns {Promise<string>} значение поля `file` для `docs.save`.
+   */
+  async uploadDocument({ uploadUrl, bytes, fileName }) {
+    const form = new FormData()
+    form.append('file', new Blob([bytes], { type: 'application/octet-stream' }), fileName)
+    let response
+    try {
+      response = await this.fetchImpl(uploadUrl, {
+        method: 'POST',
+        body: form,
+        signal: deadlineSignal(this.timeoutMs),
+      })
+    } catch (error) {
+      throw documentError(error, `Не удалось загрузить файл «${fileName}»`, 'upload')
+    }
+
+    let text
+    try {
+      text = await response.text()
+    } catch (error) {
+      throw documentError(error, `Не удалось загрузить файл «${fileName}»`, 'upload')
+    }
+    const data = parseJson(text)
+    if (!response.ok) {
+      throw new VkError(`Не удалось загрузить файл «${fileName}»: HTTP ${response.status}`, {
+        method: 'upload',
+        status: response.status,
+      })
+    }
+    if (data === undefined) {
+      throw new VkError(`Не удалось загрузить файл «${fileName}»: VK ответил не JSON`, {
+        method: 'upload',
+        status: response.status,
+      })
+    }
+    if (data?.error) {
+      const code = Number(data.error.error_code)
+      const description = firstString(data.error.error_msg, data.error.message, data.error) || 'неизвестная ошибка VK'
+      throw new VkError(`Не удалось загрузить файл «${fileName}»: ${description}`, {
+        method: 'upload',
+        code: Number.isFinite(code) ? code : undefined,
+        description,
+        status: response.status,
+      })
+    }
+    const file = typeof data?.file === 'string' ? data.file.trim() : ''
+    if (file === '') {
+      throw new VkError(`Не удалось загрузить файл «${fileName}»: VK не вернул поле file`, {
+        method: 'upload',
+        status: response.status,
+      })
+    }
+    return file
   }
 
   /**
