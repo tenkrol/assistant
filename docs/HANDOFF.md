@@ -212,3 +212,5 @@
 В репозитории агента то же самое сделано симметрично: `AGENTS.md`, `conventions.md`,
 `specs/workflow/spec.md` (требование «Работа завершается коммитом и пушем»), ритуал,
 `tools/git-check.sh` и `npm run git-check`.
+
+| 17.10 | PLB-010 файлы в VK | — | sendDocument через docs.* в адаптере VK, 842 теста, задеплоено | PLB-011…014 |
