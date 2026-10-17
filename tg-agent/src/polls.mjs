@@ -17,8 +17,7 @@
  *   - nothing here throws at the caller: an invalid input is reported as
  *     `undefined` (store) or as a Russian sentence (tool).
  */
-import fs from 'node:fs/promises'
-import path from 'node:path'
+import { createJsonStore } from './storage/json-store.mjs'
 
 const VERSION = 1
 
@@ -50,6 +49,17 @@ const isPoll = (value) =>
   && typeof value.createdAt === 'string'
   && (value.userId === undefined || isUserId(value.userId))
   && (value.closedAt === undefined || typeof value.closedAt === 'string')
+
+/**
+ * Миграция схемы опросов: файл без `version` считаем версией 0.
+ * Форма данных не менялась — отбрасываем только записи неверной формы.
+ */
+function migratePolls(data) {
+  return {
+    ...data,
+    polls: Array.isArray(data?.polls) ? data.polls.filter(isPoll) : [],
+  }
+}
 
 /**
  * Trim incoming options, drop blanks and exact duplicates.
@@ -110,19 +120,29 @@ export class PollStore {
     /** @type {Array<{id: string, chatId: number, userId?: number|string, question: string, options: Array<{text: string, votes: Array<number|string>}>, createdAt: string, closedAt?: string}>} */
     this.polls = []
     this.nextId = 1
+    // Очередь записей: перекрывающиеся flush не должны перетирать снимки.
+    this.writing = Promise.resolve()
+    // Единый слой: атомарная запись, замок, версия схемы и миграции.
+    this.storage = createJsonStore({
+      file,
+      version: VERSION,
+      defaults: { nextId: 1, polls: [] },
+      migrate: migratePolls,
+      logger,
+    })
   }
 
-  /** Read the file when it exists; a corrupt file is reported and replaced. */
+  /** Прочитать файл через общий слой; битый файл не роняет бота. */
   async load() {
     try {
-      const parsed = JSON.parse(await fs.readFile(this.file, 'utf8'))
-      if (parsed?.version !== VERSION || !Array.isArray(parsed.polls)) throw new Error('unexpected file format')
-      this.polls = parsed.polls.filter(isPoll)
+      const state = await this.storage.load()
+      this.polls = Array.isArray(state.polls) ? state.polls.filter(isPoll) : []
       const highest = this.polls.reduce((max, poll) => Math.max(max, Number(poll.id) || 0), 0)
-      this.nextId = Math.max(Number(parsed.nextId) || 0, highest + 1)
+      this.nextId = Math.max(Number(state.nextId) || 0, highest + 1)
       this.logger?.info('polls loaded', { count: this.polls.length })
     } catch (error) {
-      if (error.code !== 'ENOENT') this.logger?.warn('poll file ignored', { file: this.file, error })
+      // Старое поведение: чужая версия схемы и ошибки чтения только логируются.
+      this.logger?.warn('poll file ignored', { file: this.file, error })
     }
     return this
   }
@@ -250,17 +270,20 @@ export class PollStore {
     }
   }
 
-  /** Persist atomically and wait for the write. */
+  /** Сохранить через общий слой и дождаться записи. */
   async flush() {
-    try {
-      const payload = `${JSON.stringify({ version: VERSION, nextId: this.nextId, polls: this.polls }, null, 2)}\n`
-      await fs.mkdir(path.dirname(this.file), { recursive: true })
-      const temporary = `${this.file}.tmp`
-      await fs.writeFile(temporary, payload, 'utf8')
-      await fs.rename(temporary, this.file)
-    } catch (error) {
-      this.logger?.error('poll save failed', { error })
-    }
+    // Записи выполняются по очереди, чтобы поздний снимок не затёрся ранним.
+    this.writing = this.writing.then(async () => {
+      try {
+        // Синхронизируем доменное состояние с состоянием слоя перед записью.
+        this.storage.state.nextId = this.nextId
+        this.storage.state.polls = this.polls
+        await this.storage.flush()
+      } catch (error) {
+        this.logger?.error('poll save failed', { error })
+      }
+    })
+    return this.writing
   }
 }
 

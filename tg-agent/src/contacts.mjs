@@ -9,8 +9,9 @@
  * Файл маленький и пишется атомарно: состояние бота не должно теряться из-за
  * прерванной записи.
  */
-import fs from 'node:fs/promises'
+import { createJsonStore } from './storage/json-store.mjs'
 
+const VERSION = 1
 const MAX_CONTACTS = 500
 
 /** Приводит телефон к последним 10 цифрам: «+7 999 123-45-67» = «9991234567». */
@@ -19,44 +20,87 @@ export function phoneKey(value) {
   return all.length > 10 ? all.slice(-10) : all
 }
 
+/**
+ * Миграция схемы контактов: файл без `version` считаем версией 0.
+ * Форма данных не изменилась — записи без `chatId` просто не нужны.
+ */
+function migrateContacts(data) {
+  return {
+    ...data,
+    contacts: Array.isArray(data?.contacts)
+      ? data.contacts.filter((entry) => entry?.chatId !== undefined)
+      : [],
+  }
+}
+
 export function createContactStore({ file, logger } = {}) {
   /** @type {Map<string, {chatId: number, name?: string, username?: string, phone?: string}>} */
   const contacts = new Map()
-  let writing = false
+  // Без каталога данных стор работает только в памяти: записывать некуда.
+  const storage = file
+    ? createJsonStore({
+      file,
+      version: VERSION,
+      defaults: { contacts: [] },
+      migrate: migrateContacts,
+      logger,
+    })
+    : undefined
+  let loading
+  // Очередь записей: перекрывающиеся flush не должны перетирать снимки.
+  let writing = Promise.resolve()
 
   const keyOf = (chatId) => String(chatId)
 
-  async function flush() {
-    if (!file || writing) return
-    writing = true
-    const payload = { contacts: [...contacts.values()] }
-    const tmp = `${file}.tmp`
+  /** Прочитать файл через общий слой; ошибки не роняют бота. */
+  async function load() {
+    if (!storage) return
     try {
-      await fs.writeFile(tmp, JSON.stringify(payload, null, 0))
-      await fs.rename(tmp, file)
+      const state = await storage.load()
+      contacts.clear()
+      for (const entry of Array.isArray(state.contacts) ? state.contacts : []) {
+        if (entry?.chatId !== undefined) contacts.set(keyOf(entry.chatId), entry)
+      }
     } catch (error) {
-      logger?.warn?.('contacts save failed', { error: error?.message ?? error })
-    } finally {
-      writing = false
+      logger?.warn?.('contacts load failed', { error: error?.message ?? error })
     }
   }
 
-  return {
-    async load() {
-      if (!file) return
+  /**
+   * Первое изменение догружает файл: иначе запись затёрла бы контакты,
+   * сохранённые прошлым запуском. Одновременные вызовы ждут одно чтение.
+   */
+  async function ensureLoaded() {
+    if (!storage || storage.loaded) return
+    if (!loading) {
+      loading = load().finally(() => {
+        loading = undefined
+      })
+    }
+    await loading
+  }
+
+  /** Сохранить через общий слой: атомарно, под замком, с версией схемы. */
+  async function flush() {
+    if (!storage) return
+    writing = writing.then(async () => {
       try {
-        const data = JSON.parse(await fs.readFile(file, 'utf8'))
-        for (const entry of data?.contacts ?? []) {
-          if (entry?.chatId !== undefined) contacts.set(keyOf(entry.chatId), entry)
-        }
+        storage.state.contacts = [...contacts.values()]
+        await storage.flush()
       } catch (error) {
-        if (error?.code !== 'ENOENT') logger?.warn?.('contacts load failed', { error: error?.message ?? error })
+        logger?.warn?.('contacts save failed', { error: error?.message ?? error })
       }
-    },
+    })
+    await writing
+  }
+
+  return {
+    load,
 
     /** Запомнить или уточнить человека. Пустые поля не затирают уже известные. */
     async remember({ chatId, name, username, phone } = {}) {
       if (chatId === undefined || chatId === null || chatId === '') return undefined
+      await ensureLoaded()
       const key = keyOf(chatId)
       const current = contacts.get(key) ?? { chatId }
       const next = {

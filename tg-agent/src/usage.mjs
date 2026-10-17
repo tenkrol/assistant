@@ -9,8 +9,7 @@
  *   - writes are debounced and atomic, because every answered message records
  *     usage and the state file does not deserve a write per token.
  */
-import fs from 'node:fs/promises'
-import path from 'node:path'
+import { createJsonStore } from './storage/json-store.mjs'
 
 const VERSION = 1
 const DEFAULT_RETENTION_DAYS = 60
@@ -23,6 +22,17 @@ export function dayKey(date = new Date(), timeZone = '') {
 }
 
 const emptyDay = () => ({ prompt: 0, completion: 0, cached: 0, requests: 0, users: {} })
+
+/**
+ * Миграция схемы расходов: файл без `version` считаем версией 0.
+ * Форма данных та же — дни остаются как есть.
+ */
+function migrateUsage(data) {
+  return {
+    ...data,
+    days: data?.days != null && typeof data.days === 'object' ? data.days : {},
+  }
+}
 
 export class UsageStore {
   /**
@@ -42,17 +52,24 @@ export class UsageStore {
     /** @type {Map<string, {prompt: number, completion: number, cached: number, requests: number, users: Record<string, {prompt: number, completion: number, requests: number}>}>} */
     this.days = new Map()
     this.timer = undefined
+    // Очередь записей: перекрывающиеся flush не должны перетирать снимки.
     this.writing = Promise.resolve()
+    // Единый слой: атомарная запись, замок, версия схемы и миграции.
+    this.storage = createJsonStore({
+      file,
+      version: VERSION,
+      defaults: { days: {} },
+      migrate: migrateUsage,
+      logger,
+    })
   }
 
-  /** Read the file when it exists; a corrupt file is reported and replaced. */
+  /** Прочитать файл через общий слой; битый файл не роняет бота. */
   async load() {
     try {
-      const parsed = JSON.parse(await fs.readFile(this.file, 'utf8'))
-      if (parsed?.version !== VERSION || parsed.days == null || typeof parsed.days !== 'object') {
-        throw new Error('unexpected file format')
-      }
-      for (const [key, value] of Object.entries(parsed.days)) {
+      const state = await this.storage.load()
+      if (state.days == null || typeof state.days !== 'object') throw new Error('unexpected file format')
+      for (const [key, value] of Object.entries(state.days)) {
         this.days.set(key, {
           prompt: Number(value?.prompt) || 0,
           completion: Number(value?.completion) || 0,
@@ -64,7 +81,8 @@ export class UsageStore {
       this.prune()
       this.logger?.info('usage loaded', { days: this.days.size })
     } catch (error) {
-      if (error.code !== 'ENOENT') this.logger?.warn('usage file ignored', { file: this.file, error })
+      // Старое поведение: чужая версия схемы и ошибки чтения только логируются.
+      this.logger?.warn('usage file ignored', { file: this.file, error })
     }
     return this
   }
@@ -141,21 +159,18 @@ export class UsageStore {
     this.timer.unref?.()
   }
 
-  /** Persist atomically and wait for the write. */
+  /** Сохранить через общий слой и дождаться записи. */
   async flush() {
     if (this.timer) {
       clearTimeout(this.timer)
       this.timer = undefined
     }
-    // Serialize writers: two flushes must not race on the same temporary file.
+    // Записи выполняются по очереди, чтобы поздний снимок не затёрся ранним.
     this.writing = this.writing.then(async () => {
       try {
         this.prune()
-        const payload = `${JSON.stringify({ version: VERSION, days: Object.fromEntries(this.days) }, null, 2)}\n`
-        await fs.mkdir(path.dirname(this.file), { recursive: true })
-        const temporary = `${this.file}.tmp`
-        await fs.writeFile(temporary, payload, 'utf8')
-        await fs.rename(temporary, this.file)
+        this.storage.state.days = Object.fromEntries(this.days)
+        await this.storage.flush()
       } catch (error) {
         this.logger?.error('usage save failed', { error })
       }

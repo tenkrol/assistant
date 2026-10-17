@@ -6,10 +6,20 @@
  * debounced and atomic (temp file + rename) so a crash mid-write cannot corrupt
  * the file the next start reads.
  */
-import fs from 'node:fs/promises'
-import path from 'node:path'
+import { createJsonStore } from './storage/json-store.mjs'
 
 const VERSION = 1
+
+/**
+ * Миграция схемы истории: файл без `version` считаем версией 0.
+ * Форма данных та же — чаты остаются как есть.
+ */
+function migrateHistory(data) {
+  return {
+    ...data,
+    chats: data?.chats != null && typeof data.chats === 'object' ? data.chats : {},
+  }
+}
 
 export class HistoryStore {
   /**
@@ -32,17 +42,22 @@ export class HistoryStore {
     this.lastUsed = new Map()
     this.timer = null
     this.writing = Promise.resolve()
+    // Единый слой: атомарная запись, замок, версия схемы и миграции.
+    this.storage = createJsonStore({
+      file,
+      version: VERSION,
+      defaults: { chats: {} },
+      migrate: migrateHistory,
+      logger,
+    })
   }
 
-  /** Read the file when it exists; a corrupt file is reported and replaced. */
+  /** Прочитать файл через общий слой; битый файл не роняет бота. */
   async load() {
     try {
-      const raw = await fs.readFile(this.file, 'utf8')
-      const parsed = JSON.parse(raw)
-      if (parsed?.version !== VERSION || typeof parsed.chats !== 'object' || parsed.chats === null) {
-        throw new Error('unexpected file format')
-      }
-      for (const [chatId, record] of Object.entries(parsed.chats)) {
+      const state = await this.storage.load()
+      if (state.chats == null || typeof state.chats !== 'object') throw new Error('unexpected file format')
+      for (const [chatId, record] of Object.entries(state.chats)) {
         const messages = Array.isArray(record?.messages)
           ? record.messages.filter((m) => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string')
           : []
@@ -50,7 +65,8 @@ export class HistoryStore {
       }
       this.logger?.info('history loaded', { chats: this.chats.size })
     } catch (error) {
-      if (error.code !== 'ENOENT') this.logger?.warn('history file ignored', { file: this.file, error })
+      // Старое поведение: чужая версия схемы и ошибки чтения только логируются.
+      this.logger?.warn('history file ignored', { file: this.file, error })
     }
     return this
   }
@@ -169,8 +185,10 @@ export class HistoryStore {
       clearTimeout(this.timer)
       this.timer = null
     }
-    this.writing = this.writing.then(() => this.save())
-    await this.writing.catch((error) => this.logger?.error('history save failed', { error }))
+    // Перехватываем ошибку в самой цепочке: иначе одна неудачная запись
+    // навсегда «отравит» очередь, и следующие flush молча ничего не сохранят.
+    this.writing = this.writing.then(() => this.save()).catch((error) => this.logger?.error('history save failed', { error }))
+    await this.writing
   }
 
   async save() {
@@ -179,10 +197,8 @@ export class HistoryStore {
       if (record.messages.length === 0 && record.model === undefined) continue
       chats[chatId] = record
     }
-    const payload = `${JSON.stringify({ version: VERSION, chats }, null, 2)}\n`
-    await fs.mkdir(path.dirname(this.file), { recursive: true })
-    const temporary = `${this.file}.tmp`
-    await fs.writeFile(temporary, payload, 'utf8')
-    await fs.rename(temporary, this.file)
+    // Синхронизируем доменное состояние с состоянием слоя перед записью.
+    this.storage.state.chats = chats
+    await this.storage.flush()
   }
 }

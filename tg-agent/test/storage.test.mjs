@@ -36,22 +36,25 @@ test('сохранение пишет валидный JSON с версией с
 })
 
 test('при ошибке записи предыдущий файл остаётся целым', async () => {
-  const { dir, file, cleanup } = await sandbox()
+  const { file, cleanup } = await sandbox()
   try {
     const store = createJsonStore({ file, version: 1, defaults: { items: ['старое'] }, logger: silent })
     await store.load()
     await store.flush()
     const before = await fs.readFile(file, 'utf8')
-    // Полный диск моделируем запретом записи в каталог.
-    await fs.chmod(dir, 0o500)
+    // Ошибку записи моделируем каталогом на месте временного файла: открыть его на
+    // запись нельзя. Права (chmod) для этого не подходят — под root они не мешают.
+    const tmp = `${file}.tmp-${process.pid}`
+    await fs.mkdir(tmp)
     store.state.items.push('новое')
     await assert.rejects(() => store.flush())
-    await fs.chmod(dir, 0o700)
+    await fs.rm(tmp, { recursive: true, force: true })
     assert.equal(await fs.readFile(file, 'utf8'), before, 'данные не потеряны')
   } finally {
     await cleanup()
   }
 })
+
 
 test('битый файл копируется рядом, состояние стартует с пустого', async () => {
   const { dir, file, cleanup } = await sandbox()

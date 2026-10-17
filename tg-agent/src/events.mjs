@@ -11,8 +11,7 @@
  * minutes before the start, so delivery, quiet hours and buttons all keep working as
  * they do for any other reminder.
  */
-import fs from 'node:fs/promises'
-import path from 'node:path'
+import { createJsonStore } from './storage/json-store.mjs'
 
 /** File format version. */
 const VERSION = 1
@@ -35,6 +34,17 @@ const isEvent = (value) =>
   && typeof value.at === 'string'
   && !Number.isNaN(Date.parse(value.at))
   && EVENT_REPEATS.includes(value.repeat ?? 'none')
+
+/**
+ * Миграция схемы событий: файл без `version` считаем версией 0.
+ * Форма данных не менялась — отбрасываем только записи неверной формы.
+ */
+function migrateEvents(data) {
+  return {
+    ...data,
+    events: Array.isArray(data?.events) ? data.events.filter(isEvent) : [],
+  }
+}
 
 /** The local calendar day of an instant, as `YYYY-MM-DD`. */
 export function dayKeyInZone(date, timeZone = '') {
@@ -77,35 +87,47 @@ export class EventStore {
     this.timeZone = timeZone
     this.events = []
     this.nextId = 1
+    // Очередь записей: перекрывающиеся flush не должны перетирать снимки.
+    this.writing = Promise.resolve()
+    // Единый слой: атомарная запись, замок, версия схемы и миграции.
+    this.storage = createJsonStore({
+      file,
+      version: VERSION,
+      defaults: { nextId: 1, events: [] },
+      migrate: migrateEvents,
+      logger,
+    })
   }
 
-  /** Load from disk; a broken file is reported and ignored. */
+  /** Прочитать файл через общий слой; битый файл не роняет бота. */
   async load() {
     try {
-      const raw = await fs.readFile(this.file, 'utf8')
-      const data = JSON.parse(raw)
-      this.events = Array.isArray(data.events) ? data.events.filter(isEvent) : []
-      this.nextId = Number.isInteger(data.nextId) && data.nextId > 0 ? data.nextId : this.events.length + 1
+      const state = await this.storage.load()
+      this.events = Array.isArray(state.events) ? state.events.filter(isEvent) : []
+      this.nextId = Number.isInteger(state.nextId) && state.nextId > 0 ? state.nextId : this.events.length + 1
       this.logger?.info('events loaded', { count: this.events.length })
     } catch (error) {
-      if (error?.code !== 'ENOENT') this.logger?.warn('events load failed', { error: error?.message ?? error })
+      this.logger?.warn('events load failed', { error: error?.message ?? error })
       this.events = []
       this.nextId = 1
     }
     return this
   }
 
-  /** Persist atomically and wait for the write. */
+  /** Сохранить через общий слой и дождаться записи. */
   async flush() {
-    try {
-      const payload = `${JSON.stringify({ version: VERSION, nextId: this.nextId, events: this.events }, null, 2)}\n`
-      await fs.mkdir(path.dirname(this.file), { recursive: true })
-      const temporary = `${this.file}.tmp`
-      await fs.writeFile(temporary, payload, 'utf8')
-      await fs.rename(temporary, this.file)
-    } catch (error) {
-      this.logger?.warn('events flush failed', { error: error?.message ?? error })
-    }
+    // Записи выполняются по очереди, чтобы поздний снимок не затёрся ранним.
+    this.writing = this.writing.then(async () => {
+      try {
+        // Синхронизируем доменное состояние с состоянием слоя перед записью.
+        this.storage.state.nextId = this.nextId
+        this.storage.state.events = this.events
+        await this.storage.flush()
+      } catch (error) {
+        this.logger?.warn('events flush failed', { error: error?.message ?? error })
+      }
+    })
+    return this.writing
   }
 
   /**

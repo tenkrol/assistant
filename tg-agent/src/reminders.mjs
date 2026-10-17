@@ -11,8 +11,7 @@
  *     keeps the local time stable in zones without DST (the common case for a
  *     personal bot).
  */
-import fs from 'node:fs/promises'
-import path from 'node:path'
+import { createJsonStore } from './storage/json-store.mjs'
 import { REPEAT_VALUES, isRepeat, repeatAfterDelivery } from './repeats.mjs'
 
 const VERSION = 1
@@ -30,6 +29,17 @@ const isReminder = (value) =>
   && isRepeat(value.repeat ?? 'none')
   && (value.userId === undefined || typeof value.userId === 'number')
 
+/**
+ * Миграция схемы напоминаний: файл без `version` считаем версией 0.
+ * Форма данных в версиях 0 и 1 совпадает, поэтому достаточно отбросить мусор.
+ */
+function migrateReminders(data) {
+  return {
+    ...data,
+    reminders: Array.isArray(data?.reminders) ? data.reminders.filter(isReminder) : [],
+  }
+}
+
 export class ReminderStore {
   /**
    * @param {object} options - store options.
@@ -46,20 +56,30 @@ export class ReminderStore {
     /** @type {Array<{id: string, chatId: number, userId?: number, text: string, dueAt: string, repeat: string, createdAt: string}>} */
     this.reminders = []
     this.nextId = 1
+    // Очередь записей: слой общий, и перекрывающиеся flush не должны
+    // перетирать более свежий снимок состояния.
     this.writing = Promise.resolve()
+    // Единый слой: атомарная запись, замок, версия схемы и миграции.
+    this.storage = createJsonStore({
+      file,
+      version: VERSION,
+      defaults: { nextId: 1, reminders: [] },
+      migrate: migrateReminders,
+      logger,
+    })
   }
 
-  /** Read the file when it exists; a corrupt file is reported and replaced. */
+  /** Прочитать файл через общий слой; битый или чужой файл не роняет бота. */
   async load() {
     try {
-      const parsed = JSON.parse(await fs.readFile(this.file, 'utf8'))
-      if (parsed?.version !== VERSION || !Array.isArray(parsed.reminders)) throw new Error('unexpected file format')
-      this.reminders = parsed.reminders.filter(isReminder)
+      const state = await this.storage.load()
+      this.reminders = Array.isArray(state.reminders) ? state.reminders.filter(isReminder) : []
       const highest = this.reminders.reduce((max, reminder) => Math.max(max, Number(reminder.id) || 0), 0)
-      this.nextId = Math.max(Number(parsed.nextId) || 0, highest + 1)
+      this.nextId = Math.max(Number(state.nextId) || 0, highest + 1)
       this.logger?.info('reminders loaded', { count: this.reminders.length })
     } catch (error) {
-      if (error.code !== 'ENOENT') this.logger?.warn('reminder file ignored', { file: this.file, error })
+      // Старое поведение: чужая версия схемы и ошибки чтения только логируются.
+      this.logger?.warn('reminder file ignored', { file: this.file, error })
     }
     return this
   }
@@ -159,17 +179,21 @@ export class ReminderStore {
     return reminder
   }
 
-  /** Persist atomically and wait for the write. */
+  /** Сохранить через общий слой и дождаться записи. */
   async flush() {
-    try {
-      const payload = `${JSON.stringify({ version: VERSION, nextId: this.nextId, reminders: this.reminders }, null, 2)}\n`
-      await fs.mkdir(path.dirname(this.file), { recursive: true })
-      const temporary = `${this.file}.tmp`
-      await fs.writeFile(temporary, payload, 'utf8')
-      await fs.rename(temporary, this.file)
-    } catch (error) {
-      this.logger?.error('reminder save failed', { error })
-    }
+    // Записи выполняются по очереди: так снимок, снятый позже, не затрётся
+    // состоянием более раннего вызова.
+    this.writing = this.writing.then(async () => {
+      try {
+        // Синхронизируем доменное состояние с состоянием слоя перед записью.
+        this.storage.state.nextId = this.nextId
+        this.storage.state.reminders = this.reminders
+        await this.storage.flush()
+      } catch (error) {
+        this.logger?.error('reminder save failed', { error })
+      }
+    })
+    return this.writing
   }
 }
 

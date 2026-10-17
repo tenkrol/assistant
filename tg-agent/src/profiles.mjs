@@ -10,8 +10,7 @@
  *   - the store is bounded (users and facts per user), so a hostile or merely
  *     chatty partner cannot grow the file without limit.
  */
-import fs from 'node:fs/promises'
-import path from 'node:path'
+import { createJsonStore } from './storage/json-store.mjs'
 
 const VERSION = 1
 const MAX_FACT_LENGTH = 200
@@ -23,6 +22,17 @@ const DEFAULT_MAX_FACTS = 50
 const emptyProfile = () => ({ city: undefined, persona: undefined, mood: undefined, facts: [], nextFactId: 1, updatedAt: new Date().toISOString() })
 
 const isFact = (value) => value != null && typeof value.id === 'string' && typeof value.text === 'string' && value.text.trim() !== ''
+
+/**
+ * Миграция схемы профилей: файл без `version` считаем версией 0.
+ * Форма данных не менялась, поэтому пользователи остаются как есть.
+ */
+function migrateProfiles(data) {
+  return {
+    ...data,
+    users: data?.users != null && typeof data.users === 'object' ? data.users : {},
+  }
+}
 
 export class ProfileStore {
   /**
@@ -39,6 +49,16 @@ export class ProfileStore {
     this.maxFacts = maxFacts
     /** @type {Map<string, {city?: string, facts: Array<{id: string, text: string, createdAt: string}>, nextFactId: number, updatedAt: string}>} */
     this.users = new Map()
+    // Очередь записей: перекрывающиеся flush не должны перетирать снимки.
+    this.writing = Promise.resolve()
+    // Единый слой: атомарная запись, замок, версия схемы и миграции.
+    this.storage = createJsonStore({
+      file,
+      version: VERSION,
+      defaults: { users: {} },
+      migrate: migrateProfiles,
+      logger,
+    })
   }
 
   /** Number of known users. */
@@ -46,14 +66,12 @@ export class ProfileStore {
     return this.users.size
   }
 
-  /** Read the file when it exists; a corrupt file is reported and replaced. */
+  /** Прочитать файл через общий слой; битый файл не роняет бота. */
   async load() {
     try {
-      const parsed = JSON.parse(await fs.readFile(this.file, 'utf8'))
-      if (parsed?.version !== VERSION || parsed.users == null || typeof parsed.users !== 'object') {
-        throw new Error('unexpected file format')
-      }
-      for (const [userId, profile] of Object.entries(parsed.users)) {
+      const state = await this.storage.load()
+      if (state.users == null || typeof state.users !== 'object') throw new Error('unexpected file format')
+      for (const [userId, profile] of Object.entries(state.users)) {
         const facts = Array.isArray(profile?.facts) ? profile.facts.filter(isFact) : []
         const highest = facts.reduce((max, fact) => Math.max(max, Number(fact.id) || 0), 0)
         this.users.set(String(userId), {
@@ -70,7 +88,8 @@ export class ProfileStore {
       }
       this.logger?.info('profiles loaded', { users: this.users.size })
     } catch (error) {
-      if (error.code !== 'ENOENT') this.logger?.warn('profile file ignored', { file: this.file, error })
+      // Старое поведение: чужая версия схемы и ошибки чтения только логируются.
+      this.logger?.warn('profile file ignored', { file: this.file, error })
     }
     return this
   }
@@ -301,30 +320,31 @@ export class ProfileStore {
     return dropped
   }
 
-  /** Persist atomically and wait for the write. */
+  /** Сохранить через общий слой и дождаться записи. */
   async flush() {
-    try {
-      const users = Object.fromEntries(
-        [...this.users.entries()].map(([key, profile]) => [key, {
-          ...(profile.city ? { city: profile.city } : {}),
-          ...(profile.mode ? { mode: profile.mode } : {}),
-          ...(profile.persona ? { persona: profile.persona } : {}),
-          ...(profile.mood ? { mood: profile.mood } : {}),
-          ...(profile.firstName ? { firstName: profile.firstName } : {}),
-          ...(profile.username ? { username: profile.username } : {}),
-          nextFactId: profile.nextFactId,
-          facts: profile.facts,
-          updatedAt: profile.updatedAt,
-        }]),
-      )
-      const payload = `${JSON.stringify({ version: VERSION, users }, null, 2)}\n`
-      await fs.mkdir(path.dirname(this.file), { recursive: true })
-      const temporary = `${this.file}.tmp`
-      await fs.writeFile(temporary, payload, 'utf8')
-      await fs.rename(temporary, this.file)
-    } catch (error) {
-      this.logger?.error('profile save failed', { error })
-    }
+    // Записи выполняются по очереди, чтобы поздний снимок не затёрся ранним.
+    this.writing = this.writing.then(async () => {
+      try {
+        const users = Object.fromEntries(
+          [...this.users.entries()].map(([key, profile]) => [key, {
+            ...(profile.city ? { city: profile.city } : {}),
+            ...(profile.mode ? { mode: profile.mode } : {}),
+            ...(profile.persona ? { persona: profile.persona } : {}),
+            ...(profile.mood ? { mood: profile.mood } : {}),
+            ...(profile.firstName ? { firstName: profile.firstName } : {}),
+            ...(profile.username ? { username: profile.username } : {}),
+            nextFactId: profile.nextFactId,
+            facts: profile.facts,
+            updatedAt: profile.updatedAt,
+          }]),
+        )
+        this.storage.state.users = users
+        await this.storage.flush()
+      } catch (error) {
+        this.logger?.error('profile save failed', { error })
+      }
+    })
+    return this.writing
   }
 }
 
