@@ -19,7 +19,7 @@
 - AND папка изменения не создаётся
 
 ### Requirement: Структура проверяется автоматически
-`node tg-agent/tools/spec-check.mjs` ДОЛЖЕН находить папки изменений без proposal, tasks
+`bash tg-agent/tools/spec-check.sh` ДОЛЖЕН находить папки изменений без proposal, tasks
 или дельты, имена не в формате `ГГГГ-ММ-ДД-<слаг>` и дельты без требований.
 
 #### Scenario: Неполное изменение
@@ -34,7 +34,7 @@
 
 #### Scenario: Новая машина
 - GIVEN репозиторий склонирован на новую машину
-- WHEN выполняется `node tg-agent/tools/secrets.mjs decrypt`
+- WHEN выполняется `bash tg-agent/tools/secrets.sh decrypt`
 - THEN появляется `.env` с правами 600
 - AND без пароля расшифровка невозможна
 

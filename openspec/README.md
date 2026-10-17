@@ -23,6 +23,6 @@
 
 ## Проверка
 ```sh
-node tg-agent/tools/spec-check.mjs     # структура changes и спек
+bash tg-agent/tools/spec-check.sh     # структура changes и спек
 node --test --test-force-exit          # тесты проекта
 ```

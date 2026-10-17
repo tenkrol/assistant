@@ -20,5 +20,5 @@
 ## Как добавить ключ
 1. Получить значение у провайдера.
 2. Добавить в `.env` на машине, где удобно.
-3. `node tg-agent/tools/secrets.mjs encrypt` → обновится `secrets/prod.env.enc`.
+3. `bash tg-agent/tools/secrets.sh encrypt` → обновится `secrets/prod.env.enc`.
 4. Добавить строку в таблицу выше (без значения) и закоммитить.

@@ -21,7 +21,7 @@
 
 ## Секреты
 Открытым текстом — нигде. `secrets/prod.env.enc` (шифртекст) + пароль вне репозитория.
-Расшифровка: `node tg-agent/tools/secrets.mjs decrypt`. Имена ключей — в `secrets/keys.md`.
+Расшифровка: `bash tg-agent/tools/secrets.sh decrypt`. Имена ключей — в `secrets/keys.md`.
 
 ## Запреты
 - Не трогать xray/VPN на Испании.
