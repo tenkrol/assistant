@@ -89,7 +89,8 @@
 | 14.10 | README по факту + `main` = текущее состояние | `1d983eb` | на GitHub видно всё | перевод приложения |
 | 17.10 | OpenSpec-каркас, шифрование секретов | `60ad417` | процесс в репозитории, секреты шифруются | — |
 | 17.10 | `extract-storage` | `20edb55` | все 7 хранилищ на едином слое, задеплоено | — |
-| 17.10 | `extract-domain` | — | правила вынесены из ядра, 780 тестов, задеплоено | `extract-integrations` |
+| 17.10 | `extract-domain` | `6f9f42b` | правила вынесены из ядра, 780 тестов, задеплоено | `extract-integrations` |
+| 17.10 | `extract-integrations` | — | подключения в `src/integrations/`, сеть вне слоя отсутствует, 785 тестов, задеплоено | `extract-tools` |
 
 ## 9. Секреты и окружение
 **Значения здесь не хранятся.** Имена переменных: `TELEGRAM_BOT_TOKEN`, `MODEL_API_KEY` / `MODEL_BASE_URL`, `VK_TOKEN`, `YANDEX_*` (речь и Диск), `OUTBOX_TOKEN`, `BACKUP_PASSPHRASE`, `AGENT_BRIDGE_TOKEN`, `OWNER_NAME`, `ALLOWED_USER_IDS[_VK|_TELEGRAM]`, `MINIAPP_*`, `SERVER_*`.
