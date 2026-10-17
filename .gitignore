@@ -6,6 +6,7 @@
 !/openspec/
 !/AGENTS.md
 !/secrets/
+!/docs/
 secrets/*.env
 !secrets/*.enc
 !/.gitignore
