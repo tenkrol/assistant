@@ -17,5 +17,5 @@
 - [x] 4.1 Коммит и пуш (правки только документация и скрипты)
 
 ## 5. Закрытие
-- [ ] 5.1 Дельта `workflow` влита в `openspec/specs/workflow/spec.md`
+- [x] 5.1 Дельта `workflow` влита в `openspec/specs/workflow/spec.md`
 - [x] 5.2 `docs/HANDOFF.md` обновлён
