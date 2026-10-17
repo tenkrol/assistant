@@ -14,13 +14,13 @@ const book = [
   { chatId: 433296567, name: 'Вячеслав', phone: '9997654321', username: 'tenkrol' },
 ]
 
-function makeTool({ failWith } = {}) {
+function makeTool({ failWith, entries = book } = {}) {
   const sent = []
   const contacts = {
-    byPhone: (key) => book.find((entry) => phoneKey(entry.phone) === phoneKey(key)),
-    byUsername: (value) => book.find((entry) => String(entry.username).toLowerCase() === String(value).replace(/^@/, '').toLowerCase()),
-    search: (query) => book.filter((entry) => entry.name.toLowerCase().includes(String(query).toLowerCase())),
-    list: () => book.map((entry) => ({ chatId: entry.chatId, name: entry.name })),
+    byPhone: (key) => entries.find((entry) => phoneKey(entry.phone) === phoneKey(key)),
+    byUsername: (value) => entries.find((entry) => String(entry.username).toLowerCase() === String(value).replace(/^@/, '').toLowerCase()),
+    search: (query) => entries.filter((entry) => entry.name.toLowerCase().includes(String(query).toLowerCase())),
+    list: () => entries.map((entry) => ({ chatId: entry.chatId, name: entry.name })),
   }
   const tool = createSendToTool({
     contacts,
@@ -68,6 +68,44 @@ test('не угадывает, если под имя подходит неск�
   const result = await tool.executeDetailed({ target: 'Мари', text: 'привет' })
   assert.match(result.text, /нашлось несколько человек|Отправил/)
   assert.ok(sent.length <= 1)
+})
+
+test('«Мария» находит «Машу», если она одна', async () => {
+  const { tool, sent } = makeTool({ entries: [{ chatId: 501, name: 'Маша' }] })
+  const result = await tool.executeDetailed({ target: 'Мария', text: 'задержусь' })
+  assert.match(result.text, /Отправил Маша \(имя\)/)
+  assert.equal(sent.length, 1)
+  assert.equal(sent[0].chatId, 501)
+  assert.equal(sent[0].text, 'От Вячеслава: задержусь', 'подпись сохраняется')
+})
+
+test('«Мария» находит «Марину» по общей основе без окончания', async () => {
+  const { tool, sent } = makeTool({ entries: [{ chatId: 502, name: 'Марина' }] })
+  await tool.executeDetailed({ target: 'Мария', text: 'привет' })
+  assert.equal(sent[0].chatId, 502)
+})
+
+test('двое подходящих по мягкому совпадению — прежний вопрос с уточнением', async () => {
+  const entries = [
+    { chatId: 601, name: 'Маша' },
+    { chatId: 602, name: 'Марина' },
+  ]
+  const { tool, sent } = makeTool({ entries })
+  const result = await tool.executeDetailed({ target: 'Мария', text: 'привет' })
+  assert.equal(
+    result.text,
+    'Ошибка инструмента sendto: под «Мария» нашлось несколько человек (Маша, Марина). Уточните, кому именно.',
+    'текст отказа не изменился',
+  )
+  assert.equal(sent.length, 0, 'ничего не отправлено')
+})
+
+test('неизвестное имя по-прежнему даёт список известных', async () => {
+  const { tool, sent } = makeTool({ entries: [{ chatId: 701, name: 'Маша' }] })
+  const result = await tool.executeDetailed({ target: 'Пётр', text: 'привет' })
+  assert.match(result.text, /не нашёл «Пётр»/)
+  assert.match(result.text, /Маша/)
+  assert.equal(sent.length, 0)
 })
 
 test('перечисляет известных людей, если адресат не найден', async () => {

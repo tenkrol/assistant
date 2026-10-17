@@ -335,13 +335,13 @@ test('пустой файл не отправляется и не ходит в 
 // Контракт с ядром и возможности
 // ---------------------------------------------------------------------------
 
-test('ядро видит sendDocument у VK, а sendVoice по-прежнему отсутствует', () => {
+test('ядро видит у VK и sendDocument, и появившийся в PLB-011 sendVoice', () => {
   const platform = makePlatform(undefined)
   assert.equal(typeof platform.sendDocument, 'function')
-  assert.equal(typeof platform.sendVoice, 'undefined')
+  assert.equal(typeof platform.sendVoice, 'function', 'озвучка проверяется в platform-vk-voice.test.mjs')
 })
 
-test('возможности VK: файлы на выход есть, голосовых ответов нет', () => {
+test('возможности VK: файлы на выход есть, озвучка больше не скрывается', () => {
   const lines = capabilityLines({
     config: {},
     media: { transcribe: async () => '', extractText: async () => ({ text: '' }) },
@@ -350,7 +350,7 @@ test('возможности VK: файлы на выход есть, голос
   assert.equal(lines.some((line) => line.includes('файлы на выход')), true)
   assert.equal(lines.some((line) => line.includes('PDF, Excel, Word, CSV')), true)
   assert.equal(lines.some((line) => line.includes('голосовые')), true, 'входящие голосовые распознаются')
-  assert.equal(lines.some((line) => line.includes('отвечать голосом')), false, 'озвучки ответов в VK нет')
+  assert.equal(lines.some((line) => line.includes('отвечать голосом')), true, 'PLB-011 включил озвучку в VK')
 
   // Остальные платформы список не меняют: Telegram по-прежнему обещает озвучку.
   const telegram = capabilityLines({

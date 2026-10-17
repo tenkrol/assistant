@@ -33,6 +33,79 @@ function phoneKey(value) {
 }
 
 /**
+ * Ласковые и краткие формы, которые не выводятся из полного имени общим
+ * правилом: «Мария» и «Маша» не делят даже трёх первых букв. Список общий для
+ * всех справочников — владельцу не нужно ничего заполнять; в каждой строке
+ * одна группа взаимозаменяемых форм.
+ */
+const NAME_GROUPS = [
+  ['мария', 'маша', 'маруся', 'маня'],
+  ['александр', 'александра', 'саша', 'шура'],
+  ['екатерина', 'катя'],
+  ['дмитрий', 'дима'],
+  ['сергей', 'сережа'],
+  ['наталья', 'наталия', 'наташа'],
+  ['елена', 'лена'],
+  ['алексей', 'леша'],
+  ['михаил', 'миша'],
+  ['николай', 'коля'],
+  ['владимир', 'вова'],
+  ['павел', 'паша'],
+  ['петр', 'петя'],
+  ['анна', 'аня'],
+  ['иван', 'ваня'],
+  ['татьяна', 'таня'],
+  ['юлия', 'юля'],
+  ['ольга', 'оля'],
+  ['евгений', 'евгения', 'женя'],
+  ['константин', 'костя'],
+  ['вячеслав', 'слава'],
+]
+/** Форма имени → её группа; по ней «Мария» и «Маша» считаются одним человеком. */
+const NAME_GROUP_BY_FORM = new Map(NAME_GROUPS.flatMap((forms) => forms.map((form) => [form, forms[0]])))
+
+/** Имя в сравнимом виде: нижний регистр, «ё» → «е», лишние пробелы убраны. */
+function normalizeName(value) {
+  return String(value ?? '').toLowerCase().replace(/ё/g, 'е').replace(/\s+/g, ' ').trim()
+}
+
+/** Основа имени без типичного окончания: «Мария» → «мари», «Марина» → «марин». */
+function nameStem(value) {
+  return normalizeName(value).replace(/(ия|ья|ий|ей|а|я|ь)$/u, '')
+}
+
+/** Одно имя — начало другого, и это начало не короче трёх букв. */
+function isPrefixPair(left, right) {
+  const [short, long] = left.length <= right.length ? [left, right] : [right, left]
+  return short.length >= 3 && long.startsWith(short)
+}
+
+/**
+ * Похоже ли имя из справочника на то, что просят.
+ *
+ * Точное совпадение и подстроку уже нашёл `contacts.search`; здесь — второй
+ * проход: известная ласковая форма, начало имени («Мари» → «Мария») и общая
+ * основа без окончания («Мария» → «Марина»). Решение принимает вызывающий:
+ * единственный кандидат — адресат, несколько — вопрос, ни одного — отказ.
+ *
+ * @param {string} query - имя из запроса.
+ * @param {string} name - имя из справочника.
+ * @returns {boolean} подходит ли имя.
+ */
+function softlyMatches(query, name) {
+  const asked = normalizeName(query)
+  const known = normalizeName(name)
+  if (asked === '' || known === '') return false
+  if (asked === known) return true
+  const group = NAME_GROUP_BY_FORM.get(asked)
+  if (group !== undefined && group === NAME_GROUP_BY_FORM.get(known)) return true
+  if (isPrefixPair(asked, known)) return true
+  const askedStem = nameStem(asked)
+  const knownStem = nameStem(known)
+  return askedStem.length >= 3 && knownStem.length >= 3 && isPrefixPair(askedStem, knownStem)
+}
+
+/**
  * Собрать инструмент.
  *
  * @param {object} options - `send({chatId, text})`, `contacts`, `ownerName`, `logger`.
@@ -95,6 +168,16 @@ export function createSendToTool({ send, contacts, ownerName = 'владельц
     if (matches.length === 1) return { chatId: matches[0].chatId, label: matches[0].name ?? value, how: 'имя' }
     if (matches.length > 1) {
       const names = matches.map((entry) => entry.name ?? entry.chatId).join(', ')
+      return { error: `под «${value}» нашлось несколько человек (${names}). Уточните, кому именно.` }
+    }
+
+    // Второй проход: точный поиск пуст, но имя могли назвать иначе — «Мария»
+    // вместо «Маши», «Мари» вместо «Марии». Угадываем только единственного
+    // кандидата; двое и больше — прежний отказ с уточнением.
+    const soft = (contacts?.list?.() ?? []).filter((entry) => softlyMatches(value, entry.name))
+    if (soft.length === 1) return { chatId: soft[0].chatId, label: soft[0].name ?? value, how: 'имя' }
+    if (soft.length > 1) {
+      const names = soft.map((entry) => entry.name ?? entry.chatId).join(', ')
       return { error: `под «${value}» нашлось несколько человек (${names}). Уточните, кому именно.` }
     }
 

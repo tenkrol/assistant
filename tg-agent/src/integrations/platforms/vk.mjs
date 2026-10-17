@@ -157,6 +157,8 @@ export const DEFAULT_MAX_DOWNLOAD_BYTES = 20_000_000
  * файлов инструмента `file` и при этом не раздувают запрос.
  */
 export const VK_DOCUMENT_TITLE_LIMIT = 256
+/** Имя файла голосового сообщения в multipart: VK принимает озвучку как OGG. */
+const VK_VOICE_FILE_NAME = 'voice.ogg'
 /** How many of our own message ids are remembered for reply detection. */
 export const OWN_MESSAGE_CACHE_SIZE = 200
 /** How many `message_event`s are remembered so `answerCallback` can reply. */
@@ -288,8 +290,8 @@ function failureDetail(error) {
   return code ? `сетевая ошибка ${code}` : 'сеть недоступна'
 }
 
-/** Обернуть сбой шага отправки документа в `VkError` с русским объяснением. */
-function documentError(error, summary, method) {
+/** Обернуть сбой шага отправки (файл, голос) в `VkError` с русским объяснением. */
+function sendStepError(error, summary, method) {
   return new VkError(`${summary}: ${failureDetail(error)}`, {
     method,
     code: error?.code,
@@ -1346,7 +1348,7 @@ export class VkPlatform {
       const { data } = await this.client.getMessagesUploadServer({ peerId, type: 'doc' })
       uploadUrl = typeof data?.upload_url === 'string' ? data.upload_url : ''
     } catch (error) {
-      throw documentError(error, `Не удалось получить адрес загрузки файла «${name}»`, 'docs.getMessagesUploadServer')
+      throw sendStepError(error, `Не удалось получить адрес загрузки файла «${name}»`, 'docs.getMessagesUploadServer')
     }
     if (uploadUrl === '') {
       throw new VkError(`Не удалось получить адрес загрузки файла «${name}»: VK не вернул upload_url`, {
@@ -1361,7 +1363,7 @@ export class VkPlatform {
       const { data } = await this.client.saveDocument({ file, title: name })
       saved = data
     } catch (error) {
-      throw documentError(error, `Не удалось сохранить файл «${name}»`, 'docs.save')
+      throw sendStepError(error, `Не удалось сохранить файл «${name}»`, 'docs.save')
     }
     // API отвечает `{type: 'doc', doc: {…}}`; старые версии — массивом документов.
     const doc = Array.isArray(saved) ? saved[0] : (saved?.doc ?? saved)
@@ -1385,7 +1387,119 @@ export class VkPlatform {
       })
       sent = data
     } catch (error) {
-      throw documentError(error, `Не удалось отправить файл «${name}»`, 'messages.send')
+      throw sendStepError(error, `Не удалось отправить файл «${name}»`, 'messages.send')
+    }
+    const messageId = idOrUndefined(sent)
+    if (messageId !== undefined) {
+      this.rememberOwnMessage(messageId, chatId)
+      this.rememberLastMessage(chatId, messageId)
+    }
+    return { messageId }
+  }
+
+  /**
+   * Отправить голосовое сообщение (OGG) в чат VK.
+   *
+   * VK принимает озвучку как документ типа `audio_message`: адрес загрузки →
+   * multipart → `docs.save` → сообщение с вложением
+   * `audio_message<owner_id>_<id>` (https://dev.vk.com/ru/method/docs.save).
+   * Голос — дополнение к уже отправленному тексту, поэтому сбой шага не
+   * бросается наружу и не отменяет ответ: причина уходит в журнал, а подпись
+   * (если она передана) отправляется обычным текстом.
+   *
+   * @param {object} request - `chatId`, `bytes` (OGG), optional `caption`, `replyToMessageId`.
+   * @returns {Promise<{messageId?: number|string, fallback?: 'text'}>} id или признак отката.
+   */
+  async sendVoice({ chatId, bytes, caption, replyToMessageId }) {
+    const peerId = idOrUndefined(chatId)
+    const body = markdownToVkText(caption).slice(0, VK_TEXT_LIMIT)
+
+    /**
+     * Текстовый откат: причина — в журнал, подпись — сообщением.
+     * @param {Error} error - сбой шага.
+     * @param {string} step - шаг, на котором случился сбой.
+     */
+    const textFallback = async (error, step) => {
+      this.logger?.warn('vk voice answer failed, falling back to text', {
+        chatId,
+        step,
+        reason: failureDetail(error),
+      })
+      if (typeof caption !== 'string' || caption.trim() === '') return { fallback: 'text' }
+      try {
+        const result = await this.sendText({ chatId, markdown: caption, replyToMessageId })
+        return { ...result, fallback: 'text' }
+      } catch (fallbackError) {
+        this.logger?.warn('vk voice text fallback failed', {
+          chatId,
+          reason: failureDetail(fallbackError),
+        })
+        return { fallback: 'text' }
+      }
+    }
+
+    if (!bytes || bytes.length === 0) {
+      return textFallback(
+        new VkError('Не удалось отправить голосовое: содержимое пустое', { method: 'sendVoice' }),
+        'sendVoice',
+      )
+    }
+    if (peerId === undefined) {
+      return textFallback(
+        new VkError('Не удалось отправить голосовое: не указан получатель', { method: 'sendVoice' }),
+        'sendVoice',
+      )
+    }
+
+    let uploadUrl
+    try {
+      const { data } = await this.client.getMessagesUploadServer({ peerId, type: 'audio_message' })
+      uploadUrl = typeof data?.upload_url === 'string' ? data.upload_url : ''
+    } catch (error) {
+      return textFallback(error, 'docs.getMessagesUploadServer')
+    }
+    if (uploadUrl === '') {
+      return textFallback(new VkError('Не удалось получить адрес загрузки голосового: VK не вернул upload_url', {
+        method: 'docs.getMessagesUploadServer',
+      }), 'docs.getMessagesUploadServer')
+    }
+
+    let file
+    try {
+      file = await this.uploadVoice({ uploadUrl, bytes })
+    } catch (error) {
+      return textFallback(error, 'upload')
+    }
+
+    let saved
+    try {
+      const { data } = await this.client.saveDocument({ file })
+      saved = data
+    } catch (error) {
+      return textFallback(error, 'docs.save')
+    }
+    // API отвечает `{type: 'audio_message', audio_message: {…}}`; старые версии — массивом.
+    const audio = Array.isArray(saved) ? saved[0] : (saved?.audio_message ?? saved?.doc ?? saved)
+    const ownerId = idOrUndefined(audio?.owner_id)
+    const audioId = idOrUndefined(audio?.id)
+    if (ownerId === undefined || audioId === undefined) {
+      return textFallback(new VkError('Не удалось сохранить голосовое: VK не вернул идентификатор', {
+        method: 'docs.save',
+      }), 'docs.save')
+    }
+
+    let sent
+    try {
+      const { data } = await this.client.sendMessage({
+        peerId,
+        message: body === '' ? undefined : body,
+        randomId: this.nextRandomId(),
+        replyTo: replyToMessageId,
+        attachment: `audio_message${ownerId}_${audioId}`,
+      })
+      sent = data
+    } catch (error) {
+      return textFallback(error, 'messages.send')
     }
     const messageId = idOrUndefined(sent)
     if (messageId !== undefined) {
@@ -1406,8 +1520,47 @@ export class VkPlatform {
    * @returns {Promise<string>} значение поля `file` для `docs.save`.
    */
   async uploadDocument({ uploadUrl, bytes, fileName }) {
+    return this.uploadFile({
+      uploadUrl,
+      bytes,
+      fileName,
+      contentType: 'application/octet-stream',
+      summary: `файл «${fileName}»`,
+    })
+  }
+
+  /**
+   * Загрузить голосовое сообщение на выданный VK адрес.
+   *
+   * Поле и адрес те же, что у документа, но VK опознаёт озвучку по типу
+   * `audio/ogg` и расширению `.ogg`, а не по расширению произвольного файла.
+   *
+   * @param {object} request - `uploadUrl`, `bytes`, optional `fileName`.
+   * @returns {Promise<string>} значение поля `file` для `docs.save`.
+   */
+  async uploadVoice({ uploadUrl, bytes, fileName = VK_VOICE_FILE_NAME }) {
+    return this.uploadFile({
+      uploadUrl,
+      bytes,
+      fileName,
+      contentType: 'audio/ogg',
+      summary: 'голосовое сообщение',
+    })
+  }
+
+  /**
+   * Общий шаг загрузки: `multipart/form-data` с полем `file`.
+   *
+   * Это единственный запрос, который идёт не в `api.vk.com` и не несёт токен:
+   * адрес уже содержит одноразовую подпись. `summary` подставляется в русское
+   * объяснение сбоя.
+   *
+   * @param {object} request - `uploadUrl`, `bytes`, `fileName`, `contentType`, `summary`.
+   * @returns {Promise<string>} значение поля `file` для `docs.save`.
+   */
+  async uploadFile({ uploadUrl, bytes, fileName, contentType, summary }) {
     const form = new FormData()
-    form.append('file', new Blob([bytes], { type: 'application/octet-stream' }), fileName)
+    form.append('file', new Blob([bytes], { type: contentType }), fileName)
     let response
     try {
       response = await this.fetchImpl(uploadUrl, {
@@ -1416,24 +1569,24 @@ export class VkPlatform {
         signal: deadlineSignal(this.timeoutMs),
       })
     } catch (error) {
-      throw documentError(error, `Не удалось загрузить файл «${fileName}»`, 'upload')
+      throw sendStepError(error, `Не удалось загрузить ${summary}`, 'upload')
     }
 
     let text
     try {
       text = await response.text()
     } catch (error) {
-      throw documentError(error, `Не удалось загрузить файл «${fileName}»`, 'upload')
+      throw sendStepError(error, `Не удалось загрузить ${summary}`, 'upload')
     }
     const data = parseJson(text)
     if (!response.ok) {
-      throw new VkError(`Не удалось загрузить файл «${fileName}»: HTTP ${response.status}`, {
+      throw new VkError(`Не удалось загрузить ${summary}: HTTP ${response.status}`, {
         method: 'upload',
         status: response.status,
       })
     }
     if (data === undefined) {
-      throw new VkError(`Не удалось загрузить файл «${fileName}»: VK ответил не JSON`, {
+      throw new VkError(`Не удалось загрузить ${summary}: VK ответил не JSON`, {
         method: 'upload',
         status: response.status,
       })
@@ -1441,7 +1594,7 @@ export class VkPlatform {
     if (data?.error) {
       const code = Number(data.error.error_code)
       const description = firstString(data.error.error_msg, data.error.message, data.error) || 'неизвестная ошибка VK'
-      throw new VkError(`Не удалось загрузить файл «${fileName}»: ${description}`, {
+      throw new VkError(`Не удалось загрузить ${summary}: ${description}`, {
         method: 'upload',
         code: Number.isFinite(code) ? code : undefined,
         description,
@@ -1450,7 +1603,7 @@ export class VkPlatform {
     }
     const file = typeof data?.file === 'string' ? data.file.trim() : ''
     if (file === '') {
-      throw new VkError(`Не удалось загрузить файл «${fileName}»: VK не вернул поле file`, {
+      throw new VkError(`Не удалось загрузить ${summary}: VK не вернул поле file`, {
         method: 'upload',
         status: response.status,
       })

@@ -19,7 +19,8 @@ import { prepareAttachments } from '../media-handler.mjs'
 import { detectFacts } from '../auto-memory.mjs'
 import { characterHint as personaCharacterHint } from '../personas.mjs'
 import { parsePollAction, pollKeyboard, pollMessage } from '../polls.mjs'
-import { MODES, parseCommand } from './commands.mjs'
+import { parseCommand } from './commands.mjs'
+import { MODES } from './modes.mjs'
 
 const DENY_COOLDOWN_MS = 10 * 60 * 1000
 

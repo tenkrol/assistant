@@ -15,12 +15,12 @@ const PLATFORM_LABEL = { telegram: 'Telegram', vk: 'VK', 'vk-teams': 'VK Teams',
  *
  * `files` — отправка документов (`sendDocument`), `voiceAnswers` — озвучка
  * ответов (`sendVoice`), а не распознавание входящих голосовых. VK отправляет
- * PDF, Excel, Word и CSV, но голосом отвечать не умеет — это отдельное
- * изменение (PLB-011). Остальные платформы сохраняют прежний список, поэтому
- * для них ключа нет и берётся значение по умолчанию.
+ * PDF, Excel, Word и CSV и, начиная с PLB-011, голосовые ответы через
+ * `audio_message`. Остальные платформы сохраняют прежний список, поэтому для
+ * них ключа нет и берётся значение по умолчанию.
  */
 const PLATFORM_OUTPUT = {
-  vk: { files: true, voiceAnswers: false },
+  vk: { files: true, voiceAnswers: true },
 }
 const DEFAULT_OUTPUT = { files: true, voiceAnswers: true }
 

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { htmlToPlainText, markdownToTelegramHtml, splitForTelegram } from '../src/format.mjs'
+import { htmlToPlainText, markdownToTelegramHtml } from '../src/delivery/format.mjs'
+import { splitForTelegram } from '../src/delivery/stream.mjs'
 
 test('escapes markup that Telegram would otherwise parse', () => {
   const html = markdownToTelegramHtml('a < b & c > d <script>alert(1)</script>')
