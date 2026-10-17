@@ -6,7 +6,8 @@
  * keyboards, callback queries and typing hints. The core only sees normalised
  * updates and neutral keyboards.
  */
-import { markdownToTelegramHtml, splitForTelegram } from '../../format.mjs'
+import { markdownToTelegramHtml } from '../../delivery/format.mjs'
+import { splitForTelegram } from '../../delivery/stream.mjs'
 import { TelegramClient, TelegramError } from '../telegram/index.mjs'
 import { numericId } from './port.mjs'
 

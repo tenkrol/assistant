@@ -1,21 +1,17 @@
 /**
- * Bot orchestration: polling, access control, commands and reply delivery.
+ * Фасад ядра бота: опрос платформы, доступ, доставка и склейка слоёв.
  *
- * Design decisions worth knowing while reading:
- *   - updates are acknowledged as soon as they are queued, so a slow model call
- *     never blocks the polling loop or other chats;
- *   - work for one chat is serialized (a conversation must stay ordered) while a
- *     global semaphore caps how many model calls run at once;
- *   - a reply is converted to Telegram HTML and split, with a plain-text retry
- *     when Telegram rejects the entities.
+ * Решения, которые стоит знать при чтении:
+ *   - обновления подтверждаются сразу после постановки в очередь, поэтому
+ *     медленный вызов модели не блокирует цикл опроса и другие чаты;
+ *   - работа одного чата сериализуется (разговор должен сохранять порядок), а
+ *     глобальный семафор ограничивает число одновременных вызовов модели;
+ *   - разметка, стриминг и разбиение длинного ответа живут в `src/delivery/`,
+ *     обработка сообщения — в `src/core/conversation.mjs`, команды — в
+ *     `src/core/commands.mjs`, возможности — в `src/core/capabilities.mjs`.
  */
 import fs from 'node:fs/promises'
 import path from 'node:path'
-import { formatTimeContext } from './time-context.mjs'
-import { prepareAttachments } from './media-handler.mjs'
-import { detectFacts } from './auto-memory.mjs'
-import { MOODS, MOOD_NAMES, PERSONAS, PERSONA_NAMES, characterHint, moodOf } from './personas.mjs'
-import { parsePollAction, pollKeyboard, pollMessage } from './polls.mjs'
 import { dayKey } from './usage.mjs'
 import { rulesOfProfiles } from './domain/profiles.mjs'
 import { rulesOfReminders } from './domain/reminders.mjs'
@@ -23,194 +19,20 @@ import { rulesOfEvents } from './domain/events.mjs'
 import { rulesOfPolls } from './domain/polls.mjs'
 import { createToolRegistry } from './tools/registry.mjs'
 import { createContactStore } from './contacts.mjs'
-
-/** Answer modes offered by `/mode`. */
-const MODES = {
-  'кратко': 'Отвечай очень коротко: 1–3 предложения, без вступлений и итогов.',
-  'подробно': 'Отвечай подробно: структура, примеры, при необходимости список шагов.',
-  'код': 'Отвечай как программист: только код и краткие пояснения к нему, без воды.',
-  'письмо': 'Пиши в деловом стиле, готовым текстом письма, без разговорных выражений.',
-  'просто': 'Объясняй простыми словами, без технического жаргона.',
-}
+import { createStreamer } from './delivery/stream.mjs'
+import { createCommandRouter } from './core/commands.mjs'
+import { capabilityLines, capabilityHint } from './core/capabilities.mjs'
+import { createConversation, truncate } from './core/conversation.mjs'
 
 const TYPING_INTERVAL_MS = 4000
-const DENY_COOLDOWN_MS = 10 * 60 * 1000
-/** Alerting: N failures inside the window trigger one message per cooldown. */
+/** Алерты: N сбоев внутри окна дают одно сообщение за кулдаун. */
 const ALERT_FAILURES = 3
 const ALERT_WINDOW_MS = 10 * 60 * 1000
 const ALERT_COOLDOWN_MS = 60 * 60 * 1000
-/** Warn when this share of the daily token budget is spent. */
+/** Предупреждать, когда израсходована эта доля дневного бюджета токенов. */
 const SPEND_ALERT_RATIO = 0.8
 
-/** Список напоминаний — это не просьба создать новое, и насильно звать remind нельзя. */
-const REMINDER_LIST = /(покажи|какие|какой|список|что|все|мои)\s+[^.!?]{0,24}?напомин/iu
-/** The user is asking for a reminder; the tool must actually run. */
-const REMINDER_INTENT = /(напомни(?![\p{L}])|напомни(?:шь|те|ть|те)?\b|напоминай|напоминалк|(?:поставь|создай|сделай|заведи|новое)\s+напомин|напоминан[\p{L}]*\s+(?:на|в|через|о|к|про)(?![\p{L}])|\bremind me\b)/iu
-/** The answer claims a reminder with a concrete time ("напомню в 01:23"). */
-const REMINDER_CLAIM = /(?:напомн[\p{L}]*\s+в\s+\d|напоминание\s+(?:создано|поставлено|№)|напомню\s+(?:вам|тебе|в|завтра|сегодня|через))/iu
-/** A request for a document: a table, a letter, an export. */
-const FILE_INTENT = /(таблиц|excel|эксель|xlsx|csv|документ|docx|ворд|\bword\b|презентац|отч[её]т|выгруз|файл|письм[оа]\s+в\s+docx)/i
-/** The model claims a file is on its way without having built one. */
-const FILE_CLAIM = /(файл\s+(?:отправлен|готов|приложен)|отправил\s+файл|во\s+вложении)/i
-/** The user explicitly asks to remember something. */
-const MEMORY_INTENT = /(запомн|запиши|занеси|сохрани в память)/i
-/** The user states a durable fact about themselves. */
-const PROFILE_ASSERTION = /(я\s+(?:живу|нахожусь|переехал|переехала|родился|родилась)|мой\s+город|меня\s+зовут|моё\s+имя|мое\s+имя|зови\s+меня|я\s+из\s+[А-ЯЁ])/i
-
-/**
- * Whether this message asks the bot to keep something about the user.
- *
- * A question is never an assertion: "какой мой город?" must not create a fact.
- */
-function isMemoryRequest(text) {
-  const value = String(text ?? '').trim()
-  if (MEMORY_INTENT.test(value)) return true
-  if (value.endsWith('?')) return false
-  return PROFILE_ASSERTION.test(value)
-}
-
-// Reply text is Markdown: `send()` converts it to Telegram HTML and escapes
-// everything else, so raw HTML must never be passed in here.
-const HELP = [
-  "**Что я умею**",
-  "",
-  "• Отвечаю на вопросы, ищу в интернете и читаю страницы",
-  "• Погода и прогноз, праздники, анекдот — словами, без команд",
-  "• Напоминания: «напомни завтра в 9 купить хлеб» — с кнопками «отложить» и «отменить»",
-  "• Календарь: «запиши стоматолога 15 октября в 11:30»; дни рождения — каждый год",
-  "• Утренний дайджест в 8:00: погода, предупреждения, праздники (официальные, церковные, народные), совет для здоровья, события дня, напоминания",
-  "• Помню факты о вас и ваш город; в группах личное не подмешиваю",
-  "• Понимаю фото и документы: PDF, DOCX, XLSX, PPTX, CSV, JSON, TXT",
-  "• Голосовые: расшифрую; по команде /voice отвечаю голосом",
-  "• Пришлю файл сам: Excel, Word, CSV или текстом — «сделай таблицу в Excel по этим данным»",
-  "• Конспект видео: пришлите ссылку на YouTube и спросите «о чём это»",
-  "• Опрос для всех: «создай опрос: куда едем — лес, река, дача» — кнопки и подсчёт голосов",
-  "• Найду в нашей переписке: «что мы решали про ремонт?»",
-  "• Характер и настроение: /character, /mood",
-  "• Тихие часы 23:00–08:00: ночью не разбужу — перенесу напоминание на утро",
-  "",
-  "**Команды**",
-  "",
-  "Диалог",
-  "/new — начать заново (контекст очищается)",
-  "/model — показать или сменить модель для этого чата",
-  "/mode — стиль ответов: кратко, подробно, код, письмо",
-  "/character — характер бота",
-  "/mood — настроение дня",
-  "/voice — озвучивать ответы в этом чате",
-  "",
-  "Напоминания и календарь",
-  "/reminders — список напоминаний",
-  "/cancel <номер> — отменить напоминание",
-  "/calendar — ближайшие события",
-  "",
-  "Память и данные",
-  "/memory — что я о вас помню",
-  "/forget <номер|all> — забыть факт",
-  "/city <город> — город по умолчанию для погоды",
-  "/search <слова> — поиск по нашей переписке",
-  "/export — выгрузить ваши данные файлом",
-  "",
-  "Прочее",
-  "/digest — прислать утренний дайджест сейчас",
-  "/stats — расход токенов за сегодня",
-  "/server — состояние сервера, где я работаю",
-  "/whoami — ваши ID",
-  "/help — эта справка",
-  "",
-  "**Примеры**",
-  "«напомни завтра в 9 купить хлеб»",
-  "«запиши приём у врача 22 октября в 10:30»",
-  "«какая завтра погода в Москве»",
-  "«сделай таблицу в Excel по этим данным»",
-  "«пришли ссылку разбери: https://youtu.be/…»",
-  "«что мы решали про ремонт?»",
-].join('\n')
-
-/** Human name of the messenger this process serves. */
-const PLATFORM_LABEL = { telegram: 'Telegram', vk: 'VK', 'vk-teams': 'VK Teams', max: 'MAX' }
-
-/**
- * What this deployment can actually do.
- *
- * The list is built from the configuration, not from hope: a bot without a
- * transcriber must not promise voice input, and a bot without Home Assistant
- * credentials must not promise to switch the lights. The model gets it as a
- * system message, and `/help` prints it to the user.
- *
- * @param {object} options - configuration and wired capabilities.
- * @param {object} options.config - loaded configuration.
- * @param {object} [options.media] - `{ transcribe, extractText }`.
- * @param {string} options.platformName - `telegram`, `vk`, `vk-teams` or `max`.
- * @returns {Array<string>} one line per capability.
- */
-function capabilityLines({ config, media, platformName }) {
-  const messenger = PLATFORM_LABEL[platformName] ?? platformName
-  // Every line says what the thing does *and* how to ask for it: this list is what
-  // the model repeats when the user asks "что ты умеешь".
-  const lines = [
-    `Ты работаешь в мессенджере ${messenger} и помнишь контекст последних сообщений в чате.`,
-    '— отвечать на вопросы обычными словами;',
-    '— искать в интернете и читать страницы: «что нового по ИИ», «прочитай ссылку»;',
-    '— погода, праздники, анекдот: «какая завтра погода в Москве»;',
-    '— календарь: «запиши стоматолога 15 октября в 11:30»; список — /calendar;',
-    '— напоминания: «напомни завтра в 9 купить хлеб»; список — /reminders, отмена — /cancel <номер>;',
-    '— память: «запомни, меня зовут …»; показать — /memory, забыть — /forget, город — /city;',
-    '— стиль ответов: /mode (кратко, подробно, код, письмо, просто);',
-    '— характер и настроение дня: /character, /mood;',
-    '— фотографии: пришлите фото и спросите «что тут» или «прочитай текст»;',
-    '— прислать файл: «сделай таблицу в Excel по этим данным», «оформи письмо документом», «собери отчёт файлом» — придёт документ;',
-    '— поиск по прошлой переписке: /search слово или вопрос «что мы решали про ремонт?»;',
-    '— конспект видео: пришлите ссылку на YouTube и спросите «о чём это» — вытащу субтитры и перескажу;',
-    '— опрос для всех: «создай опрос, куда едем в выходные: лес, река, дача» — с кнопками и подсчётом голосов;',
-  ]
-  if (media?.extractText) {
-    lines.push('— документы (PDF, DOCX, XLSX, PPTX, CSV, JSON, TXT): пришлите файл и спросите «что в нём», «посчитай итоги»;')
-  }
-  if (media?.transcribe) {
-    lines.push('— голосовые: запишите голосом — расшифрую и выполню; отвечать голосом — /voice вкл в этом чате;')
-  }
-  if (config?.smartHome?.baseUrl && config?.smartHome?.token) {
-    lines.push('— умный дом через Home Assistant: «включи свет на кухне», «какая температура дома»;')
-  }
-  if (config?.digest?.enabled) {
-    lines.push('— утренний дайджест в 8:00: погода, праздники (официальные, церковные, народные и профессиональные), совет для здоровья, напоминания на день, анекдот; прислать сейчас — /digest;')
-  }
-  lines.push('— файлы на выход: PDF, Excel, Word, CSV — «сделай PDF с отчётом»;')
-  lines.push('— написать другому человеку от вашего имени: «напиши Марии, что задержусь»; телефон — если человек сам делился контактом;')
-  lines.push('— агент присылает результат длинной задачи прямо в этот чат;')
-  lines.push('— выгрузка своих данных (память, напоминания, история) — /export; расход токенов — /stats; начать диалог заново — /new; ваш ID — /whoami; полная справка — /help.')
-  return lines
-}
-
-/**
- * The system message that teaches the model its own abilities.
- *
- * @param {Array<string>} lines - capability lines.
- * @returns {string} the hint, including the rule about honest answers.
- */
-function capabilityHint(lines) {
-  return [
-    'Твои возможности в этой сборке (это факт, а не предположение):',
-    ...lines,
-    'Изображения и файлы, присланные вложением, уже переданы тебе в этом сообщении: опиши то, что видишь, '
-    + 'и никогда не утверждай, что картинка не пришла, если вложение было. '
-    + 'Если пользователь спрашивает, что ты умеешь — перечисли это коротко и по-русски. '
-    + 'Чего нет в списке, того у тебя нет: не обещай этого и не выдумывай новые умения.',
-  ].join('\n')
-}
-
-/**
- * The user-facing version of the same list, for `/help`.
- *
- * @param {Array<string>} lines - capability lines.
- * @returns {string} markdown bullet list.
- */
-function capabilityHelp(lines) {
-  return ['**Что умеет этот бот**', ...lines.map((line) => (line.startsWith('—') ? line : `— ${line}`))].join('\n')
-}
-
-/** Simple counting semaphore for the global model-call cap. */
+/** Простой считающий семафор для глобального предела вызовов модели. */
 class Semaphore {
   constructor(limit) {
     this.limit = limit
@@ -232,24 +54,24 @@ class Semaphore {
 
 export class Assistant {
   /**
-   * @param {object} options - bot options.
-   * @param {object} options.config - output of `loadConfig`.
-   * @param {object} options.telegram - {@link TelegramClient}.
-   * @param {object} options.model - {@link ChatModel}.
-   * @param {object} options.history - {@link HistoryStore}.
-   * @param {object} [options.webTools] - web tool executor from `createWebTools`.
-   * @param {object} [options.reminders] - `{ store, tool, scheduler }` from the reminders modules.
-   * @param {object} [options.profiles] - `{ store, tool }` from the profile modules.
-   * @param {object} [options.usage] - token accounting store.
-   * @param {object} [options.digest] - morning digest service.
-   * @param {object} options.logger - logger.
+   * @param {object} options - параметры бота.
+   * @param {object} options.config - результат `loadConfig`.
+   * @param {object} options.platform - адаптер платформы.
+   * @param {object} options.model - клиент модели.
+   * @param {object} options.history - хранилище истории.
+   * @param {object} [options.webTools] - исполнитель веб-инструментов.
+   * @param {object} [options.reminders] - `{ store, tool, scheduler }`.
+   * @param {object} [options.profiles] - `{ store, tool }` профилей.
+   * @param {object} [options.usage] - учёт токенов.
+   * @param {object} [options.digest] - утренний дайджест.
+   * @param {object} options.logger - логгер.
    */
   constructor({ config, platform, model, history, webTools, agentBridge, reminders, profiles, usage, digest, media, tts, files, events, polls, youtube, server, logger }) {
     this.config = config
     // Кого бот знает: имена и @ники приходят с сообщениями, телефоны — только
     // когда человек сам делится контактом. Нужно для sendto.
     this.contacts = createContactStore({ file: this.config.dataDir ? `${this.config.dataDir}/contacts.json` : undefined, logger: this.logger })
-    // The core talks to one adapter only; see src/platforms/port.mjs.
+    // Ядро общается только с одним адаптером; см. src/platforms/port.mjs.
     this.platform = platform
     this.model = model
     this.history = history
@@ -260,15 +82,15 @@ export class Assistant {
     this.profiles = profiles
     this.usage = usage
     this.digest = digest
-    /** `{ transcribe, extractText }` — photos, voice notes and documents. */
+    /** `{ transcribe, extractText }` — фото, голосовые и документы. */
     this.media = media
-    /** Optional `(text) => Promise<Buffer>` speech synthesiser. */
+    /** Необязательный синтезатор речи `(text) => Promise<Buffer>`. */
     this.tts = tts
-    // Builds documents the user can open; the platform adapter sends them.
+    // Собирает документы для пользователя; отправляет их адаптер платформы.
     this.files = files
-    // Local calendar: events the bot books and lists.
+    // Локальный календарь: события, которые бот записывает и показывает.
     this.events = events
-    // Polls, video summaries and self-diagnostics.
+    // Опросы, конспекты видео и самодиагностика.
     this.polls = polls
     this.youtube = youtube
     this.server = server
@@ -301,9 +123,13 @@ export class Assistant {
       ownerName: config.owner?.name ?? 'владельца',
       sendText: (chatId, markdown, replyToMessageId, keyboard) => this.send(chatId, markdown, replyToMessageId, keyboard),
     })
-    // Built once from the configuration: the model and /help describe exactly what
-    // this deployment can do, never more.
+    // Собирается один раз из конфигурации: модель и /help описывают ровно то,
+    // что умеет эта сборка, и ничего сверх.
     this.capabilities = capabilityLines({ config, media, platformName: platform?.name })
+    // Команды живут в отдельном маршрутизаторе; ядро только передаёт ему текст.
+    this.commands = createCommandRouter(this)
+    // Конвейер сообщения: доступ, контекст и память, модель и инструменты, ответ и действия.
+    this.conversation = createConversation(this)
     this.logger = logger
     this.running = false
     this.offset = undefined
@@ -314,22 +140,22 @@ export class Assistant {
     this.inFlight = new Set()
     this.deniedAt = new Map()
     this.semaphore = new Semaphore(config.limits.maxConcurrentRequests)
-    // Telegram keeps the original file name, so an existing offset survives the
-    // move to adapters; other platforms get their own file.
+    // Telegram сохраняет прежнее имя файла, поэтому существующий курсор
+    // переживает переход на адаптеры; другим платформам достаётся свой файл.
     const offsetName = platform.name === 'telegram' ? 'offset.json' : `offset-${platform.name}.json`
     this.offsetFile = path.join(config.dataDir, offsetName)
     this.offsetTimer = null
-    /** Timestamps of recent model failures, for the alert threshold. */
+    /** Отметки недавних сбоев модели — для порога предупреждения. */
     this.failures = []
     this.lastAlertAt = 0
     this.spendAlertDay = undefined
   }
 
   /**
-   * Resolve the identity, drop any webhook, and start polling.
+   * Определить личность, снять вебхук и начать опрос.
    *
-   * A transient network failure at boot is retried; a rejected token fails
-   * immediately, because retrying it can only delay a readable error.
+   * Сетевая ошибка при старте повторяется; отвергнутый токен падает сразу:
+   * повтор только отложил бы понятную ошибку.
    */
   async start({ attempts = this.config.limits.startupAttempts } = {}) {
     // Справочник контактов читаем сразу, а не при первом изменении: иначе после
@@ -342,8 +168,8 @@ export class Assistant {
     this.running = true
     this.startedAt = Date.now()
     this.loopPromise = this.pollLoop()
-    // Started after the identity is known: the scheduler may deliver an overdue
-    // reminder immediately, and it needs a working client for that.
+    // Запускается после того, как личность известна: планировщик может сразу
+    // доставить просроченное напоминание, а для этого нужен рабочий клиент.
     this.reminders?.scheduler?.start()
     this.digest?.start()
     this.startHeartbeat()
@@ -372,11 +198,11 @@ export class Assistant {
   }
 
   /**
-   * Stop polling, drain queued work, and flush persisted state.
+   * Остановить опрос, дождаться очереди и сохранить состояние.
    *
-   * In-flight model calls are aborted and the drain is bounded by
-   * `shutdownGraceMs`: a supervisor sends SIGKILL after ~10 s, and state must
-   * reach the disk before that happens.
+   * Вызовы модели прерываются, а ожидание ограничено `shutdownGraceMs`:
+   * супервизор присылает SIGKILL примерно через 10 с, и состояние должно
+   * успеть на диск.
    */
   async stop() {
     if (!this.running) return
@@ -406,8 +232,8 @@ export class Assistant {
         const { updates, cursor } = await this.platform.getUpdates({
           cursor: this.offset,
           timeoutSec: this.config.platform.pollTimeoutSec,
-          // Long polling must end when the process is asked to stop, otherwise a
-          // restart waits for the whole poll timeout and systemd kills us.
+          // Долгий опрос должен завершаться по просьбе остановить процесс,
+          // иначе рестарт ждёт весь таймаут, а systemd убивает бота.
           signal: this.shutdown?.signal,
         })
         backoffMs = 1000
@@ -425,19 +251,19 @@ export class Assistant {
     }
   }
 
-  /** Queue one update for its chat, keeping per-chat order. */
+  /** Поставить обновление в очередь его чата, сохраняя порядок внутри чата. */
   enqueueUpdate(update) {
-    // Updates arrive normalised from the adapter: a message or a button tap, both
-    // carrying the chat they belong to. Taps queue with their chat, so ordering
-    // inside a conversation is preserved.
+    // Обновления приходят нормализованными от адаптера: сообщение или нажатие
+    // кнопки, и у обоих есть свой чат. Нажатия встают в очередь вместе с чатом,
+    // поэтому порядок внутри разговора сохраняется.
     const key = String(update.chat?.id ?? 'unknown')
     const previous = this.chains.get(key) ?? Promise.resolve()
     const task = previous.then(
       () => (update.kind === 'callback' ? this.handleCallback(update) : this.handleMessage(update)),
       () => (update.kind === 'callback' ? this.handleCallback(update) : this.handleMessage(update)),
     ).catch((error) => this.logger.error('update handling failed', { error, updateId: update.id }))
-    // Drop the settled chain and its map entry: without this, `chains` grows
-    // with every chat the bot has ever seen.
+    // Удаляем завершённую цепочку и её запись в карте: иначе `chains` растёт с
+    // каждым чатом, который бот когда-либо видел.
     const tracked = task.finally(() => {
       this.inFlight.delete(tracked)
       if (this.chains.get(key) === tracked) this.chains.delete(key)
@@ -446,69 +272,20 @@ export class Assistant {
     this.chains.set(key, tracked)
   }
 
+  /** Шаги 1–2: разбор, доступ, команда или текст — в `core/conversation.mjs`. */
   async handleMessage(message) {
-    const from = message.from
-    // Контакт, которым поделились, — единственный способ узнать телефон:
-    // Telegram не даёт искать людей по номеру. Сохраняем и подтверждаем.
-    const sharedContacts = (message.attachments ?? message.files ?? []).filter((item) => item?.kind === 'contact')
-    for (const item of sharedContacts) {
-      if (item.userId) {
-        this.contacts?.remember?.({ chatId: item.userId, name: item.name, username: item.username, phone: item.phone })?.catch?.(() => {})
-      }
-      const who = item.name || (item.username ? '@' + item.username : 'контакт')
-      this.logger?.info?.('contact remembered', { hasPhone: Boolean(item.phone), hasUser: Boolean(item.userId) })
-      await this.send?.(
-        message.chat?.id,
-        item.userId
-          ? `Запомнил ${who}${item.phone ? ', телефон ' + item.phone : ''}. Теперь могу написать ему: «напиши ${item.name || 'ему'} …»`
-          : `Запомнил ${who}, но без id в Telegram: написать ему первым не получится — Telegram запрещает.`,
-      ).catch?.(() => {})
-    }
-    if (!from || from.isBot) return
-    const chatType = message.chat?.type
-    if (!this.config.access.allowedChatTypes.has(chatType)) {
-      this.logger.debug('chat type ignored', { chatType })
-      return
-    }
-    const text = String(message.text ?? '').trim()
-    const attachments = message.attachments ?? []
-    // A photo, a voice note or a document without any text is a valid turn too.
-    if (text === '' && attachments.length === 0) return
-    // Access and addressing are checked together: answering a stranger in a
-    // group would publish their id to the whole chat, so there the bot only logs.
-    // The adapter already decided whether the bot was addressed.
-    const addressed = message.addressed
-    if (!this.isAllowed(from.id)) {
-      if (addressed) await this.deny(from.id, message.chat.id)
-      else this.logger.debug('denied user ignored outside a private chat', { userId: from.id, chatId: message.chat.id })
-      return
-    }
-    if (!addressed) return
-
-    // The public platform name is what lets the bot tell people apart in a group.
-    if (this.profiles?.store.touch(from.id, { firstName: from.name, username: from.username })) void this.profiles.store.flush()
-    const command = parseCommand(text, this.username)
-    if (command) {
-      await this.runCommand(command, message)
-      return
-    }
-    const prompt = chatType === 'private' ? text : stripMention(text, this.username)
-    if (prompt.trim() === '' && attachments.length === 0) return
-    // A receipt is a status: the user sees that the bot picked the message up
-    // before the model has answered.
-    void this.react(message, '👀')
-    await this.reply(message, prompt)
+    return this.conversation.handleMessage(message)
   }
 
   /**
-   * Tell the owner that something is wrong.
+   * Сообщить владельцу, что что-то сломалось.
    *
-   * Sent through the platform adapter, not through the model: the most common
-   * failure is the model itself, and an alert must survive that. Rate limited to
-   * one alert per hour so a broken provider cannot flood the chat.
+   * Отправляется через адаптер платформы, а не через модель: самая частая
+   * поломка — сама модель, и предупреждение должно её пережить. Не чаще одного
+   * раза в час, чтобы сломанный провайдер не завалил чат.
    *
-   * @param {string} text - short human-readable description.
-   * @param {object} [options] - `urgent` skips the cooldown.
+   * @param {string} text - короткое человекочитаемое описание.
+   * @param {object} [options] - `urgent` обходит кулдаун.
    */
   async alertOwner(text, { urgent = false } = {}) {
     const chatId = this.config.alerts?.chatId ?? [...(this.config.access?.allowedUserIds ?? [])][0]
@@ -522,11 +299,12 @@ export class Assistant {
     })
   }
 
-  /** Count a model failure and alert when they pile up. */
+  /** Учесть сбой модели и предупредить, когда их накопилось достаточно. */
   noteModelFailure(error) {
     const now = Date.now()
     this.failures.push(now)
-    // Keep only the recent window: an old failure must not count towards a new alert.
+    // Оставляем только недавнее окно: старый сбой не должен идти в счёт новому
+    // предупреждению.
     this.failures = this.failures.filter((at) => now - at < ALERT_WINDOW_MS)
     if (this.failures.length < ALERT_FAILURES) return
     this.failures = []
@@ -534,96 +312,31 @@ export class Assistant {
     void this.alertOwner(`Модель не отвечает (${ALERT_FAILURES} ошибки подряд): ${detail}`)
   }
   /**
-   * Write the answer into a message while the model is still generating it.
+   * Писать ответ в сообщение, пока модель ещё его генерирует.
    *
-   * The first fragment creates the message, later ones edit it — no more than
-   * once per throttle window, because Telegram counts edits against the same
-   * rate limit as sends. \`finish()\` puts the final text (with buttons) in place
-   * and reports whether the message was already delivered, so the caller does not
-   * send a second copy.
+   * Логика стриминга, троттлинга и правок живёт в `src/delivery/stream.mjs`:
+   * здесь остаётся только передать платформу, логгер и настройку троттлинга.
    *
-   * @param {number|string} chatId - target chat.
-   * @returns {{onDelta: (chunk: string) => void, finish: (text: string, keyboard?: object) => Promise<boolean>}}
+   * @param {number|string} chatId - целевой чат.
+   * @returns {object} стример из модуля доставки.
    */
   createStreamer(chatId) {
-    const throttleMs = this.config.stream?.throttleMs ?? 900
-    let buffer = ''
-    let messageId
-    // True while the very first send is in flight.
-    let creating = false
-    let lastEditAt = 0
-    let queue = Promise.resolve()
-    // Set when an edit fails: the caller then sends the whole answer instead.
-    let lastEditOk = true
-
-    const flush = (final = false) => {
-      // Edits are serialised: two in flight would arrive out of order and show
-      // an older text last.
-      queue = queue.then(async () => {
-        if (messageId === undefined) {
-          const sent = await this.platform.sendText({ chatId, markdown: buffer })
-          messageId = sent?.messageId
-          return
-        }
-        await this.platform.editText({ chatId, messageId, markdown: buffer })
-      }).catch((error) => {
-        lastEditOk = false
-        this.logger.debug('stream edit failed', { error: error?.description ?? error?.message })
-      })
-      if (final) return queue
-      return undefined
-    }
-
-    return {
-      onDelta: (chunk) => {
-        buffer += chunk
-        const now = Date.now()
-        if (messageId === undefined) {
-          // The first send is asynchronous: without this guard every fragment
-          // arriving before it resolves would start its own message.
-          if (!creating) {
-            creating = true
-            lastEditAt = now
-            flush()
-          }
-          return
-        }
-        if (now - lastEditAt >= throttleMs) {
-          lastEditAt = now
-          flush()
-        }
-      },
-      finish: async (text, keyboard) => {
-        // No fragment arrived (a tool-only turn): the caller sends as usual.
-        if (messageId === undefined && !creating) return false
-        buffer = text
-        lastEditOk = true
-        await flush(true)
-        creating = false
-        if (messageId === undefined) return false
-        if (!lastEditOk) {
-          // The partial message stays, but the answer must arrive whole: the
-          // caller sends it as a new message when this returns false.
-          this.logger.warn('stream edits failed, sending the answer in full', { chatId })
-          return false
-        }
-        if (keyboard) {
-          await this.platform.editText({ chatId, messageId, markdown: text, keyboard }).catch(() => {})
-        }
-        return true
-      },
-    }
+    return createStreamer({
+      platform: this.platform,
+      logger: this.logger,
+      throttleMs: this.config.stream?.throttleMs ?? 900,
+    }, chatId)
   }
 
   /**
-   * Send the answer as a voice message, when this chat asked for it.
+   * Отправить ответ голосовым сообщением, если чат об этом попросил.
    *
-   * Failures are logged and never break the turn: a missing voice is a smaller
-   * problem than a missing answer.
+   * Ошибки логируются и никогда не ломают ход: пропавший голос — меньшая
+   * проблема, чем пропавший ответ.
    *
-   * @param {number|string} chatId - the chat.
-   * @param {string} text - the answer that was just sent.
-   * @param {object} message - the incoming message, for the reply link.
+   * @param {number|string} chatId - чат.
+   * @param {string} text - только что отправленный ответ.
+   * @param {object} message - входящее сообщение, для ссылки на ответ.
    */
   async speakAnswer(chatId, text, message) {
     if (!this.tts || typeof this.platform.sendVoice !== 'function') return
@@ -642,10 +355,10 @@ export class Assistant {
   }
 
   /**
-   * Put an emoji reaction on a message, when the platform supports reactions.
+   * Поставить эмодзи-реакцию на сообщение, если платформа её поддерживает.
    *
-   * Failures are ignored on purpose: reactions are decoration, and Telegram
-   * refuses them in some chats and for some emoji.
+   * Ошибки намеренно игнорируются: реакции — украшение, а Telegram отказывает
+   * в них для некоторых чатов и эмодзи.
    */
   async react(message, emoji) {
     if (!this.config.reactions?.enabled) return
@@ -657,76 +370,9 @@ export class Assistant {
     }
   }
 
-  /**
-   * Handle an inline-button tap.
-   *
-   * Supported payloads: `cancel:<id>` drops a reminder, `snooze:<minutes>:<id>`
-   * postpones it. Every tap is acknowledged even when nothing changed, otherwise
-   * Telegram keeps the button in a loading state.
-   */
+  /** Нажатие кнопки: отмена и перенос напоминания, голос в опросе — в конвейере. */
   async handleCallback(update) {
-    const from = update.from
-    const data = String(update.callback?.data ?? '')
-    const messageId = update.callback?.messageId
-    if (!from || messageId === undefined) return
-    if (!this.isAllowed(from.id)) {
-      this.logger.info('callback from a stranger ignored', { userId: from.id })
-      await this.platform.answerCallback({ callbackId: update.callback.id, text: 'Нет доступа.', alert: true }).catch(() => {})
-      return
-    }
-    const chatId = update.chat.id
-    const [action, ...rest] = data.split(':')
-    let toast = 'Не понял действие'
-    let outcome
-    try {
-      if (action === 'poll') {
-        const parsed = parsePollAction(data)
-        if (!parsed || !this.polls) {
-          toast = 'Опрос недоступен'
-        } else {
-          // Голос, повтор и закрытие опроса — правила домена.
-          const result = await this.domain.polls.vote(parsed.id, from.id, parsed.optionIndex)
-          if (!result?.poll) {
-            toast = result?.toast ?? 'Опрос уже закрыт'
-          } else {
-            // The poll message is rewritten in place: counts change with every vote.
-            await this.platform.editText({
-              chatId,
-              messageId,
-              markdown: pollMessage(result.poll, { names: this.namesOf(result.poll) }),
-              keyboard: pollKeyboard(result.poll),
-            }).catch((error) => this.logger.debug('poll edit failed', { error, chatId }))
-            // Прежний порядок: сообщение уже перерисовано — теперь фиксируем голос.
-            await this.polls.store.flush()
-            toast = result.toast
-          }
-        }
-      } else if (action === 'cancel') {
-        const [id] = rest
-        // `message` here is the bot's own message, so its `from.id` is the bot:
-        // the owner is the user who tapped the button.
-        const result = await this.domain.reminders.cancelByButton({ chatId, userId: from.id, id })
-        toast = result.toast
-        outcome = result.outcome
-      } else if (action === 'snooze') {
-        const [minutesRaw, id] = rest
-        const result = await this.domain.reminders.snooze({ chatId, userId: from.id, id, minutes: minutesRaw })
-        toast = result.toast
-        outcome = result.outcome
-      }
-    } catch (error) {
-      this.logger.error('callback action failed', { error, action, chatId })
-      toast = 'Не получилось, попробуйте ещё раз'
-    }
-    this.logger.info('callback handled', { action, chatId, userId: from.id })
-    await this.platform.answerCallback({ callbackId: update.callback.id, text: toast }).catch(() => {})
-    if (outcome) {
-      // The original text is unknown to us, so the adapter rewrites the message
-      // without any markup.
-      await this.platform.editText({ chatId, messageId, markdown: `${update.callback.text ?? ''}\n\n${outcome}` }).catch((error) => {
-        this.logger.debug('message edit failed', { error, chatId })
-      })
-    }
+    return this.conversation.handleCallback(update)
   }
 
   /** Схема инструмента поиска по истории (совместимость со старым API). */
@@ -748,19 +394,19 @@ export class Assistant {
     return this.tools.executeTool('find_history', { query }, { chatId: chatKey })
   }
 
-  /** Who voted in a poll, by their display name where we know it. */
+  /** Кто голосовал в опросе — по отображаемому имени, где оно известно. */
   namesOf(poll) {
     // Отображаемое имя — правило домена профилей.
     return this.domain.profiles.namesOf(poll)
   }
 
   /**
-   * A tappable command menu, for platforms without Telegram's «/» list.
+   * Кликабельное меню команд для платформ без списка «/» как в Telegram.
    *
-   * VK shows no command hints, so the frequently used commands go out as buttons:
-   * tapping one sends its label, and the label *is* the command.
+   * VK не показывает подсказки команд, поэтому частые команды уходят кнопками:
+   * нажатие отправляет подпись, а подпись *и есть* команда.
    *
-   * @returns {object|undefined} the neutral keyboard, or undefined on other platforms.
+   * @returns {object|undefined} нейтральная клавиатура или undefined на других платформах.
    */
   menuKeyboard() {
     if (this.platform.name !== 'vk') return undefined
@@ -772,7 +418,7 @@ export class Assistant {
     }
   }
 
-  /** Neutral keyboard for a freshly created reminder; the adapter renders it. */
+  /** Нейтральная клавиатура для созданного напоминания; её рисует адаптер. */
   reminderKeyboard(reminderId) {
     return {
       rows: [
@@ -782,710 +428,66 @@ export class Assistant {
     }
   }
 
+  /** Есть ли у пользователя доступ — проверка живёт в конвейере. */
   isAllowed(userId) {
-    return this.config.access.allowAllUsers || this.config.access.allowedUserIds.has(userId)
+    return this.conversation.isAllowed(userId)
   }
 
-  /** Tell an unknown user their id once per cooldown window. */
+  /** Сообщить незнакомцу его id — логика и кулдаун в конвейере. */
   async deny(userId, chatId) {
-    const now = Date.now()
-    // Keep the cooldown map bounded: entries older than the window can never
-    // suppress a reply, so they are dropped before they accumulate.
-    if (this.deniedAt.size >= 256) {
-      for (const [id, timestamp] of this.deniedAt) {
-        if (now - timestamp >= DENY_COOLDOWN_MS) this.deniedAt.delete(id)
-      }
-      if (this.deniedAt.size >= 4096) this.deniedAt.clear()
-    }
-    const last = this.deniedAt.get(userId) ?? 0
-    if (now - last < DENY_COOLDOWN_MS) {
-      this.logger.debug('denial suppressed', { userId })
-      return
-    }
-    this.deniedAt.set(userId, now)
-    this.logger.warn('access denied', { userId, chatId })
-    const text = this.config.access.denyMessage.replace('{id}', String(userId))
-    // Sent through `send` so `<`, `&` and `>` in a custom DENY_MESSAGE are
-    // escaped instead of reaching Telegram as broken entities.
-    await this.send(chatId, text).catch((error) => this.logger.warn('deny reply failed', { error }))
+    return this.conversation.deny(userId, chatId)
   }
 
+  /** Исполнить команду через маршрутизатор `src/core/commands.mjs`. */
   async runCommand({ name, args }, message) {
-    const chatId = message.chat.id
-    switch (name) {
-      case 'export': {
-        // The history key is the chat id as text — same key the dialog uses.
-        const chatKey = String(chatId)
-        const profile = this.profiles?.store
-        const facts = profile?.facts?.(message.from.id) ?? []
-        const lines = [
-          '# Выгрузка из бота',
-          '',
-          `Дата: ${new Date().toISOString()}`,
-          '',
-          '## Настройки',
-          '',
-          `- город: ${profile?.city?.(message.from.id) ?? 'не задан'}`,
-          `- характер: ${profile?.persona?.(message.from.id) ?? 'обычный'}`,
-          `- настроение: ${profile?.mood?.(message.from.id) ?? 'меняется само'}`,
-          `- модель: ${this.history?.model?.(chatKey) ?? this.config.model?.name ?? 'по умолчанию'}`,
-          `- озвучка ответов: ${this.history?.voice?.(chatKey) ? 'включена' : 'выключена'}`,
-          '',
-          '## Что бот помнит',
-          '',
-          ...(facts.length === 0 ? ['— пока ничего'] : facts.map((fact) => `- №${fact.id}: ${fact.text}`)),
-          '',
-          '## Напоминания',
-          '',
-        ]
-        const activeReminders = this.reminders?.store.list(chatId, message.from.id) ?? []
-        if (activeReminders.length === 0) lines.push('— нет')
-        for (const reminder of activeReminders) {
-          lines.push(`- №${reminder.id} ${reminder.dueAt} (${reminder.repeat ?? 'none'}): ${reminder.text}`)
-        }
-        lines.push('', '## История диалога (последние сообщения)', '')
-        for (const entry of this.history?.messages?.(chatKey) ?? []) {
-          const who = entry.role === 'user' ? 'Вы' : entry.role === 'assistant' ? 'Бот' : entry.role
-          const content = typeof entry.content === 'string' ? entry.content : '(вложение)'
-          lines.push(`**${who}:** ${content}`)
-        }
-        // Everything the bot knows about this person, in one file they own.
-        const fileName = `vygruzka-${new Date().toISOString().slice(0, 10)}.md`
-        await this.sendFile(
-          chatId,
-          { bytes: Buffer.from(`${lines.join('\n')}\n`, 'utf8'), fileName, caption: 'Ваши данные из бота' },
-          message.message_id,
-        )
-        return
-      }
-      case 'app': {
-        const appUrl = this.config.miniapp?.url
-        if (!appUrl) {
-          await this.send(chatId, 'Приложение ещё не настроено: нужен публичный HTTPS-адрес.')
-          return
-        }
-        await this.send(chatId, '**Панель управления**\nНапоминания, календарь, память и расход — в удобном виде, прямо внутри Telegram.', undefined, { rows: [[{ text: 'Открыть приложение', webApp: appUrl }]] })
-        return
-      }
-      case 'search': {
-        const query = String(args ?? '').trim()
-        if (query === '') {
-          await this.send(chatId, 'Что искать? Например: `/search ремонт`.')
-          return
-        }
-        await this.send(chatId, await this.searchHistory(String(chatId), query))
-        return
-      }
-      case 'server': {
-        if (!this.server) {
-          await this.send(chatId, 'Состояние сервера недоступно в этой сборке.')
-          return
-        }
-        await this.send(chatId, await this.server.execute())
-        return
-      }
-      case 'calendar': {
-        if (!this.events) {
-          await this.send(chatId, 'Календарь выключен в настройках.')
-          return
-        }
-        const result = this.domain.events.calendar(chatId, { days: 14 })
-        await this.send(chatId, result.text)
-        return
-      }
-      case 'start':
-      case 'help':
-        // VK has no «/» command menu like Telegram, so the same list goes out as
-        // buttons: tapping one sends its label, which is the command itself.
-        await this.send(chatId, [HELP, '', capabilityHelp(this.capabilities)].join('\n'), undefined, this.menuKeyboard())
-        return
-      case 'whoami':
-        await this.send(chatId, [
-          `**user id:** \`${message.from.id}\``,
-          `**chat id:** \`${chatId}\``,
-          `**chat type:** \`${message.chat.type}\``,
-        ].join('\n'))
-        return
-      case 'new':
-        await this.history.reset(chatId)
-        await this.send(chatId, 'Контекст диалога очищен. Начнём заново.')
-        return
-      case 'reminders': {
-        // Сортировка, подписи повторов и кнопки отмены — правила домена.
-        const result = this.domain.reminders.list({ chatId, userId: message.from.id })
-        await this.send(chatId, result.text, undefined, result.keyboard)
-        return
-      }
-      case 'voice': {
-        if (!this.tts || typeof this.platform.sendVoice !== 'function') {
-          await this.send(chatId, 'Озвучка недоступна: нужен ключ синтеза речи и поддержка платформы.')
-          return
-        }
-        const value = args.trim().toLowerCase()
-        if (value === 'вкл' || value === 'on' || value === 'да') {
-          await this.history.setVoice(chatId, true)
-          await this.send(chatId, 'Озвучка включена: каждый ответ в этом чате будет приходить ещё и голосовым.')
-          return
-        }
-        if (value === 'выкл' || value === 'off' || value === 'нет') {
-          await this.history.setVoice(chatId, false)
-          await this.send(chatId, 'Озвучка выключена — отвечаю только текстом.')
-          return
-        }
-        if (value !== '') {
-          await this.send(chatId, 'Не понял. Напишите `/voice вкл` или `/voice выкл`.')
-          return
-        }
-        const state = this.history.voice(chatId) ? 'включена' : 'выключена'
-        await this.send(chatId, `Озвучка ответов: **${state}**.\nПереключить: \`/voice вкл\` или \`/voice выкл\`.`)
-        return
-      }
-      case 'character': {
-        if (!this.profiles) {
-          await this.send(chatId, 'Профиль выключен — характер негде хранить.')
-          return
-        }
-        const value = args.trim().toLowerCase()
-        if (value === '') {
-          const current = this.profiles.store.persona(message.from.id) ?? 'обычный'
-          await this.send(chatId, [
-            `Сейчас мой характер: **${current}**.`,
-            `Доступные: ${PERSONA_NAMES.map((name) => '`' + name + '`').join(', ')}.`,
-            'Сменить: `/character дружелюбный`. Вернуть обычный: `/character сброс`.',
-          ].join('\n'))
-          return
-        }
-        if (value === 'сброс' || value === 'обычный' || value === 'нет') {
-          this.profiles.store.setPersona(message.from.id, '')
-          await this.profiles.store.flush()
-          await this.send(chatId, 'Характер вернулся к обычному.')
-          return
-        }
-        if (!PERSONAS[value]) {
-          await this.send(chatId, `Такого характера нет. Доступные: ${PERSONA_NAMES.join(', ')}.`)
-          return
-        }
-        this.profiles.store.setPersona(message.from.id, value)
-        await this.profiles.store.flush()
-        await this.send(chatId, `Характер «${value}» включён. ${PERSONAS[value].hint}`)
-        return
-      }
-      case 'mood': {
-        if (!this.profiles) {
-          await this.send(chatId, 'Профиль выключен — настроение негде хранить.')
-          return
-        }
-        const value = args.trim().toLowerCase()
-        if (value === '') {
-          const pinned = this.profiles.store.mood(message.from.id)
-          const today = moodOf({ mood: pinned }, { userId: message.from.id, now: new Date(), timeZone: this.config.time?.timeZone })
-          await this.send(chatId, [
-            `Сегодня я **${today}**${pinned ? ' (закреплено)' : ' — настроение меняется само каждый день'}.`,
-            `Можно закрепить: ${MOOD_NAMES.map((name) => '`' + name + '`').join(', ')}.`,
-            'Вернуть автоматическое: `/mood авто`.',
-          ].join('\n'))
-          return
-        }
-        if (value === 'авто' || value === 'сброс') {
-          this.profiles.store.setMood(message.from.id, '')
-          await this.profiles.store.flush()
-          await this.send(chatId, 'Настроение снова меняется само — каждый день разное.')
-          return
-        }
-        if (!MOODS[value]) {
-          await this.send(chatId, `Такого настроения нет. Доступные: ${MOOD_NAMES.join(', ')}.`)
-          return
-        }
-        this.profiles.store.setMood(message.from.id, value)
-        await this.profiles.store.flush()
-        await this.send(chatId, `Настроение закреплено: **${value}**. ${MOODS[value]}`)
-        return
-      }
-      case 'mode': {
-        if (!this.profiles) {
-          await this.send(chatId, 'Профиль выключен.')
-          return
-        }
-        const value = args.trim().toLowerCase()
-        const names = Object.keys(MODES)
-        if (value === '') {
-          const current = this.profiles.store.mode(message.from.id)
-          await this.send(chatId, [
-            current ? `Текущий режим: **${current}**.` : 'Режим не выбран — отвечаю как обычно.',
-            `Доступные: ${names.map((name) => '\`' + name + '\`').join(', ')}.`,
-            'Сбросить: `/mode сброс`.',
-          ].join('\n'))
-          return
-        }
-        if (value === 'сброс' || value === 'нет' || value === 'обычно') {
-          this.profiles.store.setMode(message.from.id, '')
-          await this.profiles.store.flush()
-          await this.send(chatId, 'Режим сброшен — отвечаю как обычно.')
-          return
-        }
-        if (!MODES[value]) {
-          await this.send(chatId, `Не знаю такой режим. Доступные: ${names.join(', ')}.`)
-          return
-        }
-        this.profiles.store.setMode(message.from.id, value)
-        await this.profiles.store.flush()
-        await this.send(chatId, `Режим «${value}» включён: ${MODES[value]}`)
-        return
-      }
-      case 'city': {
-        if (!this.profiles) {
-          await this.send(chatId, 'Память профиля выключена.')
-          return
-        }
-        // Показ, установка и удаление города — правила домена профилей.
-        const result = await this.domain.profiles.cityCommand(message.from.id, args)
-        await this.send(chatId, result.text)
-        return
-      }
-      case 'memory': {
-        if (!this.profiles) {
-          await this.send(chatId, 'Память профиля выключена.')
-          return
-        }
-        const result = this.domain.profiles.memoryCommand(message.from.id)
-        await this.send(chatId, result.text)
-        return
-      }
-      case 'forget': {
-        if (!this.profiles) {
-          await this.send(chatId, 'Память профиля выключена.')
-          return
-        }
-        const result = await this.domain.profiles.forgetCommand(message.from.id, args)
-        await this.send(chatId, result.text)
-        return
-      }
-      case 'stats': {
-        if (!this.usage) {
-          await this.send(chatId, 'Учёт расхода выключен.')
-          return
-        }
-        const zone = this.config.time?.timeZone ?? ''
-        const today = this.usage.total(new Date(), zone)
-        const yesterday = this.usage.total(new Date(Date.now() - 86_400_000), zone)
-        const mine = today.users[String(message.from.id)] ?? { prompt: 0, completion: 0, requests: 0 }
-        const fmt = (value) => new Intl.NumberFormat('ru-RU').format(value)
-        const lines = [
-          `**Расход за сегодня** (${this.formatReminderTime(new Date())})`,
-          `Запросов: ${today.requests}, токенов: ${fmt(today.prompt + today.completion)}`,
-          `— запрос: ${fmt(today.prompt)}, ответ: ${fmt(today.completion)}, из них из кеша: ${fmt(today.cached)}`,
-          `Ваша доля: ${mine.requests} запрос(ов), ${fmt(mine.prompt + mine.completion)} токенов`,
-          `Вчера: ${fmt(yesterday.prompt + yesterday.completion)} токенов за ${yesterday.requests} запрос(ов)`,
-        ]
-        const limit = this.config.usage?.dailyLimit ?? 0
-        if (limit > 0) {
-          const used = today.prompt + today.completion
-          lines.push(`Лимит: ${fmt(limit)} токенов в день, израсходовано ${Math.round((used / limit) * 100)}%`)
-        } else {
-          lines.push('Дневной лимит не задан (`DAILY_TOKEN_LIMIT=0`).')
-        }
-        await this.send(chatId, lines.join('\n'))
-        return
-      }
-      case 'digest': {
-        if (!this.digest) {
-          const enabled = this.config.digest?.enabled
-          await this.send(chatId, enabled
-            ? 'Дайджест включён, но отправлять некому: задайте `DIGEST_CHAT_IDS` или `ALLOWED_USER_IDS`.'
-            : 'Дайджест выключен (`DIGEST=false`).')
-          return
-        }
-        await this.deliverDigest(chatId, message.from?.id)
-        return
-      }
-      case 'cancel': {
-        // Проверка номера и текст ответа — правила домена напоминаний.
-        const result = await this.domain.reminders.cancel({ chatId, userId: message.from.id, id: args })
-        await this.send(chatId, result.text)
-        return
-      }
-      case 'model': {
-        const overrides = args.trim()
-        if (overrides === '') {
-          const current = this.history.model(chatId) ?? this.model.name
-          await this.send(chatId, `Текущая модель: \`${current}\`\nСменить: \`/model имя-модели\``)
-          return
-        }
-        if (overrides.length > 120) {
-          await this.send(chatId, 'Слишком длинное имя модели.')
-          return
-        }
-        await this.history.setModel(chatId, overrides)
-        await this.send(chatId, `Модель для этого чата: \`${overrides}\``)
-        return
-      }
-      default:
-        if (message.chat.type === 'private') await this.send(chatId, 'Неизвестная команда. Список: /help')
-    }
+    return this.commands.runCommand({ name, args }, message)
   }
 
-  /** Run one model turn for a chat and deliver the answer. */
+  /** Один ход модели для чата и доставка ответа — в `core/conversation.mjs`. */
   async reply(message, prompt) {
-    const chatId = message.chat.id
-    await this.semaphore.acquire()
-    const typing = this.startTyping(chatId)
-    try {
-      const chatKey = String(chatId)
-      const userId = message.from?.id
-      // The daily budget is checked before the call: once it is spent, further
-      // requests would only add cost without producing an answer the user wants.
-      if (this.usage?.limitReached()) {
-        const spent = this.usage.tokens()
-        const limit = this.usage.dailyLimit
-        this.logger.warn('daily token limit reached, refusing the turn', { chatId, spent, limit })
-        await this.send(chatId, `Дневной лимит токенов исчерпан: ${new Intl.NumberFormat('ru-RU').format(spent)} из ${new Intl.NumberFormat('ru-RU').format(limit)}. До полуночи новые запросы отвечать не буду — сводка в /stats, лимит задаётся переменной \`DAILY_TOKEN_LIMIT\`.`)
-        return
-      }
-      // A private chat may see everything the bot knows about its owner. A group
-      // may not: there the model gets names only, so personal facts cannot leak
-      // into a conversation with other people.
-      const isGroup = (message.chat?.type ?? 'private') !== 'private'
-      const authorName = isGroup ? this.profiles?.store.displayName(userId) : undefined
-      const knownFacts = userId === undefined
-        ? undefined
-        : isGroup ? this.groupContext(chatKey, authorName) : this.profiles?.store.summary(userId)
-      // A personal tone/length profile, set with `/mode`, is appended to the
-      // system prompt so it applies to every answer in this chat.
-      const modeHint = this.modeHint(userId)
-      // Character and mood come from the user's profile, so they survive a restart.
-      const character = this.characterHint(userId)
-      // Photos, voice notes and documents become content parts (or notes when
-      // something is unavailable).
-      const prepared = message.attachments?.length > 0
-        ? await prepareAttachments({
-          platform: this.platform,
-          attachments: message.attachments,
-          caption: prompt,
-          media: this.media,
-          limits: { maxBytes: this.config.media?.maxBytes },
-          logger: this.logger,
-        })
-        : { parts: [], notes: [], summary: '' }
-      // Nothing usable came out of the attachments (a scanned PDF, a voice note
-      // without a transcriber) and the user wrote no caption: asking the model
-      // with an empty message would produce "the model returned nothing", which
-      // looks like silence. Say what happened instead.
-      if (prepared.parts.length === 0 && prompt.trim() === '' && message.attachments?.length > 0) {
-        const reason = prepared.notes.length > 0
-          ? prepared.notes.map((note) => `⚠️ ${note}`).join('\n')
-          : '⚠️ Не удалось разобрать вложение.'
-        await this.send(chatId, `${reason}\n\nПришлите текст сообщением или файл в другом формате — отвечу по содержимому.`, message.message_id)
-        void this.react(message, '🤔')
-        return
-      }
-      // In a group the speaker is named in the history, otherwise the model cannot
-      // tell who said what — and "меня зовут X" would be attributed to the wrong
-      // person.
-      const history = this.history.messages(chatKey).map((entry) => (
-        isGroup && entry.role === 'user' && entry.author
-          ? { role: 'user', content: `${entry.author}: ${entry.content}` }
-          : entry
-      ))
-      const withAuthor = (content) => (isGroup && authorName ? `${authorName}: ${content}` : content)
-      const messages = [
-        { role: 'system', content: this.config.model.systemPrompt },
-        // A model has no clock; without this it invents dates and then mislabels
-        // cached search results as "today".
-        { role: 'system', content: formatTimeContext({ timeZone: this.config.time?.timeZone ?? '' }) },
-        ...(knownFacts ? [{ role: 'system', content: knownFacts }] : []),
-        ...(modeHint ? [{ role: 'system', content: modeHint }] : []),
-        ...(character ? [{ role: 'system', content: character }] : []),
-        // The model has no idea what it was built with: this is that knowledge.
-        { role: 'system', content: this.capabilitiesHint() },
-        ...history,
-        ...(prepared.parts.length > 0
-          // Multi-part content: caption/document text plus the image itself.
-          ? [{ role: 'user', content: prepared.parts.map((part) => (part.type === 'text' ? { ...part, text: withAuthor(part.text) } : part)) }]
-          : [{ role: 'user', content: withAuthor(prompt) }]),
-      ]
-      const model = this.history.model(chatKey) ?? this.model.name
-      const started = Date.now()
-      // Streaming is on by default: the user sees the answer grow instead of
-      // waiting for a long silence.
-      // Streaming needs a platform and chat where editing messages is reliable:
-      // in VK conversations it is not, so the adapter answers that question.
-      const streamable = this.config.stream?.enabled && (typeof this.platform.canStream !== 'function' || this.platform.canStream({ chatId }))
-      const streamer = streamable ? this.createStreamer(chatId) : undefined
-      // Список схем и диспетчер приходят из реестра: ядро не знает, какие
-      // инструменты бывают и что с ними делать. Дальше нужны только результаты
-      // этого хода — напоминание для кнопок и файл для отправки.
-      const tools = this.tools.definitions
-      /** Результаты инструментов этого хода по имени. */
-      const toolResults = new Map()
-      /** Напоминание, созданное в этом ходе: под ответом будут кнопки. */
-      let createdReminder
-      /** Файл, собранный в этом ходе: отправится сразу после текста. */
-      let createdFile
-      const executeTool = async (name, args, options = {}) => this.tools.executeTool(name, args, {
-        chatId,
-        userId,
-        isGroup,
-        replyTo: message.message_id,
-        signal: options?.signal,
-        onResult: (outcome) => {
-          toolResults.set(outcome.name, outcome)
-          if (outcome.reminder) createdReminder = outcome.reminder
-          if (outcome.file) createdFile = outcome.file
-        },
-      })
-      const toolOptions = tools.length > 0
-        ? { tools, executeTool, maxToolRounds: this.config.web.maxToolRounds }
-        : {}
-      /** Текст, который вернул инструмент в этом ходе. */
-      const toolResultText = (name) => toolResults.get(name)?.text
-      let answer = await this.model.complete({
-        messages,
-        model,
-        signal: this.shutdown?.signal,
-        ...(streamer ? { onDelta: (chunk) => streamer.onDelta(chunk) } : {}),
-        ...toolOptions,
-      })
-      this.recordUsage(userId, chatId, answer.usage)
-
-      /**
-       * Run one extra model round that must call exactly one tool.
-       *
-       * The model sometimes answers an action request in words ("Записал!") and
-       * never calls the tool, so nothing is stored. For a commitment like that
-       * the tool has to run, and the user must see its own confirmation.
-       */
-      const forceTool = async (name, nudge) => {
-        const payload = {
-          messages: [...messages, { role: 'system', content: nudge }],
-          model,
-          signal: this.shutdown?.signal,
-          ...toolOptions,
-          maxToolRounds: 1,
-        }
-        try {
-          const forced = await this.model.complete({ ...payload, toolChoice: { type: 'function', function: { name } } })
-          this.recordUsage(userId, chatId, forced.usage)
-          return forced
-        } catch (error) {
-          // Thinking-модели отвечают 400 «Thinking mode does not support this
-          // tool_choice». Повторяем без принуждения: подсказка всё равно просит
-          // инструмент, а вызывающий код проверяет, что он действительно сработал.
-          this.logger.warn('forced tool_choice rejected, retrying without it', { name, error: error?.message ?? error })
-          const relaxed = await this.model.complete(payload)
-          this.recordUsage(userId, chatId, relaxed.usage)
-          return relaxed
-        }
-      }
-
-      // A reminder promise is a commitment: if the model merely answered in words,
-      // force the tool so something is actually scheduled. This is not optional —
-      // a text-only answer used to tell the user "напомню в 01:23" while nothing
-      // was stored anywhere.
-      const reminderRequested = this.reminders && answer.toolCalls === 0
-        && !REMINDER_LIST.test(prompt)
-        && (REMINDER_INTENT.test(prompt) || REMINDER_CLAIM.test(answer.text ?? ''))
-      if (reminderRequested) {
-        this.logger.warn('reminder requested without a tool call, forcing remind', { chatId })
-        const forced = await forceTool('remind', 'Пользователь просит напоминание. Немедленно вызови инструмент remind и передай время, посчитанное от текущего момента из системного сообщения о времени.')
-        if (forced.toolCalls > 0 && toolResultText('remind')) {
-          // The tool's own text states exactly what is scheduled; prefer it over
-          // a paraphrase, so the user never sees a time that was not stored.
-          answer = { ...forced, text: toolResultText('remind'), toolCalls: forced.toolCalls }
-        } else {
-          this.logger.warn('forced remind produced no tool call', { chatId, toolCalls: forced.toolCalls })
-          // Затираем ответ только если бот успел пообещать напоминание. Иначе
-          // его слова были верными (например, он перечислил список), и подменять
-          // их сообщением об ошибке нельзя.
-          if (REMINDER_CLAIM.test(answer.text ?? '')) {
-            answer = { ...answer, text: 'Не удалось поставить напоминание — инструмент не сработал. Попробуйте сформулировать иначе, например: «напомни через 15 минут проверить духовку».' }
-          }
-        }
-      }
-
-      // Same guarantee for memory: "мой город — Казань" used to get the answer
-      // "Записал!" with the profile left untouched, so the city never stuck.
-      const memoryRequested = this.profiles && !toolResultText('remember') && isMemoryRequest(prompt)
-      if (memoryRequested) {
-        this.logger.warn('memory request without a tool call, forcing remember', { chatId })
-        const forced = await forceTool('remember', 'Пользователь сообщает о себе факт. Немедленно вызови инструмент remember: factual text в параметре text, а если он назвал свой город — обязательно заполни параметр city.')
-        if (forced.toolCalls > 0 && toolResultText('remember')) {
-          answer = { ...forced, text: toolResultText('remember'), toolCalls: forced.toolCalls }
-        } else {
-          this.logger.error('forced remember produced no tool call', { chatId, toolCalls: forced.toolCalls })
-          answer = { ...answer, text: 'Не удалось сохранить — инструмент памяти не сработал. Попробуйте ещё раз или задайте город командой `/city Москва`.' }
-        }
-      }
-
-      // Same guarantee for documents: "сделай таблицу в Excel" used to be answered
-      // with a pretty table in the chat while no file existed at all.
-      const fileRequested = this.files && !createdFile && answer.toolCalls === 0
-        && (FILE_INTENT.test(prompt) || FILE_CLAIM.test(answer.text ?? ''))
-      if (fileRequested) {
-        this.logger.warn('file requested without a tool call, forcing file', { chatId })
-        const forced = await forceTool('file', 'Пользователь просит файл. Немедленно вызови инструмент file: выбери формат (xlsx для таблицы, docx для документа, csv для данных), придумай короткое имя и передай содержимое в параметрах text или table.')
-        if (forced.toolCalls > 0 && createdFile) {
-          answer = { ...forced, text: toolResultText('file') ?? forced.text, toolCalls: forced.toolCalls }
-        } else {
-          this.logger.error('forced file produced no file', { chatId, toolCalls: forced.toolCalls })
-          answer = { ...answer, text: 'Не удалось собрать файл — инструмент не сработал. Попробуйте иначе, например: «сделай таблицу в Excel со столбцами Название и Год».' }
-        }
-      }
-
-      const text = answer.text.trim()
-      this.logger.info('model answered', {
-        chatId,
-        model: answer.model ?? model,
-        toolCalls: answer.toolCalls ?? 0,
-        ms: Date.now() - started,
-        promptChars: prompt.length,
-        answerChars: text.length,
-        usage: answer.usage,
-      })
-      // The author is stored for groups only: a private chat has exactly one.
-      // Media becomes a short placeholder: the history file must not grow with
-      // base64 images or whole documents.
-      const historyLine = prepared.summary || prompt
-      await this.history.append(chatKey, { role: 'user', content: historyLine, ...(authorName ? { author: authorName } : {}) })
-      // Кого бот видел — для sendto: Telegram не даёт писать человеку по @нику,
-      // нужен числовой id, а он есть только у тех, кто уже писал боту.
-      this.contacts?.remember?.({ chatId: message?.chat?.id, name: message?.from?.name, username: message?.from?.username })?.catch?.(() => {})
-      if (text === '') {
-        // An empty completion is a valid API response. The user still needs an
-        // answer, and an empty assistant turn must not enter the history.
-        await this.send(chatId, 'Модель вернула пустой ответ. Попробуйте переформулировать запрос.')
-        return
-      }
-      await this.history.append(chatKey, { role: 'assistant', content: text })
-      // A reminder created in this turn gets buttons under the confirmation, so
-      // cancelling or postponing it is one tap instead of a command.
-      const keyboard = createdReminder ? this.reminderKeyboard(createdReminder.id) : undefined
-      // When the answer was already streamed into a message, the final text (with
-      // buttons) replaces it; otherwise it is sent as usual.
-      const delivered = streamer ? await streamer.finish(text, keyboard) : false
-      if (!delivered) await this.send(chatId, text, message.message_id, keyboard)
-      // A generated document follows the text: the answer explains, the file carries
-      // the data.
-      if (createdFile) await this.sendFile(chatId, createdFile, message.message_id)
-      // Voice answers are opt-in per chat (`/voice вкл`): the text always arrives,
-      // the spoken version is added on top of it.
-      await this.speakAnswer(chatId, text, message)
-      // Anything that could not be used (an untranscribed voice note, a scanned
-      // PDF) is reported once, after the answer.
-      if (prepared.notes.length > 0) {
-        await this.send(chatId, prepared.notes.map((note) => `⚠️ ${note}`).join('\n')).catch(() => {})
-      }
-      void this.react(message, '👍')
-      // Facts the user stated about themselves are kept without asking the model:
-      // "меня зовут …" used to be answered with words instead of being stored.
-      await this.rememberStatedFacts(userId, prompt)
-    } catch (error) {
-      if (this.shutdown?.signal.aborted) {
-        // Shutdown aborted the call on purpose: the process is going down and
-        // an error message now would be noise (and may not even be delivered).
-        this.logger.warn('model turn aborted by shutdown', { chatId })
-        return
-      }
-      void this.react(message, '🤔')
-      this.logger.error('model turn failed', { error, chatId })
-      this.noteModelFailure(error)
-      const detail = error?.message ?? 'неизвестная ошибка'
-      // Plain text on purpose: the converter escapes it, so a provider message
-      // cannot inject markup into the reply.
-      await this.send(chatId, `Не удалось получить ответ.\n\n${truncate(detail, 300)}`).catch(() => {})
-    } finally {
-      typing.stop()
-      this.semaphore.release()
-    }
+    return this.conversation.reply(message, prompt)
   }
 
-  /**
-   * What the model gets in a group: who is speaking, and nothing personal.
-   *
-   * Only names are shared. City and facts stay in the private chat, so the bot
-   * cannot reveal them to other participants by accident.
-   *
-   * @param {string} chatKey - history key of the chat.
-   * @param {string} [authorName] - name of the current speaker.
-   * @returns {string|undefined} the system line, or `undefined` when nobody is named.
-   */
+  /** Контекст группы — в `core/conversation.mjs`. */
   groupContext(chatKey, authorName) {
-    const participants = [...new Set(this.history.messages(chatKey).filter((entry) => entry.author).map((entry) => entry.author))]
-    if (authorName && !participants.includes(authorName)) participants.push(authorName)
-    if (participants.length === 0) return undefined
-    const who = authorName ? `Сейчас пишет ${authorName}. ` : ''
-    return `${who}Участники этого чата: ${participants.join(', ')}. Личные факты и город участников здесь не показываются — личный контекст остаётся в личных чатах.`
+    return this.conversation.groupContext(chatKey, authorName)
   }
 
-  /** The system message that tells the model what this build can do. */
+  /** Системное сообщение о том, что умеет эта сборка. */
   capabilitiesHint() {
     return capabilityHint(this.capabilities)
   }
 
-  /**
-   * The system message that gives the assistant its character and mood.
-   *
-   * @param {string|number} [userId] - profile owner.
-   * @returns {string|undefined} the hint, or undefined when profiles are off.
-   */
+  /** Подсказка о характере и настроении — в `core/conversation.mjs`. */
   characterHint(userId) {
-    if (!this.profiles || userId === undefined) return undefined
-    return characterHint({
-      profile: {
-        persona: this.profiles.store.persona(userId),
-        mood: this.profiles.store.mood(userId),
-      },
-      userId,
-      now: new Date(),
-      timeZone: this.config.time?.timeZone ?? '',
-    })
+    return this.conversation.characterHint(userId)
   }
 
-  /** The system hint for the user's answer mode, when one is set. */
+  /** Подсказка о режиме ответа — в `core/conversation.mjs`. */
   modeHint(userId) {
-    const mode = userId === undefined ? undefined : this.profiles?.store.mode(userId)
-    const hint = mode ? MODES[mode] : undefined
-    return hint ? `Режим ответа, выбранный пользователем: ${hint}` : undefined
+    return this.conversation.modeHint(userId)
   }
 
-  /**
-   * Keep facts the user stated about themselves, without asking the model.
-   *
-   * The model has the `remember` tool, but it sometimes answers запомнил in
-   * words; these statements are unambiguous, so they are stored directly and cost
-   * no tokens.
-   */
+  /** Автоматическая память о фактах — в `core/conversation.mjs`. */
   async rememberStatedFacts(userId, prompt) {
-    if (!this.profiles || userId === undefined) return
-    const facts = detectFacts(prompt)
-    if (facts.length === 0) return
-    // Предел фактов, дубли и город — правила домена профилей.
-    const { changed } = await this.domain.profiles.rememberDetected(userId, facts)
-    if (changed) {
-      this.logger.info('facts remembered automatically', { userId, facts: facts.length })
-    }
+    return this.conversation.rememberStatedFacts(userId, prompt)
   }
 
-  /** Local time of a reminder, in the configured zone. */
+  /** Местное время напоминания в настроенном часовом поясе. */
   formatReminderTime(dueAt) {
     return this.domain.reminders.formatTime(dueAt)
   }
 
   /**
-   * Deliver one fired reminder.
+   * Отправить сгенерированный файл в чат.
    *
-   * @param {object} reminder - stored reminder.
-   * @param {object} [info] - `lateNotice` marks reminders that were overdue at startup.
-   */
-  /**
-   * Send a generated file to the chat.
+   * Платформы без поддержки файлов получают объяснение вместо тишины, а
+   * сорвавшаяся отправка не ломает ход: текстовый ответ уже доставлен.
    *
-   * Platforms without file support get an explanation instead of silence, and a
-   * failed upload never breaks the turn: the text answer is already delivered.
-   *
-   * @param {number|string} chatId - target chat.
+   * @param {number|string} chatId - целевой чат.
    * @param {object} file - `{ bytes, fileName, caption }`.
-   * @param {number|string} [replyToMessageId] - message to reply to.
-   * @returns {Promise<boolean>} whether the file was sent.
+   * @param {number|string} [replyToMessageId] - сообщение, на которое отвечаем.
+   * @returns {Promise<boolean>} отправлен ли файл.
    */
   async sendFile(chatId, { bytes, fileName, caption }, replyToMessageId) {
     if (!bytes || !bytes.length) return false
@@ -1505,9 +507,15 @@ export class Assistant {
     }
   }
 
+  /**
+   * Доставить сработавшее напоминание.
+   *
+   * @param {object} reminder - сохранённое напоминание.
+   * @param {object} [info] - `lateNotice` помечает напоминания, просроченные к старту.
+   */
   async deliverReminder(reminder, { lateNotice = false } = {}) {
-    // Quiet hours first: a reminder that would fire at 03:00 is moved to the end of
-    // the window instead of waking anyone up.
+    // Сначала тихие часы: напоминание, которое сработало бы в 03:00,
+    // переносится на конец окна, а не будит никого.
     const quietEnd = this.quietHoursEnd(new Date())
     if (quietEnd) {
       try {
@@ -1519,8 +527,8 @@ export class Assistant {
       }
       return
     }
-    // In a group the reminder must name its owner: the chat may have several
-    // people with reminders of their own.
+    // В группе напоминание должно называть своего владельца: в чате может быть
+    // несколько человек со своими напоминаниями.
     const isGroup = reminder.userId !== undefined && reminder.chatId !== reminder.userId
     const owner = isGroup ? this.domain.profiles.displayName(reminder.userId) : undefined
     await this.send(reminder.chatId, this.domain.reminders.deliveryText(reminder, { lateNotice, owner }))
@@ -1546,17 +554,17 @@ export class Assistant {
   }
 
   /**
-   * When the quiet window ends, if the current moment is inside it.
+   * Когда заканчивается тихое окно, если текущий момент внутри него.
    *
-   * @param {Date} now - moment to test.
-   * @returns {Date|undefined} the end of the window, or undefined when it is not quiet.
+   * @param {Date} now - момент для проверки.
+   * @returns {Date|undefined} конец окна или undefined, если сейчас не тихо.
    */
   quietHoursEnd(now) {
     // Расчёт тихого часа и обработка ошибок — правило домена напоминаний.
     return this.domain.reminders.quietHoursEnd(now)
   }
 
-  /** Build and send the morning digest to one chat. */
+  /** Собрать и отправить утренний дайджест в один чат. */
   async deliverDigest(chatId, userId) {
     if (!this.digest) return
     const text = await this.digest.build(chatId, userId)
@@ -1564,9 +572,9 @@ export class Assistant {
   }
 
   /**
-   * Add one model call to the day's counters.
+   * Добавить один вызов модели к счётчикам дня.
    *
-   * Accounting must never break an answer: a failure here is logged and dropped.
+   * Учёт не должен ломать ответ: сбой здесь логируется и отбрасывается.
    */
   recordUsage(userId, chatId, usage) {
     if (!this.usage || !usage) return
@@ -1579,10 +587,10 @@ export class Assistant {
   }
 
   /**
-   * Warn once a day when the token budget is almost spent.
+   * Один раз в день предупредить, что бюджет токенов почти израсходован.
    *
-   * Runs on the accounting path rather than on a timer, so the warning arrives
-   * with the very first answer that crosses the line.
+   * Работает на пути учёта, а не по таймеру, поэтому предупреждение приходит
+   * вместе с первым ответом, который перешёл черту.
    */
   checkSpend() {
     const limit = this.usage?.dailyLimit ?? 0
@@ -1599,16 +607,17 @@ export class Assistant {
   }
 
   /**
-   * Send a reply.
+   * Отправить ответ.
    *
-   * Splitting, formatting and the plain-text retry belong to the adapter, so the
-   * core only hands over markdown and an optional neutral keyboard.
+   * Разбиение, разметка и повтор простым текстом принадлежат адаптеру
+   * платформы, поэтому ядро только передаёт markdown и необязательную
+   * нейтральную клавиатуру.
    */
   async send(chatId, markdown, replyToMessageId, keyboard) {
     return this.platform.sendText({ chatId, markdown, replyToMessageId, keyboard })
   }
 
-  /** Repeat the typing action while a model call is in flight. */
+  /** Повторять действие «печатает», пока идёт вызов модели. */
   startTyping(chatId) {
     const tick = () => {
       this.platform.sendTyping({ chatId }).catch((error) => this.logger.debug('typing failed', { error }))
@@ -1622,8 +631,8 @@ export class Assistant {
   async loadOffset() {
     try {
       const parsed = JSON.parse(await fs.readFile(this.offsetFile, 'utf8'))
-      // A cursor is not always a number: VK uses a string long-poll ts, and
-      // dropping it made the bot replay from scratch and lose events.
+      // Курсор не всегда число: VK использует строковый ts долгого опроса, и
+      // его потеря заставляла бота перечитывать всё сначала и терять события.
       const saved = parsed?.offset
       if (Number.isInteger(saved) || (typeof saved === 'string' && saved !== '')) this.offset = saved
       this.logger.info('offset loaded', { offset: this.offset ?? null })
@@ -1633,10 +642,11 @@ export class Assistant {
   }
 
   /**
-   * Log a periodic liveness line.
+   * Писать периодическую строку о живости.
    *
-   * A 24/7 process is otherwise silent, and "is it alive?" should be answerable
-   * from the log alone, without attaching a debugger or checking the socket.
+   * Процесс, работающий круглосуточно, иначе молчит, а на вопрос «он жив?»
+   * должно быть можно ответить по одному логу, не подключая отладчик и не
+   * проверяя сокет.
    */
   startHeartbeat() {
     const periodMs = this.config.limits.heartbeatMs
@@ -1662,11 +672,11 @@ export class Assistant {
   }
 
   /**
-   * Warn the owner before the disk is full.
+   * Предупредить владельца до того, как диск заполнится.
    *
-   * The bot survived a full filesystem silently while the remote watchdog was
-   * unreachable, and it lost its polling cursor to a truncated write. The process
-   * that suffers is the best witness, so it speaks up — at most once an hour.
+   * Бот однажды молча пережил заполненный диск, пока удалённый сторож был
+   * недоступен, и потерял курсор опроса из-за оборванной записи. Страдающий
+   * процесс — лучший свидетель, поэтому он говорит сам — не чаще раза в час.
    */
   async freeDiskMb() {
     const target = this.offsetFile ? path.dirname(this.offsetFile) : this.config.dataDir
@@ -1695,9 +705,9 @@ export class Assistant {
     if (this.offset === undefined) return
     try {
       await fs.mkdir(path.dirname(this.offsetFile), { recursive: true })
-      // Atomic and length-checked: writing straight into the file truncates it
-      // first, so a full disk once left the cursor as a 0-byte file and the bot
-      // would have replayed its whole backlog after a restart.
+      // Атомарно и с проверкой длины: запись прямо в файл сначала обрезает его,
+      // и однажды полный диск оставил курсор в 0 байт, а после рестарта бот
+      // перечитал бы всю очередь.
       const payload = `${JSON.stringify({ offset: this.offset })}\n`
       const temporary = `${this.offsetFile}.tmp`
       await fs.writeFile(temporary, payload, 'utf8')
@@ -1710,24 +720,14 @@ export class Assistant {
   }
 }
 
-/** Parse `/name@bot args`, returning undefined for ordinary text. */
-export function parseCommand(text, username) {
-  if (!text.startsWith('/')) return undefined
-  const [head, ...rest] = text.split(/\s+/)
-  const [rawName, target] = head.slice(1).split('@')
-  if (target && username && target.toLowerCase() !== username.toLowerCase()) return undefined
-  return { name: rawName.toLowerCase(), args: rest.join(' ') }
-}
-
-const stripMention = (text, username) =>
-  username ? text.replace(new RegExp(`@${username}\\b`, 'gi'), '').trim() : text
-
-const truncate = (text, max) => (text.length > max ? `${text.slice(0, max)}…` : text)
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
+/** Прежний публичный экспорт разбора команд. */
+export { parseCommand } from './core/commands.mjs'
+
 /**
- * Backwards-compatible alias: the class used to be Telegram-only.
+ * Совместимый псевдоним: раньше класс умел только Telegram.
  *
- * @deprecated use `Assistant`.
+ * @deprecated используйте `Assistant`.
  */
 export const TelegramAgentBot = Assistant

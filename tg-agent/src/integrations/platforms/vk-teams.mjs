@@ -96,7 +96,8 @@
  * `description`, and every string that could embed a URL is passed through
  * `redactToken`, so the secret cannot leak into logs or into a thrown error.
  */
-import { markdownToTelegramHtml, splitForTelegram } from '../../format.mjs'
+import { markdownToTelegramHtml } from '../../delivery/format.mjs'
+import { splitForTelegram } from '../../delivery/stream.mjs'
 import { numericId } from './port.mjs'
 import { ConnectionError, deadlineSignal } from '../connection.mjs'
 
