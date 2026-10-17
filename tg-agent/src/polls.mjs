@@ -18,37 +18,32 @@
  *     `undefined` (store) or as a Russian sentence (tool).
  */
 import { createJsonStore } from './storage/json-store.mjs'
+import {
+  MAX_OPTION_LENGTH,
+  MAX_OPTIONS,
+  MAX_QUESTION_LENGTH,
+  MIN_OPTIONS,
+  castVote,
+  cleanOptions,
+  isPoll,
+  rulesOfPolls,
+  voteIndexOf,
+} from './domain/polls.mjs'
+
+// Публичный API `src/polls.mjs` не меняется: правила и тексты живут в домене,
+// а здесь остаются совместимые реэкспорты.
+export {
+  MAX_OPTION_LENGTH,
+  MAX_OPTIONS,
+  MAX_QUESTION_LENGTH,
+  MIN_OPTIONS,
+  parsePollAction,
+  pollKeyboard,
+  pollMessage,
+  pollResultsLine,
+} from './domain/polls.mjs'
 
 const VERSION = 1
-
-/** Documented limits, shared by the store, the tool and the tests. */
-export const MAX_QUESTION_LENGTH = 200
-export const MAX_OPTION_LENGTH = 60
-export const MIN_OPTIONS = 2
-export const MAX_OPTIONS = 10
-
-/** A voter id as platforms hand it over: a number in Telegram, a string elsewhere. */
-const isUserId = (value) => typeof value === 'number' || typeof value === 'string'
-
-/** Whether a stored option survived a round-trip through JSON. */
-const isOption = (value) =>
-  value != null
-  && typeof value.text === 'string'
-  && Array.isArray(value.votes)
-  && value.votes.every(isUserId)
-
-/** Poll in its stored shape. */
-const isPoll = (value) =>
-  value != null
-  && typeof value.id === 'string'
-  && typeof value.chatId === 'number'
-  && typeof value.question === 'string'
-  && Array.isArray(value.options)
-  && value.options.length >= MIN_OPTIONS
-  && value.options.every(isOption)
-  && typeof value.createdAt === 'string'
-  && (value.userId === undefined || isUserId(value.userId))
-  && (value.closedAt === undefined || typeof value.closedAt === 'string')
 
 /**
  * Миграция схемы опросов: файл без `version` считаем версией 0.
@@ -59,51 +54,6 @@ function migratePolls(data) {
     ...data,
     polls: Array.isArray(data?.polls) ? data.polls.filter(isPoll) : [],
   }
-}
-
-/**
- * Trim incoming options, drop blanks and exact duplicates.
- *
- * Junk is dropped rather than rejected: a model that repeats one option must not
- * lose the whole poll. Too-long options are a separate, explicit rejection.
- *
- * @param {unknown} options - raw `options` argument.
- * @returns {string[]} cleaned texts, first occurrence wins.
- */
-function cleanOptions(options) {
-  if (!Array.isArray(options)) return []
-  const seen = new Set()
-  const cleaned = []
-  for (const raw of options) {
-    if (typeof raw !== 'string') continue
-    const text = raw.trim()
-    if (text === '' || seen.has(text)) continue
-    seen.add(text)
-    cleaned.push(text)
-  }
-  return cleaned
-}
-
-/** One vote per person, in the order the votes were cast. */
-const uniqueVotes = (votes) => {
-  const seen = new Set()
-  const unique = []
-  for (const vote of votes) {
-    const key = String(vote)
-    if (seen.has(key)) continue
-    seen.add(key)
-    unique.push(vote)
-  }
-  return unique
-}
-
-/** How many distinct people voted in the whole poll. */
-const voterCount = (poll) => {
-  const voters = new Set()
-  for (const option of poll.options) {
-    for (const vote of option.votes) voters.add(String(vote))
-  }
-  return voters.size
 }
 
 export class PollStore {
@@ -205,28 +155,13 @@ export class PollStore {
    *   `changed: false` and never modify the poll.
    */
   vote(id, userId, optionIndex) {
-    const poll = this.get(id)
-    if (!poll) return undefined
-    const previousIndex = this.voteIndexOf(poll, userId)
-    if (userId === undefined || userId === null) return { poll, changed: false, previousIndex: -1 }
-    // A closed poll is frozen: the buttons are gone, but a stale message may
-    // still be tapped, and that must not resurrect a finished vote.
-    if (poll.closedAt !== undefined) return { poll, changed: false, previousIndex }
-    if (!Number.isSafeInteger(optionIndex) || optionIndex < 0 || optionIndex >= poll.options.length) {
-      return { poll, changed: false, previousIndex }
-    }
-    if (previousIndex === optionIndex) return { poll, changed: false, previousIndex }
-    if (previousIndex !== -1) {
-      poll.options[previousIndex].votes = poll.options[previousIndex].votes
-        .filter((vote) => String(vote) !== String(userId))
-    }
-    poll.options[optionIndex].votes.push(userId)
-    return { poll, changed: true, previousIndex }
+    // Один голос на человека и закрытие опроса — правила домена.
+    return castVote(this.get(id), userId, optionIndex)
   }
 
   /** Zero-based index of the option this user picked, or -1. */
   voteIndexOf(poll, userId) {
-    return poll.options.findIndex((option) => option.votes.some((vote) => String(vote) === String(userId)))
+    return voteIndexOf(poll, userId)
   }
 
   /**
@@ -319,21 +254,23 @@ export const POLL_HINT =
   + 'Кнопки и подсчёт голосов бот делает сам; повторное нажатие переносит голос, а не добавляет второй.'
 
 /**
- * Build the `poll` tool.
+ * Собрать инструмент `poll`.
  *
- * @param {object} options - tool options.
- * @param {PollStore} options.store - poll storage.
+ * @param {object} options - параметры инструмента.
+ * @param {PollStore} options.store - хранилище опросов.
  */
 export function createPollTool({ store }) {
+  const rules = rulesOfPolls({ store })
+
   return {
     definition: POLL_TOOL_DEFINITION,
 
     /**
-     * Create one poll for a chat.
+     * Создать один опрос для чата.
      *
-     * @param {object} args - tool arguments (`question`, `options`).
-     * @param {{chatId: number, userId?: number|string}} context - chat and author, injected by the bot.
-     * @returns {Promise<string>} confirmation or an error the model must report.
+     * @param {object} args - аргументы (`question`, `options`).
+     * @param {{chatId: number, userId?: number|string}} context - чат и автор.
+     * @returns {Promise<string>} подтверждение или ошибка для модели.
      */
     async execute(args, context) {
       const { text } = await this.executeDetailed(args, context)
@@ -341,126 +278,20 @@ export function createPollTool({ store }) {
     },
 
     /**
-     * Same as `execute`, but also returns the stored poll.
+     * То же, что `execute`, но возвращает и сохранённый опрос.
      *
-     * The bot needs the whole poll to send the message and the buttons; the model
-     * must only ever see the text.
+     * Боту нужен весь опрос, чтобы отправить сообщение и кнопки; модель должна
+     * видеть только текст.
      *
-     * @param {object} args - tool arguments (`question`, `options`).
-     * @param {{chatId: number, userId?: number|string}} context - chat and author.
-     * @returns {Promise<{text: string, poll?: object}>} result plus the poll when one was created.
+     * @param {object} args - аргументы (`question`, `options`).
+     * @param {{chatId: number, userId?: number|string}} context - чат и автор.
+     * @returns {Promise<{text: string, poll?: object}>} текст и опрос.
      */
-    async executeDetailed({ question, options } = {}, { chatId, userId } = {}) {
-      if (!Number.isFinite(chatId)) return { text: 'Ошибка инструмента poll: не удалось определить чат.' }
-      const clean = String(question ?? '').trim()
-      if (clean === '') {
-        return { text: 'Ошибка инструмента poll: нужен вопрос опроса. Спроси у пользователя, что именно голосуем.' }
-      }
-      if (clean.length > MAX_QUESTION_LENGTH) {
-        return { text: `Ошибка инструмента poll: вопрос длиннее ${MAX_QUESTION_LENGTH} символов. Сократи его и вызови инструмент снова.` }
-      }
-      const cleaned = cleanOptions(options)
-      if (cleaned.length < MIN_OPTIONS || cleaned.length > MAX_OPTIONS) {
-        return { text: `Ошибка инструмента poll: нужно от ${MIN_OPTIONS} до ${MAX_OPTIONS} разных непустых вариантов (получено ${cleaned.length}).` }
-      }
-      const tooLong = cleaned.find((text) => text.length > MAX_OPTION_LENGTH)
-      if (tooLong !== undefined) {
-        return { text: `Ошибка инструмента poll: вариант «${tooLong}» длиннее ${MAX_OPTION_LENGTH} символов. Сократи его и вызови инструмент снова.` }
-      }
-
-      const poll = store.add({ chatId, userId, question: clean, options: cleaned })
-      if (!poll) return { text: 'Ошибка инструмента poll: не удалось создать опрос, проверь вопрос и варианты.' }
-      // Persist immediately: a poll that was confirmed to the user must survive a
-      // restart before the first tap.
-      await store.flush()
-      const list = poll.options.map((option, index) => `${index + 1}) ${option.text}`).join(', ')
-      return {
-        text: `Опрос №${poll.id} создан: «${poll.question}».\nВарианты: ${list}.\nОтправь сообщение с кнопками: ${poll.options.length} шт. Голоса считаются по нажатиям.`,
-        poll,
-      }
+    async executeDetailed(args, context) {
+      return rules.create(args, context)
     },
   }
 }
 
-/**
- * Message text for a poll: question, options with counts and percentages and the
- * people who voted.
- *
- * Percentages are shares of the number of distinct voters, not of the number of
- * stored votes, so a repeated or a moved vote cannot push the sum past 100%.
- * Rounding is `Math.round`, so three equal options show 33% each.
- *
- * @param {object} poll - stored poll.
- * @param {object} [options] - `names`, a `userId -> name` map. A voter missing
- *   from the map is shown by id.
- * @returns {string} the message; `''` for a missing or malformed poll.
- */
-export function pollMessage(poll, { names = {} } = {}) {
-  if (!poll || !Array.isArray(poll.options)) return ''
-  const total = voterCount(poll)
-  const lines = [`📊 Опрос «${poll.question}»`]
-  poll.options.forEach((option, index) => {
-    const votes = uniqueVotes(option.votes)
-    const share = total === 0 ? '' : ` (${Math.round((votes.length / total) * 100)}%)`
-    const who = votes.map((vote) => names[vote] ?? String(vote))
-    const voters = who.length > 0 ? `: ${who.join(', ')}` : ''
-    lines.push(`${index + 1}. ${option.text} — ${votes.length}${share}${voters}`)
-  })
-  lines.push('', total === 0 ? 'Пока никто не голосовал.' : `Всего проголосовало: ${total}.`)
-  if (poll.closedAt !== undefined) lines.push('', 'Опрос закрыт.')
-  return lines.join('\n')
-}
-
-/**
- * Neutral keyboard for a poll: one button per option.
- *
- * @param {object} poll - stored poll.
- * @param {object} [options] - `prefix`, the callback namespace (default `poll`).
- * @returns {{rows: Array<Array<{text: string, data: string}>>} | undefined}
- *   `undefined` after the poll is closed (the buttons are no longer needed) and
- *   for a missing poll.
- */
-export function pollKeyboard(poll, { prefix = 'poll' } = {}) {
-  if (!poll || !Array.isArray(poll.options) || poll.closedAt !== undefined) return undefined
-  return {
-    rows: poll.options.map((option, index) => [{ text: option.text, data: `${prefix}:${poll.id}:${index}` }]),
-  }
-}
-
-/**
- * One-line result for a summary command.
- *
- * @param {object} poll - stored poll.
- * @returns {string | undefined} `опрос «…»: вариант A — 3, вариант B — 1`,
- *   or `undefined` for a missing poll.
- */
-export function pollResultsLine(poll) {
-  if (!poll || !Array.isArray(poll.options)) return undefined
-  const parts = poll.options.map((option) => `${option.text} — ${uniqueVotes(option.votes).length}`)
-  return `опрос «${poll.question}»: ${parts.join(', ')}`
-}
-
-/**
- * Parse a poll button payload (`<prefix>:<id>:<index>`).
- *
- * Strict on purpose: `parsePollAction` runs on whatever a chat sends, so a
- * malformed payload must not silently count as a vote for option 0. The id must
- * be a plain positive string-number (the store never emits leading zeros), the
- * index a non-negative integer.
- *
- * @param {unknown} data - raw `callback.data`.
- * @param {object} [options] - `prefix`, must match `pollKeyboard`.
- * @returns {{id: string, optionIndex: number} | undefined}
- */
-export function parsePollAction(data, { prefix = 'poll' } = {}) {
-  if (typeof data !== 'string') return undefined
-  const parts = data.split(':')
-  if (parts.length !== 3) return undefined
-  const [action, id, index] = parts
-  if (action !== prefix) return undefined
-  if (!/^[1-9]\d*$/.test(id)) return undefined
-  if (!/^(?:0|[1-9]\d*)$/.test(index)) return undefined
-  const optionIndex = Number(index)
-  if (!Number.isSafeInteger(optionIndex)) return undefined
-  return { id, optionIndex }
-}
+// Тексты опроса, клавиатура и разбор кнопок живут в `src/domain/polls.mjs`
+// и реэкспортированы выше: здесь остаётся только хранилище и инструмент.

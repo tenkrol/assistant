@@ -12,10 +12,11 @@
  *     personal bot).
  */
 import { createJsonStore } from './storage/json-store.mjs'
-import { REPEAT_VALUES, isRepeat, repeatAfterDelivery } from './repeats.mjs'
+import { REPEAT_VALUES, isRepeat, repeatAfterDelivery } from './domain/repeats.mjs'
+import { zonedTimeToUtc } from './domain/reminders.mjs'
 
 const VERSION = 1
-/** Allowed repeat values live in one place: `src/repeats.mjs`. */
+/** Допустимые повторы живут в одном месте — `src/domain/repeats.mjs`. */
 const REPEATS = REPEAT_VALUES
 
 /** Reminder in its stored shape. */
@@ -172,8 +173,8 @@ export class ReminderStore {
   advance(id, now = Date.now()) {
     const reminder = this.reminders.find((item) => item.id === String(id))
     if (!reminder || reminder.repeat === 'none') return reminder
-    // Every pattern (daily, weekdays, weekly:2, monthly:1, every:30 …) is handled by
-    // src/repeats.mjs, so the scheduler and the tool never disagree about «дальше».
+    // Все расписания (daily, weekdays, weekly:2, monthly:1, every:30 …) разбирает
+    // src/domain/repeats.mjs, чтобы планировщик и инструмент не разошлись в «дальше».
     const next = repeatAfterDelivery(reminder, { now: new Date(now) })
     if (next?.dueAt) reminder.dueAt = next.dueAt.toISOString()
     return reminder
@@ -271,48 +272,6 @@ export class ReminderScheduler {
   }
 }
 
-/**
- * Turn an ISO string into the instant it denotes.
- *
- * A string with an explicit offset or `Z` already names an instant, so it is
- * honoured as written. A naive wall-clock string ("2026-10-06T09:00", which is
- * what a model usually produces) is interpreted in `timeZone`: the offset is
- * derived from `Intl` at that instant and applied once, which is exact outside
- * DST edges.
- *
- * @param {string} localIso - ISO time, with or without a zone.
- * @param {string} timeZone - IANA zone for naive input, empty means the system zone.
- * @returns {Date} the corresponding instant.
- */
-export function zonedTimeToUtc(localIso, timeZone = '') {
-  const value = String(localIso ?? '').trim()
-  if (/(?:[+-]\d{2}:?\d{2}|Z)$/i.test(value)) {
-    const explicit = new Date(value)
-    if (Number.isNaN(explicit.getTime())) throw new Error(`cannot parse time: ${localIso}`)
-    return explicit
-  }
-  const zone = timeZone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
-  const naive = new Date(`${value}Z`)
-  if (Number.isNaN(naive.getTime())) throw new Error(`cannot parse time: ${localIso}`)
-  const formatter = new Intl.DateTimeFormat('en-US', {
-    timeZone: zone,
-    hour12: false,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-  })
-  const parts = Object.fromEntries(formatter.formatToParts(naive).map((part) => [part.type, part.value]))
-  const asUtc = Date.UTC(
-    Number(parts.year),
-    Number(parts.month) - 1,
-    Number(parts.day),
-    Number(parts.hour) % 24,
-    Number(parts.minute),
-    Number(parts.second),
-  )
-  const offsetMs = asUtc - Math.floor(naive.getTime() / 1000) * 1000
-  return new Date(naive.getTime() - offsetMs)
-}
+// Перевод местного времени в момент времени живёт в домене напоминаний.
+// Реэкспорт сохраняет прежний публичный API `src/reminders.mjs`.
+export { zonedTimeToUtc } from './domain/reminders.mjs'

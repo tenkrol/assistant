@@ -12,15 +12,21 @@
  * they do for any other reminder.
  */
 import { createJsonStore } from './storage/json-store.mjs'
+import {
+  DEFAULT_REMIND_BEFORE,
+  EVENT_REPEATS,
+  dateInZone,
+  dayKeyInZone,
+  eventOccurrence,
+  timeInZone,
+} from './domain/events.mjs'
+
+// Публичный API `src/events.mjs` не меняется: чистые правила живут в домене,
+// а здесь остаются совместимые реэкспорты.
+export { DEFAULT_REMIND_BEFORE, EVENT_REPEATS, dateInZone, dayKeyInZone, timeInZone } from './domain/events.mjs'
 
 /** File format version. */
 const VERSION = 1
-
-/** Repeats an event may have. */
-export const EVENT_REPEATS = ['none', 'yearly']
-
-/** Default minutes before the start when a reminder is asked for. */
-export const DEFAULT_REMIND_BEFORE = 30
 
 /** How many events one user may keep: the file must not grow forever. */
 const MAX_EVENTS = 300
@@ -44,34 +50,6 @@ function migrateEvents(data) {
     ...data,
     events: Array.isArray(data?.events) ? data.events.filter(isEvent) : [],
   }
-}
-
-/** The local calendar day of an instant, as `YYYY-MM-DD`. */
-export function dayKeyInZone(date, timeZone = '') {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: timeZone || undefined, year: 'numeric', month: '2-digit', day: '2-digit' }).format(date)
-}
-
-/** Local time of an instant as `HH:MM`. */
-export function timeInZone(date, timeZone = '') {
-  return new Intl.DateTimeFormat('ru-RU', { timeZone: timeZone || undefined, hour: '2-digit', minute: '2-digit' }).format(date)
-}
-
-/** Local date as `9 октября`. */
-export function dateInZone(date, timeZone = '') {
-  return new Intl.DateTimeFormat('ru-RU', { timeZone: timeZone || undefined, day: 'numeric', month: 'long' }).format(date)
-}
-
-/** The next yearly occurrence of an instant, strictly after `now`. */
-function nextYearly(iso, now) {
-  const start = new Date(iso)
-  const next = new Date(start)
-  while (next.getTime() <= now.getTime()) {
-    // 29 февраля сдвигаем на 28-е в невисокосный год: 1 марта было бы сюрпризом.
-    const year = next.getUTCFullYear() + 1
-    const day = next.getUTCDate() === 29 && next.getUTCMonth() === 1 ? 28 : next.getUTCDate()
-    next.setUTCFullYear(year, next.getUTCMonth(), day)
-  }
-  return next.toISOString()
 }
 
 /**
@@ -162,7 +140,7 @@ export class EventStore {
     const now = new Date()
     return this.events
       .filter((event) => chatId === undefined || event.chatId === Number(chatId))
-      .map((event) => ({ ...event, nextAt: event.repeat === 'yearly' ? nextYearly(event.at, now) : event.at }))
+      .map((event) => ({ ...event, nextAt: eventOccurrence(event, now) }))
       .sort((left, right) => Date.parse(left.nextAt) - Date.parse(right.nextAt))
   }
 

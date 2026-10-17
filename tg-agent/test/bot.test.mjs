@@ -12,13 +12,14 @@ import { ReminderStore } from '../src/reminders.mjs'
 import { createReminderTool } from '../src/reminder-tool.mjs'
 import { ProfileStore } from '../src/profiles.mjs'
 import { createProfileTool } from '../src/profile-tool.mjs'
+import { PollStore, createPollTool } from '../src/polls.mjs'
 import { UsageStore } from '../src/usage.mjs'
 import { callbackUpdate, createModelStub, createTelegramStub, testEnv, textUpdate, waitFor } from './helpers.mjs'
 
 const silentLogger = { debug() {}, info() {}, warn() {}, error() {} }
 const ALLOWED = 777
 
-async function setup({ updates = [], responses, overrides = {}, delayMs = 0, withReminders = true, withProfiles = true, webTools, media, tts } = {}) {
+async function setup({ updates = [], responses, overrides = {}, delayMs = 0, withReminders = true, withProfiles = true, withPolls = false, webTools, media, tts, beforeStart } = {}) {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'tg-agent-'))
   const telegramStub = await createTelegramStub({ updates })
   const modelStub = await createModelStub({ ...(responses ? { responses } : {}), delayMs })
@@ -40,9 +41,16 @@ async function setup({ updates = [], responses, overrides = {}, delayMs = 0, wit
     await store.load()
     profiles = { store, tool: createProfileTool({ store, logger: silentLogger }) }
   }
+  let polls
+  if (withPolls) {
+    const store = new PollStore({ file: path.join(dir, 'polls.json'), logger: silentLogger })
+    await store.load()
+    polls = { store, tool: createPollTool({ store }) }
+  }
   const usage = new UsageStore({ file: path.join(dir, 'usage.json'), logger: silentLogger, dailyLimit: config.usage.dailyLimit })
   await usage.load()
-  const bot = new Assistant({ config, platform, model, history, webTools, reminders, profiles, usage, media, tts, logger: silentLogger })
+  const bot = new Assistant({ config, platform, model, history, webTools, reminders, profiles, usage, media, tts, polls, logger: silentLogger })
+  if (beforeStart) await beforeStart({ dir, bot, config })
   await bot.start()
   return {
     dir,
@@ -53,6 +61,7 @@ async function setup({ updates = [], responses, overrides = {}, delayMs = 0, wit
     bot,
     reminders,
     profiles,
+    polls,
     usage,
     async cleanup() {
       await bot.stop()
@@ -120,6 +129,27 @@ test('/whoami reports the ids without calling the model', async () => {
     assert.match(sent.text, /<b>user id:<\/b> <code>777<\/code>/)
     assert.match(sent.text, /<b>chat id:<\/b> <code>555<\/code>/)
     assert.equal(ctx.modelStub.state.requests.length, 0)
+  } finally {
+    await ctx.cleanup()
+  }
+})
+
+test('the contact book is read from disk at startup', async () => {
+  // Регрессия: справочник читался только при первом изменении, поэтому sendto
+  // после рестарта не видел людей, сохранённых прошлым запуском.
+  const ctx = await setup({
+    updates: [],
+    beforeStart: async ({ dir }) => {
+      await fs.writeFile(path.join(dir, 'contacts.json'), JSON.stringify({
+        version: 1,
+        contacts: [{ chatId: 123, name: 'Мария', username: 'maria', phone: '9991234567' }],
+      }))
+    },
+  })
+  try {
+    assert.equal(ctx.bot.contacts.byPhone('+7 999 123-45-67')?.chatId, 123)
+    assert.equal(ctx.bot.contacts.byUsername('@maria')?.name, 'Мария')
+    assert.equal(ctx.bot.contacts.search('Мари')[0]?.chatId, 123)
   } finally {
     await ctx.cleanup()
   }
@@ -505,6 +535,41 @@ test('a tap on «Отложить» moves the reminder into the future', async (
     assert.notEqual(list[0].id, reminder.id, 'postponing creates a fresh reminder')
     assert.equal(list[0].text, 'про чайник')
     assert.ok(Date.parse(list[0].dueAt) - Date.now() > 9 * 60_000, 'due in about ten minutes')
+  } finally {
+    await ctx.cleanup()
+  }
+})
+
+test('a poll button vote is counted once and a repeated tap moves the voice', async () => {
+  const ctx = await setup({ updates: [], withPolls: true })
+  try {
+    const poll = ctx.polls.store.add({ chatId: 555, userId: ALLOWED, question: 'Куда едем?', options: ['Лес', 'Река'] })
+    const update = (optionIndex, updateId) => callbackUpdate({
+      data: `poll:${poll.id}:${optionIndex}`,
+      updateId,
+      messageId: 42,
+      text: '📊 Опрос «Куда едем?»',
+    })
+
+    ctx.telegramStub.push(update(0, 1))
+    const first = await waitFor(() => ctx.telegramStub.state.answers[0], { what: 'the first toast' })
+    assert.equal(first.text, 'Голос учтён')
+    assert.deepEqual(ctx.polls.store.get(poll.id).options.map((option) => option.votes), [[ALLOWED], []])
+    const edit = await waitFor(() => ctx.telegramStub.state.edits[0], { what: 'the poll message' })
+    assert.match(edit.text, /Лес/)
+
+    // Второй голос не добавляет второй записи, а переносит голос.
+    ctx.telegramStub.push(update(1, 2))
+    const second = await waitFor(() => ctx.telegramStub.state.answers[1], { what: 'the moved vote' })
+    assert.equal(second.text, 'Голос учтён')
+    assert.deepEqual(ctx.polls.store.get(poll.id).options.map((option) => option.votes), [[], [ALLOWED]])
+
+    // Закрытый опрос голосов не принимает.
+    ctx.polls.store.close(poll.id)
+    ctx.telegramStub.push(update(0, 3))
+    const closed = await waitFor(() => ctx.telegramStub.state.answers[2], { what: 'the closed toast' })
+    assert.equal(closed.text, 'Опрос уже закрыт')
+    assert.deepEqual(ctx.polls.store.get(poll.id).options.map((option) => option.votes), [[], [ALLOWED]])
   } finally {
     await ctx.cleanup()
   }

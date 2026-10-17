@@ -1,18 +1,13 @@
 /**
- * The `event` tool: the model books appointments into the local calendar.
+ * Инструмент `event`: модель записывает встречи в локальный календарь.
  *
- * Two details matter here. First, the instant is always resolved in the user's zone
- * (`zonedTimeToUtc`), so "в пятницу в 15:00" cannot land three hours off. Second, when
- * a reminder is asked for, a real reminder is written to the reminder store — delivery,
- * quiet hours and the «отложить» buttons then work without any special casing.
+ * Время всегда разрешается в поясе пользователя, а напоминание о событии —
+ * обычное напоминание в общем хранилище, поэтому доставка, тихие часы и кнопки
+ * работают без особых случаев. Правила и тексты — в домене событий.
  */
-import { DEFAULT_REMIND_BEFORE, dateInZone, timeInZone } from './events.mjs'
-import { zonedTimeToUtc } from './reminders.mjs'
+import { DEFAULT_REMIND_BEFORE, LIST_DAYS, rulesOfEvents } from './domain/events.mjs'
 
-/** How many days a listing covers. */
-const LIST_DAYS = 7
-
-/** The tool definition handed to the model. */
+/** Описание инструмента для модели. */
 export const EVENT_TOOL_DEFINITION = {
   type: 'function',
   function: {
@@ -39,82 +34,15 @@ export const EVENT_TOOL_DEFINITION = {
 }
 
 /**
- * Build the tool.
+ * Собрать инструмент календаря.
  *
  * @param {object} options - `{ store, reminders, timeZone, logger }`.
- * @returns {{definition: object, execute: Function, executeDetailed: Function}} the tool.
+ * @returns {{definition: object, execute: Function, executeDetailed: Function}} инструмент.
  */
 export function createEventTool({ store, reminders, timeZone = '', logger } = {}) {
-  const executeDetailed = async (args = {}, { chatId, userId } = {}) => {
-    if (!store) return { text: 'Ошибка инструмента event: календарь недоступен.' }
-    const action = String(args.action ?? 'add').trim().toLowerCase()
-    if (action === 'list') {
-      const events = store.upcoming(chatId, { days: LIST_DAYS })
-      if (events.length === 0) return { text: 'В ближайшие 7 дней событий нет.' }
-      const lines = events.map((event, index) => {
-        const when = `${dateInZone(new Date(event.nextAt), timeZone)} в ${timeInZone(new Date(event.nextAt), timeZone)}`
-        const repeat = event.repeat === 'yearly' ? ' (каждый год)' : ''
-        const place = event.place ? `, ${event.place}` : ''
-        return `${index + 1}. ${when} — ${event.title}${place}${repeat}`
-      })
-      return { text: `Ближайшие события:\n${lines.join('\n')}` }
-    }
+  const rules = rulesOfEvents({ store, reminders, timeZone, logger })
 
-    if (action === 'remove') {
-      const target = store.remove(chatId, args.id ?? args.title)
-      if (!target) return { text: 'Ошибка инструмента event: не нашёл такое событие. Покажите список — action list.' }
-      await store.flush()
-      return { text: `Удалил событие «${target.title}» (${dateInZone(new Date(target.at), timeZone)}).` }
-    }
-
-    // action === 'add'
-    const title = String(args.title ?? '').trim()
-    if (title === '') return { text: 'Ошибка инструмента event: нужно название события.' }
-    let instant
-    try {
-      if (args.at) {
-        instant = new Date(args.at)
-      } else if (args.date) {
-        const time = /^\d{1,2}:\d{2}$/.test(String(args.time ?? '')) ? String(args.time) : '09:00'
-        instant = zonedTimeToUtc(`${String(args.date).trim()}T${time}:00`, timeZone)
-      }
-    } catch (error) {
-      logger?.warn?.('event time parse failed', { error: error?.message ?? error })
-      instant = undefined
-    }
-    if (!instant || Number.isNaN(instant.getTime())) {
-      return { text: 'Ошибка инструмента event: не понял дату. Нужны date (ГГГГ-ММ-ДД) и time (ЧЧ:ММ) или готовый момент в at.' }
-    }
-    const repeat = args.repeat === 'yearly' ? 'yearly' : 'none'
-    const remindBefore = args.remind_before === undefined ? DEFAULT_REMIND_BEFORE : Number(args.remind_before)
-    const event = store.add({ chatId, userId, title, at: instant.toISOString(), repeat, place: args.place, remindBefore: Number.isFinite(remindBefore) ? remindBefore : DEFAULT_REMIND_BEFORE })
-    if (!event) return { text: 'Ошибка инструмента event: не удалось записать событие.' }
-    await store.flush()
-
-    const when = `${dateInZone(instant, timeZone)} в ${timeInZone(instant, timeZone)}`
-    const repeatNote = repeat === 'yearly' ? ', каждый год' : ''
-    // A reminder is a separate, ordinary reminder: that keeps one delivery path.
-    let reminderNote = ''
-    const minutes = Number.isFinite(remindBefore) ? Math.min(1440, Math.max(0, Math.round(remindBefore))) : DEFAULT_REMIND_BEFORE
-    if (reminders && minutes > 0) {
-      const remindAt = new Date(instant.getTime() - minutes * 60_000)
-      if (remindAt.getTime() > Date.now()) {
-        const created = reminders.store.add({
-          chatId,
-          userId,
-          text: `через ${minutes} мин: ${title}`,
-          dueAt: remindAt,
-          repeat: 'none',
-        })
-        if (created) {
-          await reminders.store.flush()
-          reminderNote = ` Напомню за ${minutes} мин.`
-        }
-      }
-    }
-    const reminderHint = reminders && minutes === 0 ? ' Напоминать не буду.' : ''
-    return { text: `Записал: ${when} — «${title}»${repeatNote}.${reminderNote}${reminderHint}`, event }
-  }
+  const executeDetailed = async (args = {}, context = {}) => rules.executeDetailed(args, context)
 
   return {
     definition: EVENT_TOOL_DEFINITION,

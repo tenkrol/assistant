@@ -11,12 +11,18 @@
  *     chatty partner cannot grow the file without limit.
  */
 import { createJsonStore } from './storage/json-store.mjs'
+import {
+  DEFAULT_MAX_FACTS,
+  DEFAULT_MAX_USERS,
+  MAX_CITY_LENGTH,
+  MAX_FACT_LENGTH,
+  cleanCity,
+  cleanFactText,
+  displayNameOf,
+  factLimitError,
+} from './domain/profiles.mjs'
 
 const VERSION = 1
-const MAX_FACT_LENGTH = 200
-/** Older profiles are dropped first when the store grows past `maxUsers`. */
-const DEFAULT_MAX_USERS = 1000
-const DEFAULT_MAX_FACTS = 50
 
 /** One stored profile. */
 const emptyProfile = () => ({ city: undefined, persona: undefined, mood: undefined, facts: [], nextFactId: 1, updatedAt: new Date().toISOString() })
@@ -121,9 +127,9 @@ export class ProfileStore {
    * @returns {{city: string, changed: boolean}} the stored city.
    */
   setCity(userId, city) {
-    const clean = String(city ?? '').trim()
+    const clean = cleanCity(city)
     if (clean === '') throw new Error('city is required')
-    if (clean.length > 80) throw new Error('city name is too long')
+    if (clean.length > MAX_CITY_LENGTH) throw new Error('city name is too long')
     const profile = this.get(userId)
     const changed = profile.city !== clean
     profile.city = clean
@@ -214,13 +220,13 @@ export class ProfileStore {
    * @returns {{fact: object, duplicate: boolean}} the stored (or matching) fact.
    */
   addFact(userId, text) {
-    const clean = String(text ?? '').replace(/\s+/g, ' ').trim()
+    const clean = cleanFactText(text)
     if (clean === '') throw new Error('fact text is required')
     if (clean.length > MAX_FACT_LENGTH) throw new Error(`fact is too long (max ${MAX_FACT_LENGTH} characters)`)
     const profile = this.get(userId)
     const existing = profile.facts.find((fact) => fact.text.toLowerCase() === clean.toLowerCase())
     if (existing) return { fact: existing, duplicate: true }
-    if (profile.facts.length >= this.maxFacts) throw new Error(`too many facts (max ${this.maxFacts}); remove one first`)
+    if (profile.facts.length >= this.maxFacts) throw new Error(factLimitError(this.maxFacts))
     const fact = { id: String(profile.nextFactId++), text: clean, createdAt: new Date().toISOString() }
     profile.facts.push(fact)
     profile.updatedAt = fact.createdAt
@@ -281,13 +287,8 @@ export class ProfileStore {
    * @returns {string|undefined} the name, when one is known.
    */
   displayName(userId) {
-    const profile = this.users.get(String(userId))
-    if (!profile) return undefined
-    for (const fact of profile.facts) {
-      const match = /(?:его|её|ее|меня)?\s*зовут\s+([\p{L}-]{2,})/iu.exec(fact.text)
-      if (match) return match[1][0].toUpperCase() + match[1].slice(1)
-    }
-    return profile.firstName || profile.username
+    // Правило «запомненное имя важнее имени из мессенджера» живёт в домене.
+    return displayNameOf(this.users.get(String(userId)))
   }
 
   /**

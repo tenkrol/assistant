@@ -105,15 +105,45 @@ test('файл новее кода не перезаписывается', async
 
 test('два писателя не перемешивают записи: замок сериализует', async () => {
   const { file, cleanup } = await sandbox()
+  let releaseFirst
   try {
-    const order = []
-    await Promise.all([
-      withFileLock(file, async () => { order.push('первый-начало'); await new Promise((r) => setTimeout(r, 60)); order.push('первый-конец') }, { logger: silent }),
-      withFileLock(file, async () => { order.push('второй') }, { logger: silent }),
-    ])
-    assert.deepEqual(order, ['первый-начало', 'первый-конец', 'второй'], 'второй ждёт первого')
+    let insideFirst = false
+    let secondStartedWhileFirstInside = false
+    let signalFirstEntered
+    const firstEntered = new Promise((resolve) => { signalFirstEntered = resolve })
+    // Первый писатель держит замок, пока тест не разрешит продолжить: так момент
+    // проверки не зависит от таймингов и планировщика.
+    const gate = new Promise((resolve) => { releaseFirst = resolve })
+    const first = withFileLock(file, async () => {
+      insideFirst = true
+      signalFirstEntered()
+      await gate
+      assert.equal(secondStartedWhileFirstInside, false, 'второй не начался, пока первый внутри')
+      insideFirst = false
+    }, { logger: silent })
+    await firstEntered
+
+    // Второй писатель пытается войти, пока замок занят. Замок держит первый,
+    // поэтому отказ может быть только из-за него; короткий таймаут делает
+    // ожидание наблюдаемым, а не гонкой на setTimeout.
+    await assert.rejects(
+      () => withFileLock(file, async () => {
+        if (insideFirst) secondStartedWhileFirstInside = true
+      }, { logger: silent, retryMs: 5, timeoutMs: 100 }),
+      /занято/,
+    )
+    assert.equal(secondStartedWhileFirstInside, false, 'второй не начал работу, пока первый внутри')
+    assert.equal(insideFirst, true, 'первый всё ещё держит замок')
+
+    releaseFirst()
+    await first
+    // После освобождения замка второй писатель выполняется.
+    let secondRan = false
+    await withFileLock(file, async () => { secondRan = true }, { logger: silent })
+    assert.equal(secondRan, true, 'после освобождения замка второй пишет')
     assert.equal(await lockExists(file), false, 'замок снят')
   } finally {
+    releaseFirst?.()
     await cleanup()
   }
 })

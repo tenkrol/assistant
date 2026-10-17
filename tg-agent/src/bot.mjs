@@ -18,7 +18,10 @@ import { MOODS, MOOD_NAMES, PERSONAS, PERSONA_NAMES, characterHint, moodOf } fro
 import { parsePollAction, pollKeyboard, pollMessage } from './polls.mjs'
 import { SEARCH_HINT, formatSearchResults, searchMessages } from './history-search.mjs'
 import { dayKey } from './usage.mjs'
-import { zonedTimeToUtc } from './reminders.mjs'
+import { rulesOfProfiles } from './domain/profiles.mjs'
+import { rulesOfReminders } from './domain/reminders.mjs'
+import { rulesOfEvents } from './domain/events.mjs'
+import { rulesOfPolls } from './domain/polls.mjs'
 import { createSendToTool } from './sendto-tool.mjs'
 import { createContactStore } from './contacts.mjs'
 
@@ -288,6 +291,14 @@ export class Assistant {
     this.polls = polls
     this.youtube = youtube
     this.server = server
+    // Правила предметной области: ядро только зовёт их и доставляет ответ.
+    // Домены не знают ни про платформу, ни про сеть — им передаются данные и store.
+    this.domain = {
+      profiles: rulesOfProfiles({ store: profiles?.store, logger }),
+      reminders: rulesOfReminders({ store: reminders?.store, timeZone: config.time?.timeZone ?? '', quiet: config.quiet, logger }),
+      events: rulesOfEvents({ store: events?.store, reminders: reminders?.store, timeZone: config.time?.timeZone ?? '', logger }),
+      polls: rulesOfPolls({ store: polls?.store }),
+    }
     // Built once from the configuration: the model and /help describe exactly what
     // this deployment can do, never more.
     this.capabilities = capabilityLines({ config, media, platformName: platform?.name })
@@ -319,6 +330,9 @@ export class Assistant {
    * immediately, because retrying it can only delay a readable error.
    */
   async start({ attempts = this.config.limits.startupAttempts } = {}) {
+    // Справочник контактов читаем сразу, а не при первом изменении: иначе после
+    // рестарта `sendto` не видел бы людей, сохранённых прошлым запуском.
+    await this.contacts?.load?.()
     await this.resolveIdentity(attempts)
     this.shutdown = new AbortController()
     this.logger.info('bot identity resolved', { platform: this.platform.name, id: this.botId, username: this.username })
@@ -668,9 +682,10 @@ export class Assistant {
         if (!parsed || !this.polls) {
           toast = 'Опрос недоступен'
         } else {
-          const result = this.polls.store.vote(parsed.id, from.id, parsed.optionIndex)
+          // Голос, повтор и закрытие опроса — правила домена.
+          const result = await this.domain.polls.vote(parsed.id, from.id, parsed.optionIndex)
           if (!result?.poll) {
-            toast = 'Опрос уже закрыт'
+            toast = result?.toast ?? 'Опрос уже закрыт'
           } else {
             // The poll message is rewritten in place: counts change with every vote.
             await this.platform.editText({
@@ -679,48 +694,23 @@ export class Assistant {
               markdown: pollMessage(result.poll, { names: this.namesOf(result.poll) }),
               keyboard: pollKeyboard(result.poll),
             }).catch((error) => this.logger.debug('poll edit failed', { error, chatId }))
+            // Прежний порядок: сообщение уже перерисовано — теперь фиксируем голос.
             await this.polls.store.flush()
-            toast = result.poll.closedAt !== undefined
-              ? 'Опрос уже закрыт'
-              : result.changed
-                ? 'Голос учтён'
-                : 'Вы уже голосовали так'
+            toast = result.toast
           }
         }
       } else if (action === 'cancel') {
         const [id] = rest
         // `message` here is the bot's own message, so its `from.id` is the bot:
         // the owner is the user who tapped the button.
-        const removed = this.reminders?.store.cancel(chatId, id, from.id)
-        await this.reminders?.store.flush()
-        toast = removed ? `Напоминание №${id} отменено` : `Напоминания №${id} уже нет`
-        outcome = removed ? `✖️ Отменено: «${removed.text}»` : '✖️ Напоминание уже отменено'
+        const result = await this.domain.reminders.cancelByButton({ chatId, userId: from.id, id })
+        toast = result.toast
+        outcome = result.outcome
       } else if (action === 'snooze') {
         const [minutesRaw, id] = rest
-        const minutes = Number(minutesRaw)
-        const existing = this.reminders?.store.list(chatId, from.id).find((reminder) => reminder.id === String(id))
-        if (!existing) {
-          toast = 'Напоминание уже неактивно'
-          outcome = '✖️ Это напоминание уже сработало или отменено'
-        } else if (!Number.isFinite(minutes) || minutes <= 0 || minutes > 1440) {
-          toast = 'Неверная задержка'
-        } else {
-          // The repeat is carried over: postponing a daily reminder must not
-          // silently turn it into a one-off.
-          const moved = this.reminders.store.add({
-            chatId,
-            userId: existing.userId,
-            text: existing.text,
-            dueAt: new Date(Date.now() + minutes * 60_000),
-            repeat: existing.repeat ?? 'none',
-          })
-          this.reminders.store.cancel(chatId, existing.id, from.id)
-          await this.reminders.store.flush()
-          const when = this.formatReminderTime(moved.dueAt)
-          const repeatNote = moved.repeat === 'none' ? '' : moved.repeat === 'daily' ? ' (дальше — каждый день)' : ' (дальше — каждую неделю)'
-          toast = `Отложено на ${minutes} мин`
-          outcome = `⏰ Отложено до ${when}${repeatNote}`
-        }
+        const result = await this.domain.reminders.snooze({ chatId, userId: from.id, id, minutes: minutesRaw })
+        toast = result.toast
+        outcome = result.outcome
       }
     } catch (error) {
       this.logger.error('callback action failed', { error, action, chatId })
@@ -772,13 +762,8 @@ export class Assistant {
 
   /** Who voted in a poll, by their display name where we know it. */
   namesOf(poll) {
-    const names = {}
-    for (const option of poll.options ?? []) {
-      for (const voter of option.votes ?? []) {
-        names[voter] = this.profiles?.store?.displayName?.(voter) ?? String(voter)
-      }
-    }
-    return names
+    // Отображаемое имя — правило домена профилей.
+    return this.domain.profiles.namesOf(poll)
   }
 
   /**
@@ -916,20 +901,8 @@ export class Assistant {
           await this.send(chatId, 'Календарь выключен в настройках.')
           return
         }
-        const events = this.events.store.upcoming(chatId, { days: 14 })
-        if (events.length === 0) {
-          await this.send(chatId, 'В ближайшие две недели событий нет.\n\nДобавить: «запиши стоматолога 15 октября в 11:30».')
-          return
-        }
-        const zone = this.config.time?.timeZone ?? ''
-        const lines = events.map((event, index) => {
-          const day = new Intl.DateTimeFormat('ru-RU', { timeZone: zone || undefined, day: 'numeric', month: 'long', weekday: 'short' }).format(new Date(event.nextAt))
-          const time = new Intl.DateTimeFormat('ru-RU', { timeZone: zone || undefined, hour: '2-digit', minute: '2-digit' }).format(new Date(event.nextAt))
-          const repeat = event.repeat === 'yearly' ? ' (каждый год)' : ''
-          const place = event.place ? `, ${event.place}` : ''
-          return `${index + 1}. ${day}, ${time} — ${event.title}${place}${repeat}`
-        })
-        await this.send(chatId, ['**Ближайшие события**', ...lines, '', 'Удалить: «удали событие 2» или напишите мне об этом.'].join('\n'))
+        const result = this.domain.events.calendar(chatId, { days: 14 })
+        await this.send(chatId, result.text)
         return
       }
       case 'start':
@@ -950,24 +923,9 @@ export class Assistant {
         await this.send(chatId, 'Контекст диалога очищен. Начнём заново.')
         return
       case 'reminders': {
-        const list = (this.reminders?.store.list(chatId, message.from.id) ?? []).sort((a, b) => Date.parse(a.dueAt) - Date.parse(b.dueAt))
-        if (list.length === 0) {
-          await this.send(chatId, 'Напоминаний нет. Скажите, например: «напомни завтра в 9 позвонить маме».')
-          return
-        }
-        const lines = list.map((reminder) => {
-          const repeat = reminder.repeat === 'none' ? '' : reminder.repeat === 'daily' ? ', каждый день' : ', каждую неделю'
-          return `№${reminder.id} — ${this.formatReminderTime(reminder.dueAt)}${repeat}: ${reminder.text}`
-        })
-        await this.send(
-          chatId,
-          ['**Напоминания:**', ...lines, '', 'Отменить: `/cancel <номер>` или кнопкой ниже'].join('\n'),
-          // Up to eight one-tap cancellations; a longer list stays command-driven.
-          undefined,
-          list.slice(0, 8).length > 0
-            ? { rows: list.slice(0, 8).map((reminder) => [{ text: `✖️ Отменить №${reminder.id}`, data: `cancel:${reminder.id}` }]) }
-            : undefined,
-        )
+        // Сортировка, подписи повторов и кнопки отмены — правила домена.
+        const result = this.domain.reminders.list({ chatId, userId: message.from.id })
+        await this.send(chatId, result.text, undefined, result.keyboard)
         return
       }
       case 'voice': {
@@ -1091,27 +1049,9 @@ export class Assistant {
           await this.send(chatId, 'Память профиля выключена.')
           return
         }
-        const value = args.trim()
-        if (value === '') {
-          const saved = this.profiles.store.city(message.from.id)
-          await this.send(chatId, saved
-            ? `Ваш город по умолчанию — **${saved}**. Поменять: \`/city Казань\`. Убрать: \`/city нет\`.`
-            : 'Город по умолчанию не задан. Задайте: `/city Москва` — тогда погоду можно спрашивать без города.')
-          return
-        }
-        if (/^(нет|убрать|сброс|удали)$/i.test(value)) {
-          const removed = this.profiles.store.clearCity(message.from.id)
-          await this.profiles.store.flush()
-          await this.send(chatId, removed ? 'Город по умолчанию убран.' : 'Города по умолчанию и не было.')
-          return
-        }
-        if (value.length > 80) {
-          await this.send(chatId, 'Слишком длинное название города.')
-          return
-        }
-        this.profiles.store.setCity(message.from.id, value)
-        await this.profiles.store.flush()
-        await this.send(chatId, `Город по умолчанию — **${value}**. Теперь погоду можно спрашивать без города.`)
+        // Показ, установка и удаление города — правила домена профилей.
+        const result = await this.domain.profiles.cityCommand(message.from.id, args)
+        await this.send(chatId, result.text)
         return
       }
       case 'memory': {
@@ -1119,20 +1059,8 @@ export class Assistant {
           await this.send(chatId, 'Память профиля выключена.')
           return
         }
-        const facts = this.profiles.store.facts(message.from.id)
-        const city = this.profiles.store.city(message.from.id)
-        if (facts.length === 0 && !city) {
-          await this.send(chatId, 'Я пока ничего о вас не помню. Скажите, например: «запомни, меня зовут Андрей».')
-          return
-        }
-        const lines = []
-        if (city) lines.push(`Город по умолчанию: **${city}** (сменить — \`/city\`)`)
-        if (facts.length > 0) {
-          lines.push('**Что помню:**')
-          for (const fact of facts) lines.push(`№${fact.id}: ${fact.text}`)
-          lines.push('', 'Удалить один факт: `/forget <номер>`. Удалить всё: `/forget all`.')
-        }
-        await this.send(chatId, lines.join('\n'))
+        const result = this.domain.profiles.memoryCommand(message.from.id)
+        await this.send(chatId, result.text)
         return
       }
       case 'forget': {
@@ -1140,24 +1068,8 @@ export class Assistant {
           await this.send(chatId, 'Память профиля выключена.')
           return
         }
-        const value = args.trim()
-        if (value === '') {
-          await this.send(chatId, 'Укажите номер: `/forget 2`, или всё сразу: `/forget all`. Список — `/memory`.')
-          return
-        }
-        if (/^(all|всё|все)$/i.test(value)) {
-          const count = this.profiles.store.clearFacts(message.from.id)
-          await this.profiles.store.flush()
-          await this.send(chatId, count > 0 ? `Забыл все факты (${count}).` : 'Фактов и не было.')
-          return
-        }
-        if (!/^\d+$/.test(value)) {
-          await this.send(chatId, 'Номер должен быть числом: `/forget 2`. Список — `/memory`.')
-          return
-        }
-        const removed = this.profiles.store.removeFact(message.from.id, value)
-        await this.profiles.store.flush()
-        await this.send(chatId, removed ? `Забыл №${value}: «${removed.text}».` : `Факта №${value} нет. Список — /memory.`)
+        const result = await this.domain.profiles.forgetCommand(message.from.id, args)
+        await this.send(chatId, result.text)
         return
       }
       case 'stats': {
@@ -1199,14 +1111,9 @@ export class Assistant {
         return
       }
       case 'cancel': {
-        const id = args.trim()
-        if (!/^\d+$/.test(id)) {
-          await this.send(chatId, 'Укажите номер: `/cancel 3`. Список — `/reminders`.')
-          return
-        }
-        const removed = this.reminders?.store.cancel(chatId, id, message.from.id)
-        await this.reminders?.store.flush()
-        await this.send(chatId, removed ? `Напоминание №${id} отменено.` : `Напоминания №${id} нет. Список — /reminders.`)
+        // Проверка номера и текст ответа — правила домена напоминаний.
+        const result = await this.domain.reminders.cancel({ chatId, userId: message.from.id, id: args })
+        await this.send(chatId, result.text)
         return
       }
       case 'model': {
@@ -1618,29 +1525,16 @@ export class Assistant {
     if (!this.profiles || userId === undefined) return
     const facts = detectFacts(prompt)
     if (facts.length === 0) return
-    let changed = false
-    for (const item of facts) {
-      try {
-        const { duplicate } = this.profiles.store.addFact(userId, item.fact)
-        if (!duplicate) changed = true
-        if (item.city) {
-          this.profiles.store.setCity(userId, item.city)
-          changed = true
-        }
-      } catch (error) {
-        this.logger.debug('auto-memory skipped', { error })
-      }
-    }
+    // Предел фактов, дубли и город — правила домена профилей.
+    const { changed } = await this.domain.profiles.rememberDetected(userId, facts)
     if (changed) {
-      await this.profiles.store.flush()
       this.logger.info('facts remembered automatically', { userId, facts: facts.length })
     }
   }
 
   /** Local time of a reminder, in the configured zone. */
   formatReminderTime(dueAt) {
-    const zone = this.config.time?.timeZone || Intl.DateTimeFormat().resolvedOptions().timeZone
-    return new Intl.DateTimeFormat('ru-RU', { dateStyle: 'long', timeStyle: 'short', timeZone: zone }).format(new Date(dueAt))
+    return this.domain.reminders.formatTime(dueAt)
   }
 
   /**
@@ -1684,27 +1578,19 @@ export class Assistant {
     const quietEnd = this.quietHoursEnd(new Date())
     if (quietEnd) {
       try {
-        const moved = this.reminders?.store.add({
-          chatId: reminder.chatId,
-          userId: reminder.userId,
-          text: reminder.text,
-          dueAt: quietEnd,
-          repeat: reminder.repeat ?? 'none',
-        })
-        this.reminders?.store.cancel(reminder.chatId, reminder.id, reminder.userId)
-        await this.reminders?.store.flush()
+        // Перенос на утро — правило домена напоминаний.
+        const moved = await this.domain.reminders.postponeForQuietHours(reminder, quietEnd)
         this.logger.info('reminder postponed by quiet hours', { id: reminder.id, to: moved?.dueAt })
       } catch (error) {
         this.logger.warn('quiet hours postponement failed', { error, id: reminder.id })
       }
       return
     }
-    const prefix = lateNotice ? '⏰ (пропущено, пока бот не работал) Напоминание' : '⏰ Напоминание'
     // In a group the reminder must name its owner: the chat may have several
     // people with reminders of their own.
     const isGroup = reminder.userId !== undefined && reminder.chatId !== reminder.userId
-    const owner = isGroup ? this.profiles?.store.displayName(reminder.userId) : undefined
-    await this.send(reminder.chatId, `${prefix}${owner ? ` для ${owner}` : ''}: ${reminder.text}`)
+    const owner = isGroup ? this.domain.profiles.displayName(reminder.userId) : undefined
+    await this.send(reminder.chatId, this.domain.reminders.deliveryText(reminder, { lateNotice, owner }))
   }
 
   /**
@@ -1733,31 +1619,8 @@ export class Assistant {
    * @returns {Date|undefined} the end of the window, or undefined when it is not quiet.
    */
   quietHoursEnd(now) {
-    const quiet = this.config.quiet
-    if (!quiet) return undefined
-    const zone = this.config.time?.timeZone ?? ''
-    const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone: zone || undefined, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }).formatToParts(now).map((part) => [part.type, part.value]))
-    const minutes = Number(parts.hour) * 60 + Number(parts.minute)
-    const crossesMidnight = quiet.start > quiet.end
-    const inside = crossesMidnight
-      ? (minutes >= quiet.start || minutes < quiet.end)
-      : (minutes >= quiet.start && minutes < quiet.end)
-    if (!inside) return undefined
-    const endHour = String(Math.floor(quiet.end / 60)).padStart(2, '0')
-    const endMinute = String(quiet.end % 60).padStart(2, '0')
-    let day = { year: Number(parts.year), month: Number(parts.month), day: Number(parts.day) }
-    // An evening window ends tomorrow; a morning one ends today.
-    if (crossesMidnight && minutes >= quiet.start) {
-      const next = new Date(Date.UTC(day.year, day.month - 1, day.day) + 24 * 60 * 60 * 1000)
-      day = { year: next.getUTCFullYear(), month: next.getUTCMonth() + 1, day: next.getUTCDate() }
-    }
-    const stamp = `${day.year}-${String(day.month).padStart(2, '0')}-${String(day.day).padStart(2, '0')}T${endHour}:${endMinute}:00`
-    try {
-      return zonedTimeToUtc(stamp, zone)
-    } catch (error) {
-      this.logger.warn('quiet hours calculation failed', { error })
-      return undefined
-    }
+    // Расчёт тихого часа и обработка ошибок — правило домена напоминаний.
+    return this.domain.reminders.quietHoursEnd(now)
   }
 
   /** Build and send the morning digest to one chat. */

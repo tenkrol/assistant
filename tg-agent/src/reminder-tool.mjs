@@ -1,21 +1,18 @@
 /**
- * The `remind` tool.
+ * Инструмент `remind`.
  *
- * The model never computes a stored timestamp itself: it passes either a delay
- * in minutes or an ISO time, and this module resolves it against the configured
- * zone, validates it and writes the reminder. The confirmation text it returns
- * carries the resolved local time, so the model can show the user exactly when
- * the reminder will fire.
+ * Модель не считает хранимый момент сама: она передаёт задержку в минутах или
+ * ISO-время, а домен напоминаний разрешает его в поясе пользователя, проверяет
+ * инварианты и пишет напоминание. Здесь остаётся только описание инструмента и
+ * тонкая обвязка над `rulesOfReminders`.
  */
-import { zonedTimeToUtc } from './reminders.mjs'
-import { REPEAT_VALUES, describeRepeat, isRepeat } from './repeats.mjs'
+import { REPEAT_VALUES } from './domain/repeats.mjs'
+import { rulesOfReminders } from './domain/reminders.mjs'
 
-/** Allowed repeat values: see src/repeats.mjs. */
+/** Допустимые повторы: см. src/domain/repeats.mjs. */
 const REPEATS = REPEAT_VALUES
-const MIN_MINUTES = 0.05
-const MAX_MINUTES = 100_000
 
-/** OpenAI-compatible tool definition. */
+/** Описание инструмента в формате OpenAI. */
 export const REMIND_TOOL_DEFINITION = {
   type: 'function',
   function: {
@@ -42,25 +39,26 @@ export const REMIND_TOOL_DEFINITION = {
 }
 
 /**
- * Build the reminder tool.
+ * Собрать инструмент напоминаний.
  *
- * @param {object} options - tool options.
- * @param {import('./reminders.mjs').ReminderStore} options.store - reminder storage.
- * @param {string} [options.timeZone] - zone for naive times and for the confirmation.
- * @param {string} [options.locale] - locale for the confirmation text.
- * @param {() => Date} [options.now] - clock, injected by tests.
+ * @param {object} options - параметры инструмента.
+ * @param {import('./reminders.mjs').ReminderStore} options.store - хранилище напоминаний.
+ * @param {string} [options.timeZone] - пояс для наивного времени и подтверждения.
+ * @param {string} [options.locale] - локаль подтверждения.
+ * @param {() => Date} [options.now] - часы, подменяются тестами.
  */
 export function createReminderTool({ store, timeZone = '', locale = 'ru-RU', now = () => new Date() }) {
-  const zone = () => timeZone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
+  const rules = rulesOfReminders({ store, timeZone, locale, now })
 
   return {
     definition: REMIND_TOOL_DEFINITION,
+
     /**
-     * Create one reminder for a chat.
+     * Создать одно напоминание для чата.
      *
-     * @param {object} args - tool arguments.
-     * @param {number} chatId - chat the reminder belongs to; injected by the bot.
-     * @returns {Promise<string>} confirmation or an error the model must report.
+     * @param {object} args - аргументы инструмента.
+     * @param {{chatId: number, userId?: number}} context - чат и владелец.
+     * @returns {Promise<string>} подтверждение или ошибка для модели.
      */
     async execute(args, context) {
       const { text } = await this.executeDetailed(args, context)
@@ -68,61 +66,17 @@ export function createReminderTool({ store, timeZone = '', locale = 'ru-RU', now
     },
 
     /**
-     * Same as `execute`, but also returns the stored reminder.
+     * То же, что `execute`, но возвращает и сохранённое напоминание.
      *
-     * The bot needs the id to put «Отложить»/«Отменить» buttons under the
-     * confirmation, and the model must only ever see the text.
+     * Боту нужен id, чтобы поставить под подтверждением кнопки «Отложить» и
+     * «Отменить»; модель должна видеть только текст.
      *
-     * @param {object} args - tool arguments.
-     * @param {{chatId: number, userId?: number}} context - chat and owner.
-     * @returns {Promise<{text: string, reminder?: object}>} result plus the reminder when one was created.
+     * @param {object} args - аргументы инструмента.
+     * @param {{chatId: number, userId?: number}} context - чат и владелец.
+     * @returns {Promise<{text: string, reminder?: object}>} текст и напоминание.
      */
-    async executeDetailed({ text, in_minutes: inMinutes, at, repeat = 'none' } = {}, { chatId, userId } = {}) {
-      if (!Number.isFinite(chatId)) return { text: 'Ошибка инструмента remind: не удалось определить чат.' }
-      const hasDelay = inMinutes !== undefined && inMinutes !== null
-      const hasMoment = typeof at === 'string' && at.trim() !== ''
-      // Argument shape is validated before anything else, so an invalid repeat is
-      // reported even when the caller forgot the time argument.
-      if (!isRepeat(repeat)) return { text: 'Ошибка инструмента remind: недопустимый повтор. Можно: none, daily, weekdays, weekly, weekly:1..7, monthly:1..31, every:N (N кратно 5).' }
-      if (hasDelay === hasMoment) {
-        return { text: 'Ошибка инструмента remind: укажи ровно одно — in_minutes (через сколько минут) или at (дата и время). Если пользователь не назвал время, спроси его.' }
-      }
-
-      const reference = now()
-      let due
-      try {
-        if (hasDelay) {
-          const minutes = Number(inMinutes)
-          if (!Number.isFinite(minutes) || minutes < MIN_MINUTES || minutes > MAX_MINUTES) {
-            return { text: `Ошибка инструмента remind: in_minutes должно быть числом от ${MIN_MINUTES} до ${MAX_MINUTES}.` }
-          }
-          due = new Date(reference.getTime() + Math.round(minutes * 60_000))
-        } else {
-          // Handles both forms: an explicit offset is honoured, a naive local
-          // time is read in the configured zone.
-          due = zonedTimeToUtc(at.trim(), zone())
-        }
-        if (Number.isNaN(due.getTime())) throw new Error('unparseable time')
-      } catch {
-        return { text: 'Ошибка инструмента remind: не удалось разобрать время. Передай in_minutes или at в формате ISO 8601, например 2026-10-06T09:00:00+03:00.' }
-      }
-      if (due.getTime() < reference.getTime() - 60_000) {
-        const past = new Intl.DateTimeFormat(locale, { dateStyle: 'long', timeStyle: 'short', timeZone: zone() }).format(due)
-        return { text: `Ошибка инструмента remind: время ${past} уже прошло. Уточни у пользователя дату и время.` }
-      }
-
-      let reminder
-      try {
-        reminder = store.add({ chatId, userId, text, dueAt: due, repeat })
-      } catch (error) {
-        return { text: `Ошибка инструмента remind: ${error.message}` }
-      }
-      // Persist immediately: without this the reminder lived in memory only and
-      // any restart before it was due erased it.
-      await store.flush()
-      const human = new Intl.DateTimeFormat(locale, { dateStyle: 'long', timeStyle: 'short', timeZone: zone() }).format(due)
-      const repeatText = describeRepeat(repeat) ?? 'без повтора'
-      return { text: `Напоминание №${reminder.id} создано: ${human} (${zone()}), ${repeatText}. Текст: «${reminder.text}».`, reminder }
+    async executeDetailed(args, context) {
+      return rules.create(args, context)
     },
   }
 }

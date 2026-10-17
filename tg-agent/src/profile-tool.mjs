@@ -1,12 +1,13 @@
 /**
- * The `remember` tool: the model's way to keep a durable fact about the user.
+ * Инструмент `remember`: способ модели сохранить долгий факт о пользователе.
  *
- * It is deliberately narrow — one short statement, plus an optional city that
- * becomes the default for weather. Everything the model may forget between two
- * conversations has to pass through here.
+ * Он намеренно узкий — одна короткая фраза и необязательный город, который
+ * становится городом по умолчанию для погоды. Все проверки и тексты живут в
+ * домене профилей; здесь остаётся описание инструмента и тонкая обвязка.
  */
+import { rulesOfProfiles } from './domain/profiles.mjs'
 
-/** OpenAI-compatible tool definition. */
+/** Описание инструмента в формате OpenAI. */
 export const REMEMBER_TOOL_DEFINITION = {
   type: 'function',
   function: {
@@ -35,42 +36,28 @@ export const REMEMBER_TOOL_DEFINITION = {
 }
 
 /**
- * Build the tool.
+ * Собрать инструмент памяти.
  *
- * @param {object} options - dependencies.
- * @param {import('./profiles.mjs').ProfileStore} options.store - profile storage.
- * @param {object} [options.logger] - logger.
+ * @param {object} options - зависимости.
+ * @param {import('./profiles.mjs').ProfileStore} options.store - хранилище профилей.
+ * @param {object} [options.logger] - логгер.
  * @returns {{definition: object, execute: (args: object, context: {userId: number|string}) => Promise<string>}}
  */
 export function createProfileTool({ store, logger }) {
+  const rules = rulesOfProfiles({ store, logger })
+
   return {
     definition: REMEMBER_TOOL_DEFINITION,
+
     /**
-     * Store one fact for one user.
+     * Сохранить один факт для одного пользователя.
      *
-     * @param {object} args - `text` and optional `city`.
-     * @param {{userId: number|string}} context - who the fact belongs to.
-     * @returns {Promise<string>} text for the model; never throws.
+     * @param {object} args - `text` и необязательный `city`.
+     * @param {{userId: number|string}} context - чей это факт.
+     * @returns {Promise<string>} текст для модели; не бросает исключений.
      */
-    async execute({ text, city } = {}, { userId } = {}) {
-      try {
-        if (userId === undefined || userId === null) return 'Ошибка инструмента remember: не удалось определить пользователя.'
-        // The city is validated first: storing the fact and only then failing on
-        // the city would leave a fact in memory that never reaches the file.
-        const cityValue = city == null ? '' : String(city).trim()
-        if (cityValue.length > 80) return 'Ошибка инструмента remember: слишком длинное название города.'
-        const { fact, duplicate } = store.addFact(userId, text)
-        const lines = [duplicate ? `Уже помню (№${fact.id}): «${fact.text}».` : `Запомнил (№${fact.id}): «${fact.text}».`]
-        if (cityValue !== '') {
-          const { city: saved, changed } = store.setCity(userId, cityValue)
-          lines.push(changed ? `Город по умолчанию — ${saved}.` : `Город по умолчанию уже ${saved}.`)
-        }
-        await store.flush()
-        logger?.info('profile updated', { userId, duplicate, hasCity: cityValue !== '' })
-        return lines.join(' ')
-      } catch (error) {
-        return `Ошибка инструмента remember: ${error.message}`
-      }
+    async execute(args = {}, context = {}) {
+      return rules.remember(args, context)
     },
   }
 }
