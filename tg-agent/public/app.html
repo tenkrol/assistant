@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="dark light">
-<title>Домашний ассистент</title>
+<title data-i18n="app.title"></title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <style>
   :root {
@@ -45,6 +45,9 @@
   h1 { font-size: 20px; margin: 0 0 2px; }
   h2 { font-size: 15px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 22px 0 8px; }
   .who { color: var(--muted); font-size: 14px; margin: 0 0 8px; }
+  .header { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+  .header-title { min-width: 0; }
+  .lang-select { flex: 0 0 auto; width: auto; font-size: 13px; padding: 6px 8px; }
   .tabs {
     display: flex; gap: 6px; overflow-x: auto; position: sticky; top: 0; z-index: 5;
     background: var(--bg); padding: 8px 0; margin: 0 -16px; padding-left: 16px; padding-right: 16px;
@@ -93,419 +96,605 @@
 <div id="notice" class="notice" hidden></div>
 
 <main id="app" class="wrap" hidden>
-  <header>
-    <h1 id="app-title">Домашний ассистент</h1>
-    <p class="who" id="who"></p>
+  <header class="header">
+    <div class="header-title">
+      <h1 id="app-title" data-i18n="app.title"></h1>
+      <p class="who" id="who"></p>
+    </div>
+    <select id="language-select" class="lang-select" data-i18n-aria-label="language.label"></select>
   </header>
 
   <nav class="tabs" id="tabs" role="tablist">
-    <button class="tab" type="button" role="tab" data-tab="reminders" aria-selected="true">Напоминания</button>
-    <button class="tab" type="button" role="tab" data-tab="events" aria-selected="false">Календарь</button>
-    <button class="tab" type="button" role="tab" data-tab="memory" aria-selected="false">Память</button>
-    <button class="tab" type="button" role="tab" data-tab="usage" aria-selected="false">Статистика</button>
+    <button class="tab" type="button" role="tab" data-tab="reminders" aria-selected="true" data-i18n="tab.reminders"></button>
+    <button class="tab" type="button" role="tab" data-tab="events" aria-selected="false" data-i18n="tab.events"></button>
+    <button class="tab" type="button" role="tab" data-tab="memory" aria-selected="false" data-i18n="tab.memory"></button>
+    <button class="tab" type="button" role="tab" data-tab="usage" aria-selected="false" data-i18n="tab.usage"></button>
   </nav>
 
   <section class="panel" data-panel="reminders">
     <div id="reminders-list"></div>
-    <h2>Новое напоминание</h2>
+    <h2 data-i18n="reminders.heading"></h2>
     <form class="form" id="reminder-form" autocomplete="off">
-      <label>Текст
-        <input type="text" id="reminder-text" maxlength="500" placeholder="Позвонить маме" required>
+      <label>
+        <span data-i18n="reminders.text.label"></span>
+        <input type="text" id="reminder-text" maxlength="500" data-i18n-placeholder="reminders.text.placeholder" required>
       </label>
-      <label>Когда
+      <label>
+        <span data-i18n="reminders.when.label"></span>
         <input type="datetime-local" id="reminder-when" required>
       </label>
-      <label>Повтор
+      <label>
+        <span data-i18n="reminders.repeat.label"></span>
         <select id="reminder-repeat"></select>
       </label>
-      <button type="submit">Добавить напоминание</button>
+      <button type="submit" data-i18n="reminders.submit"></button>
     </form>
   </section>
 
   <section class="panel" data-panel="events" hidden>
     <div id="events-list"></div>
-    <h2>Новое событие</h2>
+    <h2 data-i18n="events.heading"></h2>
     <form class="form" id="event-form" autocomplete="off">
-      <label>Название
-        <input type="text" id="event-title" maxlength="500" placeholder="День рождения" required>
+      <label>
+        <span data-i18n="events.title.label"></span>
+        <input type="text" id="event-title" maxlength="500" data-i18n-placeholder="events.title.placeholder" required>
       </label>
-      <label>Дата и время
+      <label>
+        <span data-i18n="events.at.label"></span>
         <input type="datetime-local" id="event-at" required>
       </label>
-      <label class="check"><input type="checkbox" id="event-yearly"> Каждый год</label>
-      <button type="submit">Добавить событие</button>
+      <label class="check"><input type="checkbox" id="event-yearly"> <span data-i18n="events.yearly.label"></span></label>
+      <button type="submit" data-i18n="events.submit"></button>
     </form>
   </section>
 
   <section class="panel" data-panel="memory" hidden>
     <p class="hint" id="memory-city"></p>
     <div id="memory-list"></div>
-    <h2>Новый факт</h2>
+    <h2 data-i18n="memory.heading"></h2>
     <form class="form" id="fact-form" autocomplete="off">
-      <label>Что запомнить
-        <input type="text" id="fact-text" maxlength="200" placeholder="любит крепкий кофе" required>
+      <label>
+        <span data-i18n="memory.fact.label"></span>
+        <input type="text" id="fact-text" maxlength="200" data-i18n-placeholder="memory.fact.placeholder" required>
       </label>
-      <button type="submit">Запомнить</button>
+      <button type="submit" data-i18n="memory.submit"></button>
     </form>
   </section>
 
   <section class="panel" data-panel="usage" hidden>
-    <h2>Токены за сегодня</h2>
+    <h2 data-i18n="usage.heading"></h2>
     <div class="stats" id="usage-stats"></div>
   </section>
 </main>
 
 <div id="toast" hidden></div>
 
-<script>
-(function () {
-  'use strict'
+<script type="module">
+import {
+  SUPPORTED_LANGUAGES,
+  languageFromInitData,
+  localeTag,
+  normalizeLanguage,
+  resolveLanguage,
+  translate
+} from './i18n.mjs'
 
-  var tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null
-  var initData = tg && typeof tg.initData === 'string' ? tg.initData : ''
-  var TABS = ['reminders', 'events', 'memory', 'usage']
-  var active = 'reminders'
-  var fatalShown = false
+var tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null
+var initData = tg && typeof tg.initData === 'string' ? tg.initData : ''
+var TABS = ['reminders', 'events', 'memory', 'usage']
+var LANGUAGES = [
+  ['ru', 'language.ru'],
+  ['en', 'language.en']
+]
+var LANG_KEY = 'plb008.language'
+var STORAGE_TIMEOUT_MS = 2000
+var active = 'reminders'
+var fatalShown = false
+var lang = 'ru'
+var dictionaries = { ru: {}, en: {} }
 
-  // Repeat choices offered by the form. The server still validates against its
-  // own full list, so an outdated page can only send something that is refused.
-  var REPEAT_CHOICES = [
-    ['none', 'без повтора'],
-    ['daily', 'каждый день'],
-    ['weekdays', 'по будням'],
-    ['weekly', 'каждую неделю'],
-    ['weekly:1', 'каждый понедельник'],
-    ['weekly:2', 'каждый вторник'],
-    ['weekly:3', 'каждую среду'],
-    ['weekly:4', 'каждый четверг'],
-    ['weekly:5', 'каждую пятницу'],
-    ['weekly:6', 'каждую субботу'],
-    ['weekly:7', 'каждое воскресенье'],
-    ['monthly:1', '1-го числа'],
-    ['monthly:15', '15-го числа'],
-    ['monthly:31', '31-го числа'],
-    ['every:15', 'каждые 15 минут'],
-    ['every:30', 'каждые 30 минут'],
-    ['every:60', 'каждый час'],
-    ['every:120', 'каждые 2 часа']
-  ]
+// Варианты повтора в форме. Сервер всё равно проверяет повтор по своему
+// полному списку, поэтому устаревшая страница может отправить только то,
+// что он отклонит.
+var REPEAT_CHOICES = [
+  ['none', 'repeatOption.none'],
+  ['daily', 'repeatOption.daily'],
+  ['weekdays', 'repeatOption.weekdays'],
+  ['weekly', 'repeatOption.weekly'],
+  ['weekly:1', 'repeatOption.weekly.1'],
+  ['weekly:2', 'repeatOption.weekly.2'],
+  ['weekly:3', 'repeatOption.weekly.3'],
+  ['weekly:4', 'repeatOption.weekly.4'],
+  ['weekly:5', 'repeatOption.weekly.5'],
+  ['weekly:6', 'repeatOption.weekly.6'],
+  ['weekly:7', 'repeatOption.weekly.7'],
+  ['monthly:1', 'repeatOption.monthly.1'],
+  ['monthly:15', 'repeatOption.monthly.15'],
+  ['monthly:31', 'repeatOption.monthly.31'],
+  ['every:15', 'repeatOption.every.15'],
+  ['every:30', 'repeatOption.every.30'],
+  ['every:60', 'repeatOption.every.60'],
+  ['every:120', 'repeatOption.every.120']
+]
 
-  function byId(id) {
-    return document.getElementById(id)
+function t(key, vars) {
+  return translate(dictionaries[lang], key, vars)
+}
+
+function byId(id) {
+  return document.getElementById(id)
+}
+
+/** Небольшой конструктор DOM: строки попадают только как текст, не как разметка. */
+function el(tag, className, text) {
+  var node = document.createElement(tag)
+  if (className) node.className = className
+  if (text !== undefined && text !== null) node.textContent = String(text)
+  return node
+}
+
+function applyTheme() {
+  var light = tg && tg.colorScheme === 'light'
+  document.documentElement.setAttribute('data-theme', light ? 'light' : 'dark')
+  var params = (tg && tg.themeParams) || {}
+  var mapping = {
+    bg_color: '--bg',
+    secondary_bg_color: '--card',
+    section_bg_color: '--card',
+    text_color: '--fg',
+    hint_color: '--muted',
+    subtitle_text_color: '--muted',
+    link_color: '--accent',
+    accent_text_color: '--accent',
+    button_color: '--button',
+    button_text_color: '--button-text',
+    destructive_text_color: '--danger',
+    section_separator_color: '--border'
   }
-
-  /** Small DOM builder: every string goes in as text, never as markup. */
-  function el(tag, className, text) {
-    var node = document.createElement(tag)
-    if (className) node.className = className
-    if (text !== undefined && text !== null) node.textContent = String(text)
-    return node
-  }
-
-  function applyTheme() {
-    var light = tg && tg.colorScheme === 'light'
-    document.documentElement.setAttribute('data-theme', light ? 'light' : 'dark')
-    var params = (tg && tg.themeParams) || {}
-    var mapping = {
-      bg_color: '--bg',
-      secondary_bg_color: '--card',
-      section_bg_color: '--card',
-      text_color: '--fg',
-      hint_color: '--muted',
-      subtitle_text_color: '--muted',
-      link_color: '--accent',
-      accent_text_color: '--accent',
-      button_color: '--button',
-      button_text_color: '--button-text',
-      destructive_text_color: '--danger',
-      section_separator_color: '--border'
+  Object.keys(mapping).forEach(function (key) {
+    var value = params[key]
+    if (typeof value === 'string' && value) {
+      document.documentElement.style.setProperty(mapping[key], value)
     }
-    Object.keys(mapping).forEach(function (key) {
-      var value = params[key]
-      if (typeof value === 'string' && value) {
-        document.documentElement.style.setProperty(mapping[key], value)
-      }
-    })
-    var inset = tg && tg.contentSafeAreaInset
-    if (inset && typeof inset.bottom === 'number') {
-      document.documentElement.style.setProperty('--safe-bottom', inset.bottom + 'px')
+  })
+  var inset = tg && tg.contentSafeAreaInset
+  if (inset && typeof inset.bottom === 'number') {
+    document.documentElement.style.setProperty('--safe-bottom', inset.bottom + 'px')
+  }
+}
+
+function showNotice(message) {
+  var notice = byId('notice')
+  notice.replaceChildren(el('h1', null, t('app.title')), el('p', null, message))
+  notice.hidden = false
+  byId('app').hidden = true
+}
+
+function closeApp(message) {
+  fatalShown = true
+  showNotice(message)
+}
+
+var toastTimer = null
+function toast(message) {
+  var node = byId('toast')
+  node.replaceChildren(document.createTextNode(String(message)))
+  node.hidden = false
+  if (toastTimer) clearTimeout(toastTimer)
+  toastTimer = setTimeout(function () { node.hidden = true }, 3500)
+}
+
+/**
+ * Чтение из CloudStorage: у каждого пользователя свой выбор языка.
+ * Колбэк может не прийти (старый клиент), поэтому есть таймаут.
+ */
+function cloudGet(key) {
+  return new Promise(function (resolve) {
+    if (!tg || !tg.CloudStorage || typeof tg.CloudStorage.getItem !== 'function') {
+      resolve(null)
+      return
     }
-  }
-
-  function showNotice(message) {
-    var notice = byId('notice')
-    notice.replaceChildren(el('h1', null, 'Домашний ассистент'), el('p', null, message))
-    notice.hidden = false
-    byId('app').hidden = true
-  }
-
-  function closeApp(message) {
-    fatalShown = true
-    showNotice(message)
-  }
-
-  var toastTimer = null
-  function toast(message) {
-    var node = byId('toast')
-    node.replaceChildren(document.createTextNode(String(message)))
-    node.hidden = false
-    if (toastTimer) clearTimeout(toastTimer)
-    toastTimer = setTimeout(function () { node.hidden = true }, 3500)
-  }
-
-  function request(method, path, body) {
-    var options = { method: method, headers: { 'X-Telegram-Init-Data': initData } }
-    if (body !== undefined) {
-      options.headers['Content-Type'] = 'application/json'
-      options.body = JSON.stringify(body)
+    var settled = false
+    var timer = setTimeout(function () {
+      if (settled) return
+      settled = true
+      resolve(null)
+    }, STORAGE_TIMEOUT_MS)
+    try {
+      tg.CloudStorage.getItem(key, function (error, value) {
+        if (settled) return
+        settled = true
+        clearTimeout(timer)
+        resolve(!error && typeof value === 'string' && value !== '' ? value : null)
+      })
+    } catch (error) {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      resolve(null)
     }
-    return fetch(path, options).then(function (response) {
-      return response.text().then(function (text) {
-        var data = null
-        try { data = text ? JSON.parse(text) : null } catch (error) { data = null }
-        if (response.status === 401) { closeApp('Откройте через Telegram'); throw new Error('unauthorized') }
-        if (response.status === 403) { closeApp('Нет доступа'); throw new Error('forbidden') }
-        if (!response.ok) {
-          var message = data && data.error ? data.error : 'Ошибка ' + response.status
-          throw new Error(message)
+  })
+}
+
+/** Запись выбора: ошибка хранилища не должна ломать страницу. */
+function cloudSet(key, value) {
+  if (!tg || !tg.CloudStorage || typeof tg.CloudStorage.setItem !== 'function') return
+  try {
+    tg.CloudStorage.setItem(key, value, function () {})
+  } catch (error) {
+    // Выбор всё равно применён в текущей сессии.
+  }
+}
+
+function telegramLanguage() {
+  var user = tg && tg.initDataUnsafe && tg.initDataUnsafe.user
+  if (user && typeof user.language_code === 'string') return user.language_code
+  return languageFromInitData(initData)
+}
+
+/** Загружает оба словаря до первого показа панели, чтобы не было вспышки ключей. */
+function loadDictionaries() {
+  return Promise.all(SUPPORTED_LANGUAGES.map(function (code) {
+    return fetch('locales/' + code + '.json', { cache: 'no-store' })
+      .then(function (response) {
+        if (!response.ok) throw new Error('locale ' + code + ': ' + response.status)
+        return response.json()
+      })
+      .then(function (data) {
+        dictionaries[code] = data && typeof data === 'object' && !Array.isArray(data) ? data : {}
+      })
+      .catch(function (error) {
+        dictionaries[code] = {}
+        if (window.console && typeof window.console.warn === 'function') {
+          window.console.warn('locale ' + code + ' failed to load', error)
         }
-        return data
+      })
+  }))
+}
+
+/** Подставляет строки в разметку по ключам. */
+function translateMarkup() {
+  Array.prototype.forEach.call(document.querySelectorAll('[data-i18n]'), function (node) {
+    node.textContent = t(node.getAttribute('data-i18n'))
+  })
+  Array.prototype.forEach.call(document.querySelectorAll('[data-i18n-placeholder]'), function (node) {
+    node.setAttribute('placeholder', t(node.getAttribute('data-i18n-placeholder')))
+  })
+  Array.prototype.forEach.call(document.querySelectorAll('[data-i18n-aria-label]'), function (node) {
+    node.setAttribute('aria-label', t(node.getAttribute('data-i18n-aria-label')))
+  })
+}
+
+function fillRepeatSelect() {
+  var select = byId('reminder-repeat')
+  var current = select.value
+  select.replaceChildren()
+  REPEAT_CHOICES.forEach(function (choice) {
+    var option = document.createElement('option')
+    option.value = choice[0]
+    option.textContent = t(choice[1])
+    select.append(option)
+  })
+  if (current) select.value = current
+}
+
+function fillLanguageSelect() {
+  var select = byId('language-select')
+  select.replaceChildren()
+  LANGUAGES.forEach(function (entry) {
+    var option = document.createElement('option')
+    option.value = entry[0]
+    option.textContent = t(entry[1])
+    option.selected = entry[0] === lang
+    select.append(option)
+  })
+  select.value = lang
+}
+
+/**
+ * Применяет текущий язык ко всей странице.
+ * `rerender` нужен при переключении: данные в списках тоже содержат подписи.
+ */
+function applyLanguage(rerender) {
+  document.documentElement.lang = lang
+  document.title = t('app.title')
+  translateMarkup()
+  fillRepeatSelect()
+  fillLanguageSelect()
+  if (rerender && !fatalShown && !byId('app').hidden) void loadTab(active)
+}
+
+function setLanguage(value) {
+  var next = normalizeLanguage(value)
+  if (!next || next === lang) return
+  lang = next
+  cloudSet(LANG_KEY, lang)
+  applyLanguage(true)
+}
+
+/**
+ * Текст ошибки API.
+ *
+ * Русская версия показывает серверную формулировку дословно — так она не
+ * меняется. Для остальных языков код из ответа переводится по словарю, а
+ * серверный русский текст остаётся только запасным вариантом.
+ */
+function errorMessage(data, status) {
+  var code = data && typeof data.code === 'string' ? data.code : ''
+  var serverText = data && typeof data.error === 'string' ? data.error : ''
+  if (lang === 'ru' && serverText) return serverText
+  if (code) {
+    var translated = t('error.' + code)
+    if (translated !== 'error.' + code) return translated
+  }
+  return t('error.http', { status: status })
+}
+
+function request(method, path, body) {
+  var options = { method: method, headers: { 'X-Telegram-Init-Data': initData } }
+  if (body !== undefined) {
+    options.headers['Content-Type'] = 'application/json'
+    options.body = JSON.stringify(body)
+  }
+  return fetch(path, options).then(function (response) {
+    return response.text().then(function (text) {
+      var data = null
+      try { data = text ? JSON.parse(text) : null } catch (error) { data = null }
+      if (response.status === 401) { closeApp(t('error.unauthorized')); throw new Error('unauthorized') }
+      if (response.status === 403) { closeApp(t('error.forbidden')); throw new Error('forbidden') }
+      if (!response.ok) throw new Error(errorMessage(data, response.status))
+      return data
+    })
+  })
+}
+
+function formatWhen(iso) {
+  var date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return String(iso || '')
+  return date.toLocaleString(localeTag(lang), { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })
+}
+
+/** Подпись повтора для списка: совпадает с русским describeRepeat на сервере. */
+function repeatLabel(code) {
+  if (typeof code !== 'string' || code === '') return ''
+  var weekly = /^weekly:([1-7])$/.exec(code)
+  if (weekly) return t('repeat.weekly.' + weekly[1])
+  var monthly = /^monthly:(\d{1,2})$/.exec(code)
+  if (monthly) return t('repeat.monthly', { day: Number(monthly[1]) })
+  var every = /^every:(\d{1,4})$/.exec(code)
+  if (every) return t('repeat.every', { minutes: Number(every[1]) })
+  var key = 'repeat.' + code
+  var text = t(key)
+  return text === key ? '' : text
+}
+
+function renderList(container, items, build) {
+  container.replaceChildren()
+  if (!items || items.length === 0) {
+    container.append(el('p', 'empty', t('list.empty')))
+    return
+  }
+  items.forEach(function (item) {
+    container.append(build(item))
+  })
+}
+
+function actionRow(title, meta, onDelete) {
+  var card = el('div', 'card row')
+  var info = el('div', 'row-info')
+  info.append(el('div', 'row-title', title))
+  if (meta) info.append(el('div', 'row-meta', meta))
+  var button = el('button', 'del', t('action.delete'))
+  button.type = 'button'
+  button.addEventListener('click', onDelete)
+  card.append(info, button)
+  return card
+}
+
+function loadReminders() {
+  return request('GET', '/api/reminders').then(function (items) {
+    renderList(byId('reminders-list'), items, function (item) {
+      var label = repeatLabel(item.repeat)
+      if (!label) label = item.repeatText || t('repeat.none')
+      var meta = formatWhen(item.dueAt) + ' · ' + label
+      return actionRow(item.text, meta, function () {
+        request('DELETE', '/api/reminders/' + encodeURIComponent(item.id))
+          .then(loadReminders)
+          .catch(function (error) { toast(error.message) })
       })
     })
-  }
+  })
+}
 
-  function formatWhen(iso) {
-    var date = new Date(iso)
-    if (Number.isNaN(date.getTime())) return String(iso || '')
-    return date.toLocaleString('ru-RU', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })
-  }
+function loadEvents() {
+  return request('GET', '/api/events?days=14').then(function (items) {
+    renderList(byId('events-list'), items, function (item) {
+      var meta = formatWhen(item.at) + (item.repeat === 'yearly' ? ' · ' + t('event.yearly') : '')
+      if (item.place) meta += ' · ' + item.place
+      return actionRow(item.title, meta, function () {
+        request('DELETE', '/api/events/' + encodeURIComponent(item.id))
+          .then(loadEvents)
+          .catch(function (error) { toast(error.message) })
+      })
+    })
+  })
+}
 
-  function renderList(container, items, build) {
-    container.replaceChildren()
-    if (!items || items.length === 0) {
-      container.append(el('p', 'empty', 'Пока пусто.'))
+function loadMemory() {
+  return request('GET', '/api/memory').then(function (data) {
+    var city = byId('memory-city')
+    city.textContent = data && data.city
+      ? t('memory.city', { city: data.city })
+      : t('memory.cityEmpty')
+    var facts = data && Array.isArray(data.facts) ? data.facts : []
+    renderList(byId('memory-list'), facts, function (fact) {
+      return actionRow(fact.text, null, function () {
+        request('DELETE', '/api/memory/' + encodeURIComponent(fact.id))
+          .then(loadMemory)
+          .catch(function (error) { toast(error.message) })
+      })
+    })
+  })
+}
+
+function loadUsage() {
+  return request('GET', '/api/state').then(function (data) {
+    var today = (data && data.usageToday) || {}
+    var box = byId('usage-stats')
+    box.replaceChildren()
+    var cards = [
+      ['usage.total', today.total],
+      ['usage.requests', today.requests],
+      ['usage.prompt', today.prompt],
+      ['usage.completion', today.completion]
+    ]
+    cards.forEach(function (entry) {
+      var card = el('div', 'stat')
+      card.append(el('div', 'value', String(entry[1] === undefined ? 0 : entry[1])))
+      card.append(el('div', 'label', t(entry[0])))
+      box.append(card)
+    })
+    if (data && data.user && data.user.name) byId('who').textContent = data.user.name
+  })
+}
+
+function loadTab(name) {
+  if (fatalShown) return Promise.resolve()
+  var loader = name === 'reminders' ? loadReminders
+    : name === 'events' ? loadEvents
+    : name === 'memory' ? loadMemory
+    : loadUsage
+  return loader().catch(function (error) {
+    if (error.message !== 'unauthorized' && error.message !== 'forbidden') toast(error.message)
+  })
+}
+
+function selectTab(name) {
+  if (TABS.indexOf(name) === -1) return
+  active = name
+  TABS.forEach(function (tab) {
+    var button = document.querySelector('.tab[data-tab="' + tab + '"]')
+    var panel = document.querySelector('.panel[data-panel="' + tab + '"]')
+    var selected = tab === name
+    if (button) button.setAttribute('aria-selected', selected ? 'true' : 'false')
+    if (panel) panel.hidden = !selected
+  })
+  if (tg && tg.BackButton) {
+    if (TABS.indexOf(name) > 0) tg.BackButton.show()
+    else tg.BackButton.hide()
+  }
+  void loadTab(name)
+}
+
+function onSubmit(path, formId, buildBody, reload, resetIds) {
+  var form = byId(formId)
+  form.addEventListener('submit', function (event) {
+    event.preventDefault()
+    var body
+    try {
+      body = buildBody()
+    } catch (error) {
+      toast(error.message)
       return
     }
-    items.forEach(function (item) {
-      container.append(build(item))
-    })
-  }
-
-  function actionRow(title, meta, onDelete) {
-    var card = el('div', 'card row')
-    var info = el('div', 'row-info')
-    info.append(el('div', 'row-title', title))
-    if (meta) info.append(el('div', 'row-meta', meta))
-    var button = el('button', 'del', 'Удалить')
-    button.type = 'button'
-    button.addEventListener('click', onDelete)
-    card.append(info, button)
-    return card
-  }
-
-  function fillRepeatSelect() {
-    var select = byId('reminder-repeat')
-    REPEAT_CHOICES.forEach(function (choice) {
-      var option = document.createElement('option')
-      option.value = choice[0]
-      option.textContent = choice[1]
-      select.append(option)
-    })
-  }
-
-  function loadReminders() {
-    return request('GET', '/api/reminders').then(function (items) {
-      renderList(byId('reminders-list'), items, function (item) {
-        var meta = formatWhen(item.dueAt) + ' · ' + (item.repeatText || 'без повтора')
-        return actionRow(item.text, meta, function () {
-          request('DELETE', '/api/reminders/' + encodeURIComponent(item.id))
-            .then(loadReminders)
-            .catch(function (error) { toast(error.message) })
+    var button = form.querySelector('button[type="submit"]')
+    if (button) button.disabled = true
+    request('POST', path, body)
+      .then(function () {
+        resetIds.forEach(function (id) {
+          var field = byId(id)
+          if (!field) return
+          if (field.type === 'checkbox') field.checked = false
+          else field.value = ''
         })
+        return reload()
       })
-    })
-  }
-
-  function loadEvents() {
-    return request('GET', '/api/events?days=14').then(function (items) {
-      renderList(byId('events-list'), items, function (item) {
-        var meta = formatWhen(item.at) + (item.repeat === 'yearly' ? ' · каждый год' : '')
-        if (item.place) meta += ' · ' + item.place
-        return actionRow(item.title, meta, function () {
-          request('DELETE', '/api/events/' + encodeURIComponent(item.id))
-            .then(loadEvents)
-            .catch(function (error) { toast(error.message) })
-        })
+      .catch(function (error) {
+        if (error.message !== 'unauthorized' && error.message !== 'forbidden') toast(error.message)
       })
-    })
-  }
-
-  function loadMemory() {
-    return request('GET', '/api/memory').then(function (data) {
-      var city = byId('memory-city')
-      city.textContent = data && data.city
-        ? 'Город: ' + data.city + '. Меняется командой боту.'
-        : 'Город не задан. Задать его можно командой боту.'
-      var facts = data && Array.isArray(data.facts) ? data.facts : []
-      renderList(byId('memory-list'), facts, function (fact) {
-        return actionRow(fact.text, null, function () {
-          request('DELETE', '/api/memory/' + encodeURIComponent(fact.id))
-            .then(loadMemory)
-            .catch(function (error) { toast(error.message) })
-        })
+      .then(function () {
+        if (button) button.disabled = false
       })
+  })
+}
+
+function localToIso(value) {
+  if (!value) throw new Error(t('form.date.required'))
+  var date = new Date(value)
+  if (Number.isNaN(date.getTime())) throw new Error(t('form.date.invalid'))
+  if (date.getTime() <= Date.now()) throw new Error(t('form.date.future'))
+  return date.toISOString()
+}
+
+async function init() {
+  applyTheme()
+
+  if (tg) {
+    if (tg.ready) tg.ready()
+    if (tg.expand) tg.expand()
+    if (tg.onEvent) tg.onEvent('themeChanged', applyTheme)
+  }
+
+  var loaded = await Promise.all([loadDictionaries(), cloudGet(LANG_KEY)])
+  var stored = loaded[1]
+  lang = resolveLanguage({ stored: stored, telegram: telegramLanguage() })
+  // Первый запуск фиксирует выбор, чтобы следующий открылся на том же языке.
+  if (stored !== lang) cloudSet(LANG_KEY, lang)
+  applyLanguage(false)
+
+  if (!initData) {
+    showNotice(t('notice.noTelegram'))
+    return
+  }
+
+  byId('app').hidden = false
+
+  Array.prototype.forEach.call(document.querySelectorAll('.tab'), function (button) {
+    button.addEventListener('click', function () { selectTab(button.getAttribute('data-tab')) })
+  })
+
+  byId('language-select').addEventListener('change', function (event) {
+    setLanguage(event.target.value)
+  })
+
+  if (tg && tg.BackButton) {
+    tg.BackButton.onClick(function () {
+      var index = TABS.indexOf(active)
+      if (index > 0) selectTab(TABS[index - 1])
     })
   }
 
-  function loadUsage() {
-    return request('GET', '/api/state').then(function (data) {
-      var today = (data && data.usageToday) || {}
-      var box = byId('usage-stats')
-      box.replaceChildren()
-      var cards = [
-        ['Всего токенов', today.total],
-        ['Запросов', today.requests],
-        ['Токенов запроса', today.prompt],
-        ['Токенов ответа', today.completion]
-      ]
-      cards.forEach(function (entry) {
-        var card = el('div', 'stat')
-        card.append(el('div', 'value', String(entry[1] === undefined ? 0 : entry[1])))
-        card.append(el('div', 'label', entry[0]))
-        box.append(card)
-      })
-      if (data && data.user && data.user.name) byId('who').textContent = data.user.name
-    })
-  }
-
-  function loadTab(name) {
-    if (fatalShown) return Promise.resolve()
-    var loader = name === 'reminders' ? loadReminders
-      : name === 'events' ? loadEvents
-      : name === 'memory' ? loadMemory
-      : loadUsage
-    return loader().catch(function (error) {
-      if (error.message !== 'unauthorized' && error.message !== 'forbidden') toast(error.message)
-    })
-  }
-
-  function selectTab(name) {
-    if (TABS.indexOf(name) === -1) return
-    active = name
-    TABS.forEach(function (tab) {
-      var button = document.querySelector('.tab[data-tab="' + tab + '"]')
-      var panel = document.querySelector('.panel[data-panel="' + tab + '"]')
-      var selected = tab === name
-      if (button) button.setAttribute('aria-selected', selected ? 'true' : 'false')
-      if (panel) panel.hidden = !selected
-    })
-    if (tg && tg.BackButton) {
-      if (TABS.indexOf(name) > 0) tg.BackButton.show()
-      else tg.BackButton.hide()
+  onSubmit('/api/reminders', 'reminder-form', function () {
+    var text = byId('reminder-text').value.trim()
+    if (!text) throw new Error(t('form.reminder.empty'))
+    return {
+      text: text,
+      dueAt: localToIso(byId('reminder-when').value),
+      repeat: byId('reminder-repeat').value
     }
-    void loadTab(name)
-  }
+  }, loadReminders, ['reminder-text', 'reminder-when'])
 
-  function onSubmit(path, formId, buildBody, reload, resetIds) {
-    var form = byId(formId)
-    form.addEventListener('submit', function (event) {
-      event.preventDefault()
-      var body
-      try {
-        body = buildBody()
-      } catch (error) {
-        toast(error.message)
-        return
-      }
-      var button = form.querySelector('button[type="submit"]')
-      if (button) button.disabled = true
-      request('POST', path, body)
-        .then(function () {
-          resetIds.forEach(function (id) {
-            var field = byId(id)
-            if (!field) return
-            if (field.type === 'checkbox') field.checked = false
-            else field.value = ''
-          })
-          return reload()
-        })
-        .catch(function (error) {
-          if (error.message !== 'unauthorized' && error.message !== 'forbidden') toast(error.message)
-        })
-        .then(function () {
-          if (button) button.disabled = false
-        })
-    })
-  }
-
-  function localToIso(value) {
-    if (!value) throw new Error('Укажите дату и время')
-    var date = new Date(value)
-    if (Number.isNaN(date.getTime())) throw new Error('Некорректная дата')
-    if (date.getTime() <= Date.now()) throw new Error('Дата должна быть в будущем')
-    return date.toISOString()
-  }
-
-  function init() {
-    applyTheme()
-    fillRepeatSelect()
-
-    if (tg) {
-      if (tg.ready) tg.ready()
-      if (tg.expand) tg.expand()
-      if (tg.onEvent) tg.onEvent('themeChanged', applyTheme)
+  onSubmit('/api/events', 'event-form', function () {
+    var title = byId('event-title').value.trim()
+    if (!title) throw new Error(t('form.event.empty'))
+    return {
+      title: title,
+      at: localToIso(byId('event-at').value),
+      repeat: byId('event-yearly').checked ? 'yearly' : 'none'
     }
+  }, loadEvents, ['event-title', 'event-at', 'event-yearly'])
 
-    if (!initData) {
-      showNotice('Откройте эту страницу через Telegram — в браузере она не может показать ваши данные.')
-      return
-    }
+  onSubmit('/api/memory', 'fact-form', function () {
+    var text = byId('fact-text').value.trim()
+    if (!text) throw new Error(t('form.fact.empty'))
+    return { text: text }
+  }, loadMemory, ['fact-text'])
 
-    byId('app').hidden = false
+  selectTab('reminders')
+}
 
-    Array.prototype.forEach.call(document.querySelectorAll('.tab'), function (button) {
-      button.addEventListener('click', function () { selectTab(button.getAttribute('data-tab')) })
-    })
-
-    if (tg && tg.BackButton) {
-      tg.BackButton.onClick(function () {
-        var index = TABS.indexOf(active)
-        if (index > 0) selectTab(TABS[index - 1])
-      })
-    }
-
-    onSubmit('/api/reminders', 'reminder-form', function () {
-      var text = byId('reminder-text').value.trim()
-      if (!text) throw new Error('Введите текст напоминания')
-      return {
-        text: text,
-        dueAt: localToIso(byId('reminder-when').value),
-        repeat: byId('reminder-repeat').value
-      }
-    }, loadReminders, ['reminder-text', 'reminder-when'])
-
-    onSubmit('/api/events', 'event-form', function () {
-      var title = byId('event-title').value.trim()
-      if (!title) throw new Error('Введите название события')
-      return {
-        title: title,
-        at: localToIso(byId('event-at').value),
-        repeat: byId('event-yearly').checked ? 'yearly' : 'none'
-      }
-    }, loadEvents, ['event-title', 'event-at', 'event-yearly'])
-
-    onSubmit('/api/memory', 'fact-form', function () {
-      var text = byId('fact-text').value.trim()
-      if (!text) throw new Error('Введите текст факта')
-      return { text: text }
-    }, loadMemory, ['fact-text'])
-
-    selectTab('reminders')
-  }
-
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init)
-  else init()
-})()
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init)
+else init()
 </script>
 </body>
 </html>

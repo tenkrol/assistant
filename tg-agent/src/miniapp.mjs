@@ -58,6 +58,21 @@ const defaultPublicDir = path.join(
   'public',
 )
 
+/**
+ * Машиночитаемые коды ошибок. Панель переводит код по своему словарю;
+ * поле `error` остаётся человекочитаемой фразой для совместимости.
+ */
+const ERROR_CODES = {
+  badRequest: 'bad_request',
+  unauthorized: 'unauthorized',
+  forbidden: 'forbidden',
+  notFound: 'not_found',
+  tooLarge: 'too_large',
+  methodNotAllowed: 'method_not_allowed',
+  unavailable: 'unavailable',
+  internal: 'internal',
+}
+
 /** JSON response with the two headers that keep a Mini App from caching state. */
 function sendJson(response, status, payload, headers = {}) {
   if (response.headersSent) {
@@ -72,6 +87,11 @@ function sendJson(response, status, payload, headers = {}) {
     ...headers,
   })
   response.end(body)
+}
+
+/** Ошибка в JSON: понятная фраза и стабильный код для клиента. */
+function sendError(response, status, code, error, headers = {}) {
+  sendJson(response, status, { error, code }, headers)
 }
 
 /** Hex HMAC-SHA256 of `message` under `key`, as a `Buffer`. */
@@ -206,7 +226,7 @@ function readJsonBody(request, limit) {
     if (Number.isFinite(declared) && declared > limit) {
       // Drain instead of destroying: the client must still be able to read the 413.
       request.resume()
-      resolve({ ok: false, status: 413, error: 'Тело запроса слишком большое' })
+      resolve({ ok: false, status: 413, code: ERROR_CODES.tooLarge, error: 'Тело запроса слишком большое' })
       return
     }
     const chunks = []
@@ -225,7 +245,7 @@ function readJsonBody(request, limit) {
       if (size > limit) {
         chunks.length = 0
         request.resume()
-        finish({ ok: false, status: 413, error: 'Тело запроса слишком большое' })
+        finish({ ok: false, status: 413, code: ERROR_CODES.tooLarge, error: 'Тело запроса слишком большое' })
         return
       }
       chunks.push(chunk)
@@ -237,14 +257,14 @@ function readJsonBody(request, limit) {
       try {
         value = JSON.parse(raw)
       } catch {
-        return finish({ ok: false, status: 400, error: 'Некорректный JSON в теле запроса' })
+        return finish({ ok: false, status: 400, code: ERROR_CODES.badRequest, error: 'Некорректный JSON в теле запроса' })
       }
       if (value === null || typeof value !== 'object' || Array.isArray(value)) {
-        return finish({ ok: false, status: 400, error: 'Ожидается JSON-объект' })
+        return finish({ ok: false, status: 400, code: ERROR_CODES.badRequest, error: 'Ожидается JSON-объект' })
       }
       finish({ ok: true, value })
     }
-    const onError = () => finish({ ok: false, status: 400, error: 'Не удалось прочитать тело запроса' })
+    const onError = () => finish({ ok: false, status: 400, code: ERROR_CODES.badRequest, error: 'Не удалось прочитать тело запроса' })
     request.on('data', onData)
     request.on('end', onEnd)
     request.on('error', onError)
@@ -312,9 +332,9 @@ export function createMiniApp({
   if (allowed.size === 0) logger?.warn?.('miniapp: allow-list is empty, every user will get 403')
 
   const missingStore = (response, what) =>
-    sendJson(response, 503, { error: `Хранилище недоступно: ${what}` })
-  const badRequest = (response, error) => sendJson(response, 400, { error })
-  const notFound = (response) => sendJson(response, 404, { error: 'Не найдено' })
+    sendError(response, 503, ERROR_CODES.unavailable, `Хранилище недоступно: ${what}`)
+  const badRequest = (response, error) => sendError(response, 400, ERROR_CODES.badRequest, error)
+  const notFound = (response) => sendError(response, 404, ERROR_CODES.notFound, 'Не найдено')
 
   const mapReminder = (reminder) => ({
     id: String(reminder.id),
@@ -395,7 +415,7 @@ export function createMiniApp({
     const store = pickStore(stores.reminders)
     if (!store || typeof store.add !== 'function') return missingStore(response, 'напоминания')
     const body = await readJsonBody(request, bodyLimit)
-    if (!body.ok) return sendJson(response, body.status, { error: body.error })
+    if (!body.ok) return sendError(response, body.status, body.code, body.error)
 
     const text = typeof body.value.text === 'string' ? body.value.text.trim() : ''
     if (text.length === 0) return badRequest(response, 'Текст напоминания не может быть пустым')
@@ -444,7 +464,7 @@ export function createMiniApp({
     const store = pickStore(stores.events)
     if (!store || typeof store.add !== 'function') return missingStore(response, 'календарь')
     const body = await readJsonBody(request, bodyLimit)
-    if (!body.ok) return sendJson(response, body.status, { error: body.error })
+    if (!body.ok) return sendError(response, body.status, body.code, body.error)
 
     const title = typeof body.value.title === 'string' ? body.value.title.trim() : ''
     if (title.length === 0) return badRequest(response, 'Название события не может быть пустым')
@@ -488,7 +508,7 @@ export function createMiniApp({
     const profiles = pickStore(stores.profiles)
     if (!profiles || typeof profiles.addFact !== 'function') return missingStore(response, 'память')
     const body = await readJsonBody(request, bodyLimit)
-    if (!body.ok) return sendJson(response, body.status, { error: body.error })
+    if (!body.ok) return sendError(response, body.status, body.code, body.error)
 
     const text = typeof body.value.text === 'string' ? body.value.text.trim() : ''
     if (text.length === 0) return badRequest(response, 'Текст факта не может быть пустым')
@@ -551,7 +571,7 @@ export function createMiniApp({
       // reusable and the client can read the answer.
       request.resume()
       if (allowedMethods.size > 0) {
-        return sendJson(response, 405, { error: 'Метод не поддерживается' }, { allow: [...allowedMethods].join(', ') })
+        return sendError(response, 405, ERROR_CODES.methodNotAllowed, 'Метод не поддерживается', { allow: [...allowedMethods].join(', ') })
       }
       return notFound(response)
     }
@@ -564,12 +584,12 @@ export function createMiniApp({
       const error = auth.reason === 'expired'
         ? 'Данные Telegram устарели, откройте приложение заново'
         : 'Откройте через Telegram'
-      return sendJson(response, 401, { error, reason: auth.reason })
+      return sendJson(response, 401, { error, code: ERROR_CODES.unauthorized, reason: auth.reason })
     }
     const userId = auth.user.id
     if (!allowed.has(String(userId))) {
       request.resume()
-      return sendJson(response, 403, { error: 'Нет доступа' })
+      return sendError(response, 403, ERROR_CODES.forbidden, 'Нет доступа')
     }
 
     const chatId = Number(chatIdOf(userId))
@@ -579,7 +599,7 @@ export function createMiniApp({
   async function serveStatic(request, response, url) {
     const method = (request.method ?? 'GET').toUpperCase()
     if (method !== 'GET' && method !== 'HEAD') {
-      return sendJson(response, 405, { error: 'Метод не поддерживается' }, { allow: 'GET' })
+      return sendError(response, 405, ERROR_CODES.methodNotAllowed, 'Метод не поддерживается', { allow: 'GET' })
     }
     const decoded = safeDecode(url.pathname)
     if (decoded === undefined) return notFound(response)
@@ -616,12 +636,12 @@ export function createMiniApp({
     try {
       url = new URL(request.url ?? '/', `http://${header}`)
     } catch {
-      return sendJson(response, 400, { error: 'Некорректный запрос' })
+      return sendError(response, 400, ERROR_CODES.badRequest, 'Некорректный запрос')
     }
     if (url.pathname === '/healthz') {
       const method = (request.method ?? 'GET').toUpperCase()
       if (method !== 'GET' && method !== 'HEAD') {
-        return sendJson(response, 405, { error: 'Метод не поддерживается' }, { allow: 'GET' })
+        return sendError(response, 405, ERROR_CODES.methodNotAllowed, 'Метод не поддерживается', { allow: 'GET' })
       }
       response.writeHead(200, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' })
       return response.end(method === 'HEAD' ? undefined : 'ok')
@@ -634,7 +654,7 @@ export function createMiniApp({
     void handle(request, response).catch((error) => {
       // The stack stays in the log; the client gets a sentence and a status.
       logger?.error?.('miniapp request failed', { error, method: request.method, url: request.url })
-      if (!response.headersSent) sendJson(response, 500, { error: 'Внутренняя ошибка сервера' })
+      if (!response.headersSent) sendError(response, 500, ERROR_CODES.internal, 'Внутренняя ошибка сервера')
       else {
         try {
           response.end()
