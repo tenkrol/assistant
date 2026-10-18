@@ -138,3 +138,15 @@
 - GIVEN есть события
 - WHEN владелец вводит /activity
 - THEN приходят последние события с taskId/этапом/токенами.
+
+## ADDED Requirements
+
+### Requirement: Заявка из бота
+Бот ДОЛЖЕН создавать draft-заявку через агентский `/v1/requests` и показывать
+requestId и ссылку на сравнение; ошибки — понятным сообщением.
+
+#### Scenario: /request
+- GIVEN агент доступен
+- WHEN владелец вводит /request <текст>
+- THEN создаётся заявка
+- AND видны requestId и compare URL.
