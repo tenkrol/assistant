@@ -10,6 +10,27 @@ import { createJsonStore } from './storage/json-store.mjs'
 
 const VERSION = 1
 
+/** Служебные слова, которые не делают два сообщения «тем же фактом». */
+const STOP_STEMS = new Set(['живе', 'живу', 'люби', 'работ', 'зову', 'горо', 'есть', 'меня', 'его', 'ее', 'её', 'был', 'была', 'были'])
+
+/** Нормализованный текст для сравнения. */
+const normalizeStatement = (text) => String(text ?? '').toLowerCase().replace(/\s+/g, ' ').trim()
+
+/** Начала значимых слов: «Мытищах» и «Мытищи» дают общий корень «мыти». */
+const stemsOf = (text) => String(text ?? '').toLowerCase()
+  .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+  .split(/\s+/)
+  .filter((word) => word.length >= 4)
+  .map((word) => word.slice(0, 4))
+  .filter((stem) => !STOP_STEMS.has(stem))
+
+/** Похоже ли сообщение на источник записи памяти. */
+const matchesStatement = (content, phrase) => {
+  if (String(content ?? '').toLowerCase().includes(phrase)) return true
+  const wanted = new Set(stemsOf(phrase))
+  return stemsOf(content).some((stem) => wanted.has(stem))
+}
+
 /**
  * Миграция схемы истории: файл без `version` считаем версией 0.
  * Форма данных та же — чаты остаются как есть.
@@ -146,6 +167,40 @@ export class HistoryStore {
     const record = this.record(chatId)
     record.messages = []
     this.schedule()
+  }
+
+  /**
+   * Удалить из истории сообщения пользователя, на которых основана запись памяти.
+   *
+   * Это отдельная операция от `/forget <номер>`: память и исходная переписка
+   * хранятся по-разному. Сравнение идёт по словам с общим началом, потому что в
+   * памяти факт записан от третьего лица («живёт в Мытищах»), а в сообщении —
+   * от первого («переехал в Мытищи»).
+   *
+   * @param {string|number} chatId - чат, где лежит сообщение.
+   * @param {string} text - текст записи памяти.
+   * @param {object} [options] - `userId` для проверки доступа к личной истории.
+   * @returns {Promise<number>} сколько сообщений удалено.
+   */
+  async forgetContaining(chatId, text, { userId } = {}) {
+    const key = String(chatId)
+    const record = this.chats.get(key)
+    if (!record) return 0
+    if (this.access && userId !== undefined && !this.access.canRead(userId, record)) return 0
+    const phrase = normalizeStatement(text)
+    if (phrase === '') return 0
+    const before = record.messages.length
+    record.messages = record.messages.filter((message) => !(message.role === 'user' && matchesStatement(message.content, phrase)))
+    const removed = before - record.messages.length
+    // Окно обязано начинаться с сообщения пользователя: ответ без вопроса
+    // сбивает провайдера и тратит контекст. Отброшенные при этом ответы не
+    // считаются удалёнными сообщениями пользователя.
+    while (record.messages.length > 0 && record.messages[0].role !== 'user') record.messages.shift()
+    if (removed > 0) {
+      this.touch(key)
+      this.schedule()
+    }
+    return removed
   }
 
   /** Number of chats currently held in memory. */

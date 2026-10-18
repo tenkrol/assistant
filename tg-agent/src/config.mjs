@@ -62,6 +62,9 @@ const DEFAULTS = {
   REMINDERS: 'true',
   REMINDER_CHECK_SEC: '20',
   MEMORY: 'true',
+  // Автоматическое извлечение фактов (правила и предложения агента) по
+  // умолчанию выключено: в память попадает только явная просьба «запомни».
+  MEMORY_AUTO_EXTRACT: 'false',
   MAX_USERS: '1000',
   DAILY_TOKEN_LIMIT: '0',
   USAGE_RETENTION_DAYS: '60',
@@ -491,6 +494,9 @@ export function loadConfig(env = process.env) {
     profiles: {
       // Facts about the user plus their default city for weather.
       enabled: readBool(env, 'MEMORY'),
+      // Автоматическое извлечение фактов (правила, предложения агента) — отдельная
+      // настройка, по умолчанию off.
+      autoExtract: readBool(env, 'MEMORY_AUTO_EXTRACT'),
       maxUsers: readInt(env, 'MAX_USERS', { min: 1, max: 1_000_000 }),
     },
     usage: {

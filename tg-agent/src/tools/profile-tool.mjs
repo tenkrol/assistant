@@ -41,11 +41,12 @@ export const REMEMBER_TOOL_DEFINITION = {
  *
  * @param {object} options - зависимости.
  * @param {import('../profiles.mjs').ProfileStore} options.store - хранилище профилей.
+ * @param {object} [options.access] - проверка доступа к пространствам.
  * @param {object} [options.logger] - логгер.
  * @returns {{definition: object, executeDetailed: Function, execute: Function}} инструмент.
  */
-export function createProfileTool({ store, logger }) {
-  const rules = rulesOfProfiles({ store, logger })
+export function createProfileTool({ store, access, logger }) {
+  const rules = rulesOfProfiles({ store, access, logger })
 
   return createTool({
     definition: REMEMBER_TOOL_DEFINITION,

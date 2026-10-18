@@ -323,7 +323,7 @@ export async function createInstance({ config, logger, instance, shared, platfor
     : undefined
   if (profiles) {
     await profiles.store.load()
-    profiles.tool = createProfileTool({ store: profiles.store, logger })
+    profiles.tool = createProfileTool({ store: profiles.store, access, logger })
   }
 
   // Token accounting: written by every answered message, read by /stats and by
@@ -532,10 +532,23 @@ export async function createInstance({ config, logger, instance, shared, platfor
     const chatId = event.route?.chatId === undefined ? owners[0] : String(event.route.chatId)
     if (owners.length === 0 || !owners.includes(String(chatId))) throw new Error('чужой маршрут события')
     if (event.type === 'memory_proposal') {
+      // Автоматическое извлечение — отдельная настройка. Пока она выключена,
+      // предложение агента не становится памятью: иначе предположение модели
+      // выглядело бы как подтверждённый пользователем факт.
+      if (!botConfig.profiles?.autoExtract) {
+        logger.info('memory proposal ignored: auto extraction is off')
+        return
+      }
       const fact = String(event.proposal?.text ?? '').trim()
       if (fact !== '') {
         try {
-          bot.profiles?.store?.addFact?.(chatId, fact)
+          // Даже при включённой настройке это предположение с источником-агентом,
+          // а не подтверждённый факт.
+          bot.profiles?.store?.addFact?.(chatId, fact, {
+            confirmationStatus: 'assumption',
+            sourceRef: 'agent',
+          })
+          await bot.profiles?.store?.flush?.()
         } catch (error) {
           logger.warn('memory proposal rejected', { error: error?.message ?? error })
         }

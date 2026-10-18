@@ -888,6 +888,21 @@ test('facts stated about the user are stored without the model', async () => {
   }
 })
 
+test('automatic extraction is off unless MEMORY_AUTO_EXTRACT is set', async () => {
+  const ctx = await setup({
+    updates: [textUpdate({ text: 'меня зовут Вячеслав, я живу в Москве', updateId: 1, userId: ALLOWED })],
+    responses: [{ content: 'Приятно познакомиться!' }],
+    overrides: { MEMORY_AUTO_EXTRACT: 'false' },
+  })
+  try {
+    await waitFor(() => ctx.telegramStub.state.sends[0], { what: 'the answer' })
+    assert.equal(ctx.profiles.store.facts(ALLOWED).length, 0, 'факт не должен сохраняться автоматически')
+    assert.equal(ctx.profiles.store.city(ALLOWED), undefined)
+  } finally {
+    await ctx.cleanup()
+  }
+})
+
 test('questions are never stored as facts', async () => {
   const ctx = await setup({
     updates: [textUpdate({ text: 'как меня зовут?', updateId: 1, userId: ALLOWED })],

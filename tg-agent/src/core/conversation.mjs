@@ -249,7 +249,13 @@ export function createConversation(bot) {
       const authorName = isGroup ? bot.profiles?.store.displayName(userId) : undefined
       const knownFacts = userId === undefined
         ? undefined
-        : isGroup ? bot.groupContext(chatKey, authorName) : bot.profiles?.store.summary(userId)
+        : isGroup ? bot.groupContext(chatKey, authorName) : bot.profiles?.store.summary(userId, { chatId })
+      // «Почему ты так решил?» — вопрос об источнике: у модели нет журнала
+      // памяти, поэтому источник последних записей передаётся отдельно.
+      const asksWhy = !isGroup && userId !== undefined && /почему ты так (?:решил|думаешь|сказал)|откуда ты (?:это )?знаешь/i.test(prompt)
+      const whyNote = asksWhy && bot.domain?.profiles
+        ? bot.domain.profiles.memoryCommand(userId, 'why', { chatId })?.text
+        : undefined
       // Личный тон и длина ответа, заданные `/mode`, дописываются в системный
       // промпт, поэтому действуют на каждый ответ в этом чате.
       const modeHint = bot.modeHint(userId)
@@ -295,6 +301,7 @@ export function createConversation(bot) {
         // закешированные результаты поиска «сегодняшними».
         { role: 'system', content: formatTimeContext({ timeZone: bot.config.time?.timeZone ?? '' }) },
         ...(knownFacts ? [{ role: 'system', content: knownFacts }] : []),
+        ...(whyNote ? [{ role: 'system', content: `${whyNote}\nСошлись на этот источник в ответе.` }] : []),
         ...(modeHint ? [{ role: 'system', content: modeHint }] : []),
         ...(character ? [{ role: 'system', content: character }] : []),
         // Модель не знает, с чем её собрали: это и есть это знание.
@@ -569,6 +576,9 @@ export function createConversation(bot) {
    */
   async function rememberStatedFacts(userId, prompt) {
     if (!bot.profiles || userId === undefined) return
+    // Автоматическое извлечение — отдельная настройка и по умолчанию выключено:
+    // в память попадает только явная просьба «запомни» (инструмент remember).
+    if (!bot.config.profiles?.autoExtract) return
     const facts = detectFacts(prompt)
     if (facts.length === 0) return
     // Предел фактов, дубли и город — правила домена профилей.

@@ -103,7 +103,7 @@ export class Assistant {
     // Правила предметной области: ядро только зовёт их и доставляет ответ.
     // Домены не знают ни про платформу, ни про сеть — им передаются данные и store.
     this.domain = {
-      profiles: rulesOfProfiles({ store: profiles?.store, logger }),
+      profiles: rulesOfProfiles({ store: profiles?.store, access, history, logger }),
       reminders: rulesOfReminders({ store: reminders?.store, timeZone: config.time?.timeZone ?? '', quiet: config.quiet, logger, access }),
       events: rulesOfEvents({ store: events?.store, reminders: reminders?.store, timeZone: config.time?.timeZone ?? '', logger, access }),
       polls: rulesOfPolls({ store: polls?.store, access }),

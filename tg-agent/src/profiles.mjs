@@ -10,6 +10,8 @@
  *   - the store is bounded (users and facts per user), so a hostile or merely
  *     chatty partner cannot grow the file without limit.
  */
+import fs from 'node:fs/promises'
+import path from 'node:path'
 import { createJsonStore } from './storage/json-store.mjs'
 import {
   DEFAULT_MAX_FACTS,
@@ -17,17 +19,39 @@ import {
   MAX_CITY_LENGTH,
   MAX_FACT_LENGTH,
   cleanCity,
-  cleanFactText,
   displayNameOf,
   factLimitError,
 } from './domain/profiles.mjs'
+import {
+  MemorySecretError,
+  REPLACEABLE_KINDS,
+  cleanMemoryValue,
+  compactTombstone,
+  createMemoryRecord,
+  detectSecretKind,
+  inferMemoryKind,
+  isActiveRecord,
+  isTombstoned,
+  migrateProfileMemory,
+  needsRecordMigration,
+  selectUsableRecords,
+} from './memory.mjs'
 
 const VERSION = 1
 
-/** One stored profile. */
+/** Один профиль. */
 const emptyProfile = () => ({ city: undefined, persona: undefined, mood: undefined, facts: [], nextFactId: 1, updatedAt: new Date().toISOString() })
 
-const isFact = (value) => value != null && typeof value.id === 'string' && typeof value.text === 'string' && value.text.trim() !== ''
+/**
+ * Запись факта. Новый формат хранит `value`, старый — `text`; читаем оба, чтобы
+ * файл пережил обновление и откат.
+ */
+const isFact = (value) => value != null && typeof value.id === 'string'
+  && ((typeof value.text === 'string' && value.text.trim() !== '')
+    || (typeof value.value === 'string' && value.value.trim() !== ''))
+
+/** Предел компактных tombstone в одном файле профилей. */
+const MAX_TOMBSTONES = 2000
 
 /**
  * Миграция схемы профилей: файл без `version` считаем версией 0.
@@ -37,6 +61,8 @@ function migrateProfiles(data) {
   return {
     ...data,
     users: data?.users != null && typeof data.users === 'object' ? data.users : {},
+    // Tombstones появились в PLB-019; старый файл просто не имеет списка.
+    tombstones: Array.isArray(data?.tombstones) ? data.tombstones : [],
   }
 }
 
@@ -48,23 +74,29 @@ export class ProfileStore {
    * @param {number} [options.maxUsers] - how many profiles to keep.
    * @param {number} [options.maxFacts] - facts allowed per user.
    * @param {object} [options.access] - единая проверка доступа (`src/core/access.mjs`).
+   * @param {() => Date} [options.now] - часы, подменяются в тестах.
    */
-  constructor({ file, logger, maxUsers = DEFAULT_MAX_USERS, maxFacts = DEFAULT_MAX_FACTS, access }) {
+  constructor({ file, logger, maxUsers = DEFAULT_MAX_USERS, maxFacts = DEFAULT_MAX_FACTS, access, now = () => new Date() }) {
     this.file = file
     this.logger = logger
     this.maxUsers = maxUsers
     this.maxFacts = maxFacts
     // Профиль человека — его личное пространство; access нужен для `scope_id`.
     this.access = access
-    /** @type {Map<string, {city?: string, facts: Array<{id: string, text: string, createdAt: string}>, nextFactId: number, updatedAt: string}>} */
+    this.now = now
+    /** @type {Map<string, {city?: string, facts: Array<object>, nextFactId: number, updatedAt: string}>} */
     this.users = new Map()
+    /** Компактные tombstone: id, scopeId, deletedAt — без текста удалённой записи. */
+    this.tombstoneList = []
+    /** Последние записи, попавшие в контекст модели: `${userId}:${chatId}` → {ids, at}. */
+    this.used = new Map()
     // Очередь записей: перекрывающиеся flush не должны перетирать снимки.
     this.writing = Promise.resolve()
     // Единый слой: атомарная запись, замок, версия схемы и миграции.
     this.storage = createJsonStore({
       file,
       version: VERSION,
-      defaults: { users: {} },
+      defaults: { users: {}, tombstones: [] },
       migrate: migrateProfiles,
       logger,
     })
@@ -80,8 +112,11 @@ export class ProfileStore {
     try {
       const state = await this.storage.load()
       if (state.users == null || typeof state.users !== 'object') throw new Error('unexpected file format')
+      this.tombstoneList = Array.isArray(state.tombstones) ? state.tombstones.map((stone) => compactTombstone(stone)).filter(Boolean) : []
+      let migrationPending = false
       for (const [userId, profile] of Object.entries(state.users)) {
         const facts = Array.isArray(profile?.facts) ? profile.facts.filter(isFact) : []
+        if (facts.some(needsRecordMigration)) migrationPending = true
         const highest = facts.reduce((max, fact) => Math.max(max, Number(fact.id) || 0), 0)
         this.users.set(String(userId), {
           city: typeof profile?.city === 'string' && profile.city.trim() !== '' ? profile.city.trim() : undefined,
@@ -96,12 +131,64 @@ export class ProfileStore {
           ...(typeof profile?.scope_id === 'string' ? { scope_id: profile.scope_id } : {}),
         })
       }
+      if (migrationPending) await this.migrateMemoryRecords()
       this.logger?.info('profiles loaded', { users: this.users.size })
     } catch (error) {
       // Старое поведение: чужая версия схемы и ошибки чтения только логируются.
       this.logger?.warn('profile file ignored', { file: this.file, error })
     }
     return this
+  }
+
+  /**
+   * Мигрировать старые факты в формат PLB-019.
+   *
+   * Копия файла делается до первой мутации. Если мигрировать нечего, повторный
+   * запуск не создаёт вторую копию и ничего не переписывает — идемпотентность.
+   */
+  async migrateMemoryRecords() {
+    // Ничего не мигрируем — не делаем и копию: повторный запуск не плодит бэкапы.
+    const pending = [...this.users.values()].some((profile) => (profile.facts ?? []).some(needsRecordMigration))
+    if (!pending) return { migrated: 0, backupDir: undefined }
+    const backupDir = await this.backupBeforeMemoryMigration()
+    let migrated = 0
+    const at = this.now()
+    for (const [userId, profile] of this.users) {
+      const scopeId = profile.scope_id
+        ?? (this.access ? this.access.scopeOf(userId).id : `personal-${userId}`)
+      migrated += migrateProfileMemory(profile, { subjectId: userId, scopeId, now: at })
+    }
+    // Новые личные пространства обязаны сохраниться вместе с записями, но их
+    // ошибка не должна отменять уже сделанную миграцию.
+    try {
+      await this.access?.flush?.()
+    } catch (error) {
+      this.logger?.warn?.('scope flush after memory migration failed', { error })
+    }
+    // Мигрированный формат обязан оказаться на диске, иначе следующий запуск
+    // снова увидит старые записи и сделает вторую копию.
+    if (migrated > 0) await this.flush()
+    this.logger?.info?.('memory records migrated', { migrated, backupDir })
+    return { migrated, backupDir }
+  }
+
+  /** Копия файла профилей в `backups/memory-migration-<дата>-<случайное>/`. */
+  async backupBeforeMemoryMigration() {
+    if (!this.file) return undefined
+    const base = path.join(path.dirname(this.file), 'backups')
+    try {
+      await fs.mkdir(base, { recursive: true })
+      const stamp = this.now().toISOString().replace(/[:.]/g, '-')
+      const directory = await fs.mkdtemp(path.join(base, `memory-migration-${stamp}-`))
+      const copy = path.join(directory, path.basename(this.file))
+      await fs.copyFile(this.file, copy)
+      this.logger?.info?.('memory migration backup made', { copy })
+      return directory
+    } catch (error) {
+      // Отсутствующий файл — не ошибка: профиль мог прийти из defaults.
+      if (error?.code !== 'ENOENT') this.logger?.warn?.('memory migration backup failed', { error })
+      return undefined
+    }
   }
 
   /** The profile of one user, created on demand. */
@@ -215,52 +302,229 @@ export class ProfileStore {
     return true
   }
 
-  /** All facts of one user, in insertion order (copies, so callers cannot mutate the store). */
+  /**
+   * Действующие факты одного пользователя в порядке добавления.
+   *
+   * Заменённые исправлением записи остаются в истории и здесь не показываются:
+   * иначе старый адрес попал бы в контекст модели рядом с новым.
+   */
   facts(userId) {
+    return (this.users.get(String(userId))?.facts ?? [])
+      .filter(isActiveRecord)
+      .map((fact) => ({ ...fact }))
+  }
+
+  /** Все записи, включая заменённые: история исправлений и повторная индексация. */
+  memoryRecords(userId) {
     return (this.users.get(String(userId))?.facts ?? []).map((fact) => ({ ...fact }))
   }
 
   /**
-   * Add one fact, skipping an exact duplicate.
+   * Добавить запись памяти.
    *
-   * @param {string|number} userId - profile owner.
-   * @param {string} text - the fact, phrased as a short statement ("его зовут Андрей").
-   * @returns {{fact: object, duplicate: boolean}} the stored (or matching) fact.
+   * Точный повтор не создаётся. Для заменяемых видов (имя, адрес, работа,
+   * возраст, предпочтение, здоровье) новый факт заменяет старый: старая запись
+   * помечается заменённой и остаётся в истории, но не в контексте модели.
+   *
+   * @param {string|number} userId - владелец профиля.
+   * @param {string} text - короткий факт («его зовут Андрей»).
+   * @param {object} [options] - `scopeId`, `kind`, `sourceRef`,
+   *   `confirmationStatus`, `expiresAt`, `validFrom`, `supersedesId`.
+   * @returns {{fact: object, duplicate: boolean, superseded?: object}} запись.
    */
-  addFact(userId, text) {
-    const clean = cleanFactText(text)
+  addFact(userId, text, options = {}) {
+    const clean = cleanMemoryValue(text)
     if (clean === '') throw new Error('fact text is required')
     if (clean.length > MAX_FACT_LENGTH) throw new Error(`fact is too long (max ${MAX_FACT_LENGTH} characters)`)
+    // Секрет не становится записью и не попадает в журнал: проверка идёт до
+    // создания профиля, поэтому отклонённый текст не оставляет следов.
+    if (detectSecretKind(clean)) throw new MemorySecretError()
     const profile = this.get(userId)
-    const existing = profile.facts.find((fact) => fact.text.toLowerCase() === clean.toLowerCase())
-    if (existing) return { fact: existing, duplicate: true }
-    if (profile.facts.length >= this.maxFacts) throw new Error(factLimitError(this.maxFacts))
-    const fact = { id: String(profile.nextFactId++), text: clean, createdAt: new Date().toISOString() }
+    const active = profile.facts.filter(isActiveRecord)
+    const existing = active.find((fact) => String(fact.value ?? fact.text).toLowerCase() === clean.toLowerCase())
+    if (existing) return { fact: { ...existing }, duplicate: true }
+    const now = this.now()
+    const kind = options.kind ?? inferMemoryKind(clean)
+    const scopeId = options.scopeId ?? profile.scope_id ?? `personal-${userId}`
+    let superseded
+    if (options.supersedesId !== undefined && options.supersedesId !== null && options.supersedesId !== '') {
+      superseded = profile.facts.find((fact) => String(fact.id) === String(options.supersedesId))
+    } else if (REPLACEABLE_KINDS.includes(kind)) {
+      superseded = active.find((fact) => (fact.kind ?? inferMemoryKind(fact.value ?? fact.text)) === kind)
+    }
+    // Замена освобождает слот: иначе исправление последнего факта упиралось бы
+    // в предел и не сохранялось.
+    const activeAfter = active.length - (superseded && isActiveRecord(superseded) ? 1 : 0)
+    if (activeAfter >= this.maxFacts) throw new Error(factLimitError(this.maxFacts))
+    const fact = createMemoryRecord({
+      id: String(profile.nextFactId++),
+      subjectId: userId,
+      scopeId,
+      value: clean,
+      kind,
+      sourceRef: options.sourceRef ?? 'user',
+      confirmationStatus: options.confirmationStatus ?? 'confirmed',
+      validFrom: options.validFrom,
+      expiresAt: options.expiresAt,
+      supersedesId: options.supersedesId,
+      now,
+    })
+    if (superseded && isActiveRecord(superseded)) {
+      superseded.replacedAt = fact.createdAt
+      superseded.replacedBy = fact.id
+      fact.supersedesId = superseded.id
+    }
     profile.facts.push(fact)
     profile.updatedAt = fact.createdAt
     this.enforceBounds()
-    return { fact, duplicate: false }
+    return { fact: { ...fact }, duplicate: false, ...(superseded ? { superseded: { ...superseded } } : {}) }
   }
 
-  /** Remove one fact by its number; returns it when it existed. */
+  /** Изменить запись по id (служебные отметки истории исправлений). */
+  updateFact(userId, id, patch = {}) {
+    const profile = this.users.get(String(userId))
+    const record = profile?.facts.find((fact) => String(fact.id) === String(id))
+    if (!record) return undefined
+    Object.assign(record, patch)
+    profile.updatedAt = this.now().toISOString()
+    return { ...record }
+  }
+
+  /**
+   * Отменить исправление: вернуть заменённую запись, а замену оставить в истории.
+   *
+   * Данные доступны, пока исходная запись не удалена. После `/forget` отмена
+   * невозможна — поэтому и tombstone, и физическое удаление.
+   */
+  undoCorrection(userId, id) {
+    const profile = this.users.get(String(userId))
+    const record = profile?.facts.find((fact) => String(fact.id) === String(id) && isActiveRecord(fact))
+    if (!record || !record.supersedesId) return { ok: false, reason: 'not-found' }
+    const previous = profile.facts.find((fact) => String(fact.id) === String(record.supersedesId))
+    if (!previous || isTombstoned(this.tombstoneList, previous.id, previous.scopeId)) {
+      return { ok: false, reason: 'deleted' }
+    }
+    const at = this.now().toISOString()
+    record.replacedAt = at
+    record.replacedBy = previous.id
+    record.revertedAt = at
+    delete previous.replacedAt
+    delete previous.replacedBy
+    profile.updatedAt = at
+    return { ok: true, record: { ...record }, restored: { ...previous } }
+  }
+
+  /** Удалить запись по номеру и оставить tombstone без текста. */
   removeFact(userId, id) {
     const profile = this.users.get(String(userId))
     if (!profile) return undefined
     const index = profile.facts.findIndex((fact) => fact.id === String(id))
     if (index === -1) return undefined
     const [removed] = profile.facts.splice(index, 1)
-    profile.updatedAt = new Date().toISOString()
-    return removed
+    // Tombstone фиксирует только идентичность удалённого, не его текст.
+    this.addTombstone(removed.id, removed.scopeId ?? profile.scope_id ?? `personal-${userId}`)
+    profile.updatedAt = this.now().toISOString()
+    return { ...removed }
   }
 
-  /** Remove every fact (used by "забудь всё"); returns how many were dropped. */
+  /** Удалить все записи (включая историю исправлений); вернуть число действующих. */
   clearFacts(userId) {
     const profile = this.users.get(String(userId))
     if (!profile || profile.facts.length === 0) return 0
-    const count = profile.facts.length
+    const count = profile.facts.filter(isActiveRecord).length
+    const scopeId = profile.scope_id ?? `personal-${userId}`
+    for (const fact of profile.facts) this.addTombstone(fact.id, fact.scopeId ?? scopeId)
     profile.facts = []
-    profile.updatedAt = new Date().toISOString()
+    profile.updatedAt = this.now().toISOString()
     return count
+  }
+
+  /** Добавить компактный tombstone; текст записи сюда не передаётся. */
+  addTombstone(id, scopeId, deletedAt = this.now().toISOString()) {
+    const stone = compactTombstone({ id, scopeId, deletedAt })
+    if (!stone) return undefined
+    const exists = this.tombstoneList.some((item) => item.id === stone.id
+      && (scopeId === undefined || item.scopeId === stone.scopeId))
+    if (!exists) this.tombstoneList.push(stone)
+    if (this.tombstoneList.length > MAX_TOMBSTONES) this.tombstoneList.splice(0, this.tombstoneList.length - MAX_TOMBSTONES)
+    return { ...stone }
+  }
+
+  /** Копия списка tombstone: только id, область и дата. */
+  tombstones() {
+    return this.tombstoneList.map((stone) => ({ ...stone }))
+  }
+
+  /** Запрещён ли id в этой области после удаления. */
+  isTombstoned(id, scopeId) {
+    return isTombstoned(this.tombstoneList, id, scopeId)
+  }
+
+  /**
+   * Граница индексации: старый снимок индекса не возвращает удалённую запись,
+   * а заменённая запись не подменяет действующую.
+   */
+  reindex(records = [], { userId, scopeId } = {}) {
+    if (!Array.isArray(records)) return []
+    const profile = userId === undefined ? undefined : this.users.get(String(userId))
+    return records.filter((record) => {
+      if (!record || record.id === undefined) return false
+      if (isTombstoned(this.tombstoneList, record.id, record.scopeId ?? scopeId)) return false
+      if (!profile) return true
+      const current = profile.facts.find((fact) => String(fact.id) === String(record.id))
+      return !current || isActiveRecord(current)
+    }).map((record) => ({ ...record }))
+  }
+
+  /** Запомнить, какие записи попали в последний контекст модели. */
+  markUsed(userId, ids = [], { chatId } = {}) {
+    if (ids.length === 0) return
+    this.used.set(`${String(userId)}:${chatId === undefined ? '*' : String(chatId)}`, {
+      ids: ids.map(String),
+      at: this.now().toISOString(),
+    })
+  }
+
+  /** Последние использованные записи для `/memory why`. */
+  lastUsed(userId, { chatId } = {}) {
+    return this.used.get(`${String(userId)}:${chatId === undefined ? '*' : String(chatId)}`)
+      ?? this.used.get(`${String(userId)}:*`)
+  }
+
+  /**
+   * What the model should know about this user, or `undefined` when nothing is.
+   *
+   * Facts are numbered exactly as `/memory` lists them, so the model can refer to
+   * a number the user sees, and `/forget N` always means the same thing.
+   *
+   * В контекст попадает только действующая область: активный проект чата или
+   * личная память. Истёкшие записи и заменённые исправлением не передаются.
+   */
+  summary(userId, options = {}) {
+    const profile = this.users.get(String(userId))
+    if (!profile) return undefined
+    let scopeId = options.scopeId
+    if (scopeId === undefined && this.access && options.chatId !== undefined) {
+      scopeId = this.access.activeScope?.(userId, options.chatId)?.id
+    }
+    if (scopeId === undefined) {
+      scopeId = profile.scope_id ?? (this.access ? this.access.scopeOf(userId).id : `personal-${userId}`)
+    }
+    if (this.access?.canReadScope && !this.access.canReadScope(userId, scopeId)) {
+      // Личное пространство могло ещё не попасть в файл пространств, но его id
+      // предсказуем: свои личные факты человек видит и после рестарта.
+      if (String(scopeId) !== `personal-${userId}`) return undefined
+    }
+    const scope = this.access?.scopes?.get?.(scopeId)
+    // Город — личная настройка; в общем проекте он не нужен и не должен утекать.
+    const personal = scope === undefined || scope.kind === 'personal'
+    const records = selectUsableRecords(profile.facts, { scopeId, now: this.now() })
+    const parts = []
+    if (personal && profile.city) parts.push(`город по умолчанию — ${profile.city}`)
+    for (const fact of records) parts.push(`№${fact.id}: ${fact.value ?? fact.text}`)
+    if (parts.length === 0) return undefined
+    if (records.length > 0) this.markUsed(userId, records.map((fact) => fact.id), { chatId: options.chatId })
+    return `Что известно об этом пользователе (помни это и не переспрашивай): ${parts.join('; ')}.`
   }
 
   /**
@@ -299,22 +563,6 @@ export class ProfileStore {
     return displayNameOf(this.users.get(String(userId)))
   }
 
-  /**
-   * What the model should know about this user, or `undefined` when nothing is.
-   *
-   * Facts are numbered exactly as `/memory` lists them, so the model can refer to
-   * a number the user sees, and `/forget N` always means the same thing.
-   */
-  summary(userId) {
-    const profile = this.users.get(String(userId))
-    if (!profile) return undefined
-    const parts = []
-    if (profile.city) parts.push(`город по умолчанию — ${profile.city}`)
-    for (const fact of profile.facts) parts.push(`№${fact.id}: ${fact.text}`)
-    if (parts.length === 0) return undefined
-    return `Что известно об этом пользователе (помни это и не переспрашивай): ${parts.join('; ')}.`
-  }
-
   /** Drop the oldest profiles once the store is over its limit. */
   enforceBounds() {
     if (this.users.size <= this.maxUsers) return 0
@@ -349,6 +597,9 @@ export class ProfileStore {
           }]),
         )
         this.storage.state.users = users
+        // Tombstone без текста — часть того же файла, поэтому рестарт не
+        // возвращает удалённые записи.
+        this.storage.state.tombstones = this.tombstoneList
         await this.storage.flush()
       } catch (error) {
         this.logger?.error('profile save failed', { error })

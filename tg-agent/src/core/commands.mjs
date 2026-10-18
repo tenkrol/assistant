@@ -387,7 +387,11 @@ export function createCommandRouter(bot) {
           await bot.send(chatId, 'Память профиля выключена.')
           return
         }
-        const result = bot.domain.profiles.memoryCommand(message.from.id)
+        // Аргументы: страница, `why`, `correct`, `history`, `undo` или проект.
+        const result = await bot.domain.profiles.memoryCommand(message.from.id, args, {
+          chatId,
+          isGroup: (message.chat?.type ?? 'private') !== 'private',
+        })
         await bot.send(chatId, result.text)
         return
       }
@@ -396,7 +400,10 @@ export function createCommandRouter(bot) {
           await bot.send(chatId, 'Память профиля выключена.')
           return
         }
-        const result = await bot.domain.profiles.forgetCommand(message.from.id, args)
+        const result = await bot.domain.profiles.forgetCommand(message.from.id, args, {
+          chatId,
+          isGroup: (message.chat?.type ?? 'private') !== 'private',
+        })
         await bot.send(chatId, result.text)
         return
       }

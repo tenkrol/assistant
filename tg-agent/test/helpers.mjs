@@ -255,6 +255,9 @@ export function testEnv({ telegramApiBase, modelBaseUrl, dataDir, overrides = {}
     TELEGRAM_TIMEOUT_MS: '5000',
     MODEL_TIMEOUT_MS: '5000',
     HISTORY_LIMIT: '6',
+    // Тесты старого поведения извлечения фактов явно включают настройку:
+    // в production она по умолчанию выключена (PLB-019).
+    MEMORY_AUTO_EXTRACT: 'true',
     ...overrides,
   }
 }
