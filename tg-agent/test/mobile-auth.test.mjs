@@ -594,13 +594,19 @@ test('общий чат: список, история и отправка с cha
     method: 'POST',
     cookieJar: cookies,
     headers: { 'X-Mobile-Client': '1' },
-    body: { text: 'привет из веба', chatId: String(GROUP_ID) },
+    body: {
+      text: 'привет из веба',
+      chatId: String(GROUP_ID),
+      replyTo: { text: 'прошлое сообщение', role: 'assistant', author: 'Ассистент' },
+    },
   })
   assert.equal(sent.status, 200)
   assert.equal(sent.json.messages[0].text, 'ответ в группу')
   assert.equal(seen[0].chatId, GROUP_ID)
   assert.equal(seen[0].chatType, 'group')
   assert.equal(seen[0].chatTitle, 'TenKrol и Машулечка')
+  assert.equal(seen[0].replyTo.text, 'прошлое сообщение')
+  assert.equal(seen[0].replyTo.author, 'Ассистент')
 
   const foreign = await request(base, '/api/chat/history?chatId=-100999', { cookieJar: cookies })
   assert.equal(foreign.status, 403)

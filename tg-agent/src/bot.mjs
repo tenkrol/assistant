@@ -309,7 +309,7 @@ export class Assistant {
    * @param {object} input - `userId`, `chatId`, `text`, `name`.
    * @returns {Promise<{sends: object[], files: object[]}>} ответы для сайта.
    */
-  async handleWebMessage({ userId, chatId, text, name, chatType = 'private', chatTitle } = {}) {
+  async handleWebMessage({ userId, chatId, text, name, chatType = 'private', chatTitle, replyTo } = {}) {
     const delivery = { sends: [], files: [], chatId: Number(chatId ?? userId) }
     const message = {
       kind: 'message',
@@ -324,14 +324,20 @@ export class Assistant {
       attachments: [],
       addressed: true,
       web: true,
+      ...(replyTo && typeof replyTo.text === 'string' && replyTo.text.trim() !== ''
+        ? { replyTo: { text: replyTo.text.trim().slice(0, 1000), ...(replyTo.author ? { author: String(replyTo.author).slice(0, 80) } : {}) } }
+        : {}),
     }
     const isGroup = message.chat.type !== 'private'
     // В общем чате сообщение с сайта должно увидеть и второе живое лицо:
     // бот пересылает его в Telegram-группу от своего имени с подписью автора.
     if (isGroup) {
+      const quoted = message.replyTo
+        ? `↪ ${message.replyTo.author ? message.replyTo.author + ': ' : ''}${message.replyTo.text.slice(0, 300)}\n`
+        : ''
       await this.platform.sendText({
         chatId: message.chat.id,
-        markdown: `💬 ${message.from.name} (с сайта):\n${message.text}`,
+        markdown: `💬 ${message.from.name} (с сайта):\n${quoted}${message.text}`,
       }).catch((error) => this.logger.warn('web group message relay failed', { error }))
     }
     const task = this.delivery.run(delivery, () => this.enqueueUpdate(message))

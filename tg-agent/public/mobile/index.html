@@ -140,12 +140,24 @@
           <div class="loading-inline"><span class="spinner"></span>Загружаю историю…</div>
         </div>
       </div>
-      <div class="composer">
-        <div class="composer-field">
-          <input id="chat-input" placeholder="Написать ассистенту…" autocomplete="off" maxlength="4000" aria-label="Сообщение ассистенту">
-          <button class="composer-send" id="chat-send" aria-label="Отправить" disabled>
-            <svg class="ic"><use href="#i-send"/></svg>
+      <div class="composer-wrap">
+        <div class="reply-bar" id="reply-bar" hidden>
+          <svg class="ic reply-bar-ic"><use href="#i-repeat"/></svg>
+          <div class="reply-bar-body">
+            <b id="reply-author">Ответ</b>
+            <span id="reply-text"></span>
+          </div>
+          <button class="reply-bar-close" id="reply-cancel" type="button" aria-label="Отменить ответ">
+            <svg class="ic"><use href="#i-close"/></svg>
           </button>
+        </div>
+        <div class="composer">
+          <div class="composer-field">
+            <input id="chat-input" placeholder="Написать ассистенту…" autocomplete="off" maxlength="4000" aria-label="Сообщение ассистенту">
+            <button class="composer-send" id="chat-send" aria-label="Отправить" disabled>
+              <svg class="ic"><use href="#i-send"/></svg>
+            </button>
+          </div>
         </div>
       </div>
     </section>

@@ -1974,12 +1974,14 @@ test('веб-сообщение в общий чат пересылается в
       chatTitle: 'TenKrol и Машулечка',
       text: 'привет группе',
       name: 'Вячеслав',
+      replyTo: { text: 'раньше было лучше', author: 'Мария' },
     })
     assert.match(result.sends.map((entry) => entry.text).join('\n'), /ответ группе/)
     assert.equal(ctx.telegramStub.state.sends.length, 2)
     assert.equal(String(ctx.telegramStub.state.sends[0].chat_id), '-1001234567890')
     assert.match(ctx.telegramStub.state.sends[0].text, /Вячеслав \(с сайта\)/)
     assert.match(ctx.telegramStub.state.sends[0].text, /привет группе/)
+    assert.match(ctx.telegramStub.state.sends[0].text, /раньше было лучше/)
     assert.match(ctx.telegramStub.state.sends[1].text, /ответ группе/)
     await ctx.history.flush()
     const history = await historyFile(ctx.dir)

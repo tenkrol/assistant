@@ -953,6 +953,14 @@ export function createMiniApp({
     const text = typeof body.value?.text === 'string' ? body.value.text.trim() : ''
     if (text === '') return badRequest(response, 'Введите сообщение')
     if (text.length > CHAT_INPUT_MAX) return badRequest(response, `Сообщение длиннее ${CHAT_INPUT_MAX} символов`)
+    const rawReply = body.value?.replyTo
+    const replyTo = rawReply && typeof rawReply === 'object' && typeof rawReply.text === 'string' && rawReply.text.trim() !== ''
+      ? {
+        text: rawReply.text.trim().slice(0, 1000),
+        ...(typeof rawReply.role === 'string' ? { role: rawReply.role === 'assistant' ? 'assistant' : 'user' } : {}),
+        ...(typeof rawReply.author === 'string' && rawReply.author.trim() !== '' ? { author: rawReply.author.trim().slice(0, 80) } : {}),
+      }
+      : undefined
 
     chatInFlight.add(String(userId) + ':' + String(target.chatId))
     try {
@@ -962,6 +970,7 @@ export function createMiniApp({
         chatType: target.type,
         chatTitle: target.title,
         text,
+        ...(replyTo ? { replyTo } : {}),
         name: displayNameFor(userId) || String(auth.user?.first_name ?? mobileUserName),
         login: auth.login ?? null,
       })

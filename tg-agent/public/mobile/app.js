@@ -153,6 +153,7 @@ const state = {
   memory: { facts: [], city: null },
   stats: null,
   chat: null,
+  chatReply: null,
   chatSending: false,
   chats: [],
   chatTarget: null,
@@ -608,6 +609,7 @@ function selectChat(chat) {
   if (String(chat.id) === String(state.chatTarget && state.chatTarget.id)) return
   state.chatTarget = chat
   state.chat = null
+  clearChatReply()
   state.loaded.chat = false
   hideChatTyping()
   renderChatSwitch()
@@ -715,28 +717,166 @@ function renderChat() {
   }
   const day = h('div', 'day-chip', state.chatTarget && state.chatTarget.type !== 'private' ? state.chatTarget.title : 'Диалог с ассистентом')
   box.append(day)
-  messages.forEach((message) => box.append(chatMessageNode(message.role, message.text, message.author)))
+  messages.forEach((message) => box.append(chatMessageNode(message.role, message.text, message.author, message.replyTo)))
   chatScrollToBottom()
 }
 
-function chatMessageNode(role, text, author) {
+function setChatReply(message) {
+  if (!message || typeof message.text !== 'string' || message.text.trim() === '') return
+  state.chatReply = {
+    text: message.text.slice(0, 1000),
+    role: message.role === 'assistant' ? 'assistant' : 'user',
+    author: message.author || (message.role === 'assistant' ? 'Ассистент' : 'Вы')
+  }
+  $('reply-author').textContent = state.chatReply.author
+  $('reply-text').textContent = state.chatReply.text
+  $('reply-bar').hidden = false
+  const input = $('chat-input')
+  if (input) input.focus()
+}
+
+function clearChatReply() {
+  state.chatReply = null
+  const bar = $('reply-bar')
+  if (bar) bar.hidden = true
+}
+
+async function copyMessageText(text) {
+  const value = String(text ?? '')
+  if (value === '') return false
+  try {
+    await navigator.clipboard.writeText(value)
+    return true
+  } catch {
+    try {
+      const area = document.createElement('textarea')
+      area.value = value
+      area.setAttribute('readonly', '')
+      area.style.position = 'fixed'
+      area.style.opacity = '0'
+      document.body.append(area)
+      area.select()
+      const ok = document.execCommand('copy')
+      area.remove()
+      return ok
+    } catch {
+      return false
+    }
+  }
+}
+
+function openMessageMenu(message) {
+  const wrap = h('div', 'message-menu')
+  const quote = h('div', 'message-menu-quote', String(message.text ?? '').slice(0, 400))
+  const reply = h('button', null)
+  reply.type = 'button'
+  reply.append(icon('repeat'), h('span', null, 'Ответить'))
+  reply.addEventListener('click', () => {
+    closeSheet()
+    setChatReply(message)
+  })
+  const copy = h('button', null)
+  copy.type = 'button'
+  copy.append(icon('copy'), h('span', null, 'Копировать текст'))
+  copy.addEventListener('click', async () => {
+    const ok = await copyMessageText(message.text)
+    closeSheet()
+    toast(ok ? 'Скопировано' : 'Не удалось скопировать')
+  })
+  wrap.append(quote, reply, copy)
+  openSheet({ title: 'Сообщение', body: wrap })
+}
+
+function bindMessageGesture(bubble, message) {
+  let startX = 0
+  let startY = 0
+  let dx = 0
+  let moved = false
+  let swiping = false
+  let longPress = null
+  const article = bubble.closest('.msg')
+
+  const reset = () => {
+    if (longPress) clearTimeout(longPress)
+    longPress = null
+    bubble.style.transform = ''
+    if (article) article.classList.remove('is-swiping')
+    swiping = false
+    moved = false
+    dx = 0
+  }
+
+  bubble.addEventListener('touchstart', (event) => {
+    if (event.touches.length !== 1) return
+    startX = event.touches[0].clientX
+    startY = event.touches[0].clientY
+    dx = 0
+    moved = false
+    swiping = false
+    longPress = setTimeout(() => {
+      longPress = null
+      if (!moved) openMessageMenu(message)
+    }, 520)
+  }, { passive: true })
+
+  bubble.addEventListener('touchmove', (event) => {
+    if (event.touches.length !== 1) return
+    const moveX = event.touches[0].clientX - startX
+    const moveY = event.touches[0].clientY - startY
+    dx = moveX
+    if (Math.abs(moveX) > 8 || Math.abs(moveY) > 8) {
+      moved = true
+      if (longPress) clearTimeout(longPress)
+      longPress = null
+    }
+    if (moveX > 10 && moveX > Math.abs(moveY) * 1.4) {
+      swiping = true
+      if (article) article.classList.add('is-swiping')
+      bubble.style.transform = 'translateX(' + Math.min(moveX, 72) * 0.7 + 'px)'
+      if (event.cancelable) event.preventDefault()
+    }
+  }, { passive: false })
+
+  bubble.addEventListener('touchend', () => {
+    const shouldReply = swiping && dx > 45
+    const captured = message
+    reset()
+    if (shouldReply) setChatReply(captured)
+  }, { passive: true })
+
+  bubble.addEventListener('touchcancel', reset)
+  bubble.addEventListener('contextmenu', (event) => {
+    event.preventDefault()
+    openMessageMenu(message)
+  })
+}
+
+function chatMessageNode(role, text, author, replyTo) {
   const ownName = state.session && state.session.user ? state.session.user.telegramName : ''
   const otherAuthor = role === 'user' && author && ownName && author !== ownName
   const article = h('article', 'msg ' + (role === 'assistant' || otherAuthor ? 'msg-bot' : 'msg-user'))
+  let bubble
   if (role === 'assistant' || otherAuthor) {
     const avatar = h('div', 'msg-avatar')
     if (otherAuthor) avatar.append(h('span', 'msg-initial', String(author).slice(0, 1).toUpperCase()))
     else avatar.append(icon('spark'))
     const stack = h('div', 'msg-stack')
-    const bubble = h('div', 'bubble bubble-bot', text)
+    bubble = h('div', 'bubble bubble-bot', text)
     if (otherAuthor) bubble.prepend(h('div', 'row-meta', author))
     stack.append(bubble)
     article.append(avatar, stack)
-    return article
+  } else {
+    bubble = h('div', 'bubble bubble-user', text)
+    if (author) bubble.prepend(h('div', 'row-meta', author))
+    article.append(bubble)
   }
-  const bubble = h('div', 'bubble bubble-user', text)
-  if (author) bubble.prepend(h('div', 'row-meta', author))
-  article.append(bubble)
+  if (replyTo && replyTo.text) {
+    const quote = h('div', 'reply-quote')
+    quote.append(h('b', null, replyTo.author || (replyTo.role === 'assistant' ? 'Ассистент' : 'Вы')))
+    quote.append(h('span', null, String(replyTo.text).slice(0, 300)))
+    bubble.prepend(quote)
+  }
+  bindMessageGesture(bubble, { role, text, author })
   return article
 }
 
@@ -745,11 +885,11 @@ function chatScrollToBottom() {
   if (scroller) scroller.scrollTop = scroller.scrollHeight
 }
 
-function appendChatMessage(role, text, author) {
+function appendChatMessage(role, text, author, replyTo) {
   const box = $('chat-messages')
   const empty = box.querySelector('.chat-empty')
   if (empty) empty.remove()
-  box.append(chatMessageNode(role, text, author))
+  box.append(chatMessageNode(role, text, author, replyTo))
   chatScrollToBottom()
 }
 
@@ -829,7 +969,9 @@ async function sendSiteMessage() {
   const text = input.value.trim()
   if (text === '' || button.disabled) return
   const group = state.chatTarget && state.chatTarget.type !== 'private'
-  appendChatMessage('user', text, group ? ((state.session && state.session.user && state.session.user.telegramName) || 'Вы') : undefined)
+  const reply = state.chatReply
+  appendChatMessage('user', text, group ? ((state.session && state.session.user && state.session.user.telegramName) || 'Вы') : undefined, reply)
+  clearChatReply()
   input.value = ''
   updateChatSend()
   button.disabled = true
@@ -840,7 +982,8 @@ async function sendSiteMessage() {
       text,
       ...(state.chatTarget && state.chatTarget.id !== null && state.chatTarget.id !== undefined
         ? { chatId: state.chatTarget.id }
-        : {})
+        : {}),
+      ...(reply ? { replyTo: reply } : {})
     })
     hideChatTyping()
     const messages = Array.isArray(data.messages) ? data.messages : []
@@ -851,7 +994,7 @@ async function sendSiteMessage() {
     }
     ;(Array.isArray(data.files) ? data.files : []).forEach(appendChatFile)
     if (state.chat && Array.isArray(state.chat.messages)) {
-      state.chat.messages.push({ role: 'user', text })
+      state.chat.messages.push({ role: 'user', text, ...(reply ? { replyTo: reply } : {}) })
       messages.forEach((message) => state.chat.messages.push({ role: 'assistant', text: message.text }))
     }
   } catch (error) {
@@ -2169,6 +2312,7 @@ function bind() {
     else void enablePush()
   })
   $('push-install').addEventListener('click', showPushInstallSheet)
+  $('reply-cancel').addEventListener('click', clearChatReply)
 
   $('logout-button').addEventListener('click', () => {
     confirmSheet('Выйти из аккаунта?', 'На этом устройстве придётся ввести пароль заново.', 'Выйти', () => void logout())

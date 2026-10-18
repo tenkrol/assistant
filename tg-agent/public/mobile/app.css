@@ -3293,9 +3293,153 @@ html.large-text .setting-row span {
     padding-bottom: calc(var(--keyboard-inset, 0px) + 8px);
   }
 
-  body.is-keyboard .composer {
+  body.is-keyboard .composer-wrap {
     transform: translateY(calc(-1 * var(--keyboard-inset, 0px)));
     z-index: 25;
     transition: transform 0.16s ease;
   }
+}
+
+
+/* ---------- Ответ на сообщение и копирование ---------- */
+
+.composer-wrap {
+  flex: 0 0 auto;
+  background: var(--bg);
+}
+
+.reply-bar {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 12px 6px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-soft);
+}
+
+.reply-bar-ic {
+  width: 18px;
+  height: 18px;
+  color: var(--accent);
+  flex: 0 0 auto;
+}
+
+.reply-bar-body {
+  min-width: 0;
+  flex: 1 1 auto;
+  border-left: 2px solid var(--accent);
+  padding-left: 9px;
+}
+
+.reply-bar-body b {
+  display: block;
+  font-size: 12px;
+  color: var(--accent);
+  font-weight: 650;
+}
+
+.reply-bar-body span {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.reply-bar-close {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  flex: 0 0 auto;
+}
+
+.reply-bar-close svg.ic {
+  width: 16px;
+  height: 16px;
+}
+
+.bubble {
+  -webkit-user-select: text;
+  user-select: text;
+  touch-action: pan-y;
+  will-change: transform;
+}
+
+.msg.is-swiping .bubble {
+  transition: none;
+}
+
+/* Меню сообщения: как долгое нажатие в Telegram */
+.message-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.message-menu-quote {
+  padding: 10px 12px;
+  border-radius: 12px;
+  border-left: 2px solid var(--accent);
+  background: var(--card);
+  color: var(--muted);
+  font-size: 13px;
+  max-height: 120px;
+  overflow: hidden;
+  white-space: pre-wrap;
+}
+
+.message-menu button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 46px;
+  padding: 0 12px;
+  border-radius: 12px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  text-align: left;
+  font-size: 14px;
+}
+
+.message-menu button svg.ic {
+  width: 19px;
+  height: 19px;
+  color: var(--accent);
+}
+
+.reply-quote {
+  display: block;
+  margin: -2px 0 7px;
+  padding: 5px 8px;
+  border-left: 2px solid currentColor;
+  border-radius: 7px;
+  background: rgba(127, 127, 127, 0.13);
+  opacity: 0.85;
+  white-space: normal;
+}
+
+.reply-quote b {
+  display: block;
+  font-size: 11px;
+  font-weight: 650;
+  margin-bottom: 1px;
+}
+
+.reply-quote span {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: 12px;
+  opacity: 0.9;
+}
+
+.bubble-user .reply-quote {
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
 }

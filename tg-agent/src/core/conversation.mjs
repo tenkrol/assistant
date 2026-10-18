@@ -357,6 +357,12 @@ export function createConversation(bot) {
           ? { role: 'user', content: `${entry.author}: ${entry.content}` }
           : entry
       ))
+      // Ответ на конкретное сообщение: Telegram показывает цитату, а в веб-чате
+      // цитата приходит полем replyTo. Модель должна видеть, на что отвечают.
+      const replyQuote = message.replyTo && typeof message.replyTo.text === 'string' && message.replyTo.text.trim() !== ''
+        ? `Пользователь отвечает на сообщение${message.replyTo.author ? ` (${message.replyTo.author})` : ''}:\n«${message.replyTo.text.trim().slice(0, 600)}»\n\n`
+        : ''
+      const promptForModel = replyQuote + prompt
       const withAuthor = (content) => (isGroup && authorName ? `${authorName}: ${content}` : content)
       const messages = [
         { role: 'system', content: bot.config.model.systemPrompt },
@@ -372,8 +378,8 @@ export function createConversation(bot) {
         ...history,
         ...(prepared.parts.length > 0
           // Составной контент: подпись/текст документа плюс само изображение.
-          ? [{ role: 'user', content: prepared.parts.map((part) => (part.type === 'text' ? { ...part, text: withAuthor(part.text) } : part)) }]
-          : [{ role: 'user', content: withAuthor(prompt) }]),
+          ? [{ role: 'user', content: prepared.parts.map((part) => (part.type === 'text' ? { ...part, text: withAuthor(replyQuote + part.text) } : part)) }]
+          : [{ role: 'user', content: withAuthor(promptForModel) }]),
       ]
       const model = bot.history.model(chatKey) ?? bot.model.name
       const started = Date.now()
