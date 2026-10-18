@@ -14,13 +14,7 @@
  */
 import fs from 'node:fs/promises'
 import path from 'node:path'
-import { ScopeStore } from '../scopes.mjs'
-
-/** Роль участника пространства или undefined. */
-function memberOf(scope, userId) {
-  if (!scope || userId === undefined || userId === null) return undefined
-  return scope.members?.find((member) => String(member.userId) === String(userId))
-}
+import { ScopeStore, parsePrincipal } from '../scopes.mjs'
 
 /** Личный владелец записи: автор, а для старых записей без автора — чат. */
 export function scopeOwnerOf(record) {
@@ -34,14 +28,43 @@ export function scopeOwnerOf(record) {
 /**
  * Собрать правила доступа поверх хранилища пространств.
  *
- * @param {object} options - `store` (или `scopes.store`), `logger`.
+ * @param {object} options - `store` (или `scopes.store`), `platform`, `logger`.
  * @param {object} options.store - хранилище `ScopeStore`.
+ * @param {string} [options.platform] - канал проверенного контекста (адаптер).
  * @returns {object} проверки доступа и работа с активным проектом.
  */
-export function createAccess({ store, scopes, logger } = {}) {
+export function createAccess({ store, scopes, platform, logger } = {}) {
   const scopeStore = store ?? scopes?.store ?? scopes
   if (!scopeStore || typeof scopeStore.personal !== 'function') {
     throw new Error('access: нужно хранилище пространств')
+  }
+  // Платформа приходит от адаптера (проверенный транспорт), а не из аргументов
+  // модели: только вместе с id она образует principal человека.
+  const channel = String(platform ?? scopeStore.platform ?? 'telegram').toLowerCase()
+
+  /** Principal проверенного пользователя: `<платформа>:<id>`. */
+  function principalOf(userId) {
+    return parsePrincipal(userId, channel)?.principal
+  }
+
+  /** Участник пространства по id или principal; pending в members не попадает. */
+  function memberOf(scope, userId) {
+    const target = parsePrincipal(userId, channel)
+    if (!scope || !target) return undefined
+    return scope.members?.find((member) => {
+      if (member.principal) return member.principal === target.principal
+      // Запись до миграции: платформы нет, значит канал тот же.
+      return String(member.userId) === String(target.userId)
+        && (member.platform ?? channel) === target.platform
+    })
+  }
+
+  /** Владелец пространства с учётом платформы. */
+  function isOwner(scope, userId) {
+    const target = parsePrincipal(userId, channel)
+    if (!scope || !target) return false
+    if (String(scope.ownerId) !== String(target.userId)) return false
+    return scope.ownerPlatform === undefined || scope.ownerPlatform === target.platform
   }
 
   /** Личное пространство человека; создаётся при первом обращении. */
@@ -76,7 +99,7 @@ export function createAccess({ store, scopes, logger } = {}) {
     if (userId === undefined || userId === null) return false
     const scope = scopeOfRecord(record)
     if (!scope) return false
-    if (scope.kind === 'personal') return String(scope.ownerId) === String(userId)
+    if (scope.kind === 'personal') return isOwner(scope, userId)
     return Boolean(memberOf(scope, userId))
   }
 
@@ -99,7 +122,7 @@ export function createAccess({ store, scopes, logger } = {}) {
   function canReadScope(userId, scopeId) {
     const scope = scopeStore.get(scopeId)
     if (!scope || userId === undefined || userId === null) return false
-    if (scope.kind === 'personal') return String(scope.ownerId) === String(userId)
+    if (scope.kind === 'personal') return isOwner(scope, userId)
     return Boolean(memberOf(scope, userId))
   }
 
@@ -121,7 +144,7 @@ export function createAccess({ store, scopes, logger } = {}) {
   /** Управлять пространством может только владелец и только пока оно не в архиве. */
   function canManageScope(userId, scope) {
     if (!scope || scope.status === 'archived') return false
-    if (String(scope.ownerId) !== String(userId)) return false
+    if (!isOwner(scope, userId)) return false
     return memberOf(scope, userId)?.role === 'owner'
   }
 
@@ -151,6 +174,8 @@ export function createAccess({ store, scopes, logger } = {}) {
     store: scopeStore,
     scopeOf,
     scopeOfRecord,
+    platform: channel,
+    principalOf,
     roleOf,
     canRead,
     canWrite,

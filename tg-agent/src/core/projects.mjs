@@ -13,15 +13,19 @@ const USAGE = [
   '`/project list` — список и активный проект',
   '`/project use <id>` — выбрать активный',
   '`/project invite <userId> [viewer|editor]` — пригласить',
+  '`/project accept <код>` — принять приглашение',
+  '`/project decline <код>` — отклонить приглашение',
   '`/project revoke <userId>` — отозвать доступ',
   '`/project archive <id>` — отправить в архив',
 ].join('\n')
 
+/** Числовой id или явный principal `<платформа>:<id>`. */
+const TARGET_RE = /^(?:[a-z][a-z0-9-]{0,31}:)?\d{1,20}$/i
+
 /** Строка проекта для списка. */
-const projectLine = (scope, activeId, userId) => {
+const projectLine = (scope, activeId, userId, role) => {
   const active = scope.id === activeId ? ' · активен' : ''
   const status = scope.status === 'archived' ? ' · архив' : ''
-  const role = scope.members.find((member) => String(member.userId) === String(userId))?.role
   return `• \`${scope.id}\` — ${scope.title}${status}${active} (${scope.kind === 'personal' ? 'личное' : role ?? 'нет доступа'})`
 }
 
@@ -37,6 +41,10 @@ export const READ_ONLY_TEXT = 'Только просмотр: в этом про
 export function createProjectCommands(bot) {
   const store = () => bot.scopes?.store
   const access = () => bot.access
+  // Платформа — из адаптера, а не из текста команды: иначе id одной сети можно
+  // было бы выдать за человека другой.
+  const platformName = () => String(bot.platform?.name ?? bot.access?.platform ?? 'telegram').toLowerCase()
+  const principalOf = (userId) => access().principalOf(userId)
 
   /** Ответ в тот же чат и только от имени проверенного пользователя. */
   async function say(message, text) {
@@ -51,8 +59,8 @@ export function createProjectCommands(bot) {
     const shared = accessRules.sharedScopes(userId)
     await say(message, [
       '**Проекты**',
-      projectLine(personal, activeId, userId),
-      ...shared.map((scope) => projectLine(scope, activeId, userId)),
+      projectLine(personal, activeId, userId, accessRules.roleOf(userId, personal)),
+      ...shared.map((scope) => projectLine(scope, activeId, userId, accessRules.roleOf(userId, scope))),
       '',
       'Выбрать: `/project use <id>`. Новый: `/project new <название>`.',
     ].join('\n'))
@@ -65,7 +73,7 @@ export function createProjectCommands(bot) {
       return
     }
     const scopeStore = store()
-    const scope = scopeStore.create({ title: clean, ownerId: userId })
+    const scope = scopeStore.create({ title: clean, ownerId: userId, ownerPlatform: access().platform })
     scopeStore.setActive(userId, message.chat.id, scope.id)
     await scopeStore.flush()
     await say(message, `Проект «${scope.title}» создан: \`${scope.id}\`. Вы владелец, проект активен.`)
@@ -104,11 +112,12 @@ export function createProjectCommands(bot) {
     const scope = await managedScope(message, userId)
     if (!scope) return
     const target = String(rawTarget ?? '').trim()
-    if (!/^\d{1,20}$/.test(target)) {
+    if (!TARGET_RE.test(target)) {
       await say(message, 'Нужен числовой userId. Например: `/project invite 123456789`.')
       return
     }
-    if (String(target) === String(userId)) {
+    const targetPrincipal = principalOf(target)
+    if (targetPrincipal === principalOf(userId)) {
       await say(message, 'Вы уже владелец этого проекта.')
       return
     }
@@ -117,29 +126,132 @@ export function createProjectCommands(bot) {
       await say(message, 'Роль в проекте: `editor` (может менять) или `viewer` (только смотрит).')
       return
     }
-    const existing = store().member(scope.id, target)
+    const existing = store().member(scope.id, targetPrincipal)
     if (existing) {
       await say(message, `Пользователь ${target} уже участник с ролью ${existing.role}.`)
       return
     }
-    store().invite(scope.id, target, role)
+    // Приглашение только создаётся: в `members` оно попадёт после accept.
+    const invitation = store().invite(scope.id, targetPrincipal, role, {
+      inviterPrincipal: principalOf(userId),
+    })
     await store().flush()
-    await say(message, `Пользователь ${target} приглашён в «${scope.title}» с ролью ${role}.`)
+    const days = Math.max(1, Math.round((Date.parse(invitation.expiresAt) - Date.parse(invitation.createdAt)) / 86_400_000))
+    await say(
+      message,
+      `Пользователь ${target} приглашён в «${scope.title}» с ролью ${role}. `
+      + `Код: \`${invitation.code}\` (действует ${days} дн.). Передайте код получателю.`,
+    )
+    const targetPlatform = target.includes(':') ? target.split(':')[0].toLowerCase() : platformName()
+    const targetUserId = target.includes(':') ? target.split(':').slice(1).join(':') : target
+    // Прямое сообщение получателю — только на своей платформе и только в личный
+    // чат: иначе код ушёл бы в общий чат или человеку с тем же id в другой сети.
+    if (
+      targetPlatform === platformName()
+      && message.chat?.type === 'private'
+      && targetUserId !== String(message.chat?.id)
+    ) {
+      // Ошибка доставки не отменяет приглашение: владелец уже видит код.
+      try {
+        await bot.send(
+          targetUserId,
+          `Вас пригласили в проект «${scope.title}» с ролью ${role}.\n`
+          + `Код: \`${invitation.code}\`\n`
+          + `Принять: \`/project accept ${invitation.code}\`\n`
+          + `Отклонить: \`/project decline ${invitation.code}\``,
+        )
+      } catch (error) {
+        bot.logger?.warn?.('invitation direct send failed', {
+          scopeId: scope.id,
+          error: error?.message ?? error,
+        })
+      }
+    }
+  }
+
+  /** Общий отказ на недействительное приглашение. */
+  async function refused(message, result) {
+    if (result.reason === 'foreign') {
+      await say(message, 'Это приглашение адресовано другому человеку: принять его нельзя.')
+      return
+    }
+    if (result.reason === 'expired') {
+      await say(message, 'Приглашение истекло: доступ не выдан.')
+      return
+    }
+    if (result.reason === 'unknown') {
+      await say(message, 'Код приглашения не найден. Проверьте код.')
+      return
+    }
+    if (result.reason === 'revoked') {
+      await say(message, 'Приглашение отозвано владельцем: доступ не выдан.')
+      return
+    }
+    if (result.reason === 'declined') {
+      await say(message, 'Приглашение уже отклонено.')
+      return
+    }
+    if (result.reason === 'accepted') {
+      await say(message, 'Приглашение уже принято.')
+      return
+    }
+    await say(message, 'Приглашение недействительно. Попросите владельца отправить новое.')
+  }
+
+  async function accept(message, userId, rawCode) {
+    const code = String(rawCode ?? '').trim()
+    if (code === '') {
+      await say(message, 'Код приглашения? Например: `/project accept ABCDEFGH`.')
+      return
+    }
+    // Principal берётся из проверенного контекста: пересланный код не подменит
+    // получателя, потому что сверяется с адресатом приглашения.
+    const result = store().acceptInvitation(code, principalOf(userId))
+    // Пишем только когда приглашение существует: неизвестный код не трогает файл.
+    if (result.invitation) await store().flush()
+    if (!result.ok) {
+      await refused(message, result)
+      return
+    }
+    await say(
+      message,
+      `Приглашение принято: «${result.scope.title}» (\`${result.scope.id}\`). `
+      + `Роль: ${result.member.role}. Проект в списке: /project list.`,
+    )
+  }
+
+  async function decline(message, userId, rawCode) {
+    const code = String(rawCode ?? '').trim()
+    if (code === '') {
+      await say(message, 'Код приглашения? Например: `/project decline ABCDEFGH`.')
+      return
+    }
+    const result = store().declineInvitation(code, principalOf(userId))
+    if (result.invitation) await store().flush()
+    if (!result.ok) {
+      await refused(message, result)
+      return
+    }
+    await say(message, 'Приглашение отклонено: доступ не выдан.')
   }
 
   async function revoke(message, userId, rawTarget) {
     const scope = await managedScope(message, userId)
     if (!scope) return
     const target = String(rawTarget ?? '').trim()
-    if (!/^\d{1,20}$/.test(target)) {
+    if (!TARGET_RE.test(target)) {
       await say(message, 'Нужен числовой userId. Например: `/project revoke 123456789`.')
       return
     }
-    const removed = store().removeMember(scope.id, target)
+    const outcome = store().revokeAccess(scope.id, target)
     await store().flush()
-    await say(message, removed
-      ? `Доступ пользователя ${target} к «${scope.title}» отозван.`
-      : 'Такого участника нет; владельца отозвать нельзя.')
+    if (!outcome) {
+      await say(message, 'Такого участника нет; владельца отозвать нельзя.')
+      return
+    }
+    await say(message, outcome.kind === 'invitation'
+      ? `Приглашение для ${target} в «${scope.title}» отозвано.`
+      : `Доступ пользователя ${target} к «${scope.title}» отозван.`)
   }
 
   async function archive(message, userId, id) {
@@ -186,6 +298,8 @@ export function createProjectCommands(bot) {
         if (action === 'new') return await create(message, userId, rest.join(' '))
         if (action === 'use') return await use(message, userId, rest[0])
         if (action === 'invite') return await invite(message, userId, rest[0], rest[1])
+        if (action === 'accept') return await accept(message, userId, rest[0])
+        if (action === 'decline') return await decline(message, userId, rest[0])
         if (action === 'revoke') return await revoke(message, userId, rest[0])
         if (action === 'archive') return await archive(message, userId, rest[0])
         await say(message, USAGE)

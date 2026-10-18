@@ -197,7 +197,7 @@ test('P1-1: два получателя, отзыв доступа и задач
 
     // Общая задача проекта: участник получает её, после отзыва — нет.
     const project = scopes.create({ title: 'Общий проект', ownerId: 1 })
-    scopes.invite(project.id, 2, 'editor')
+    scopes.addMember(project.id, 2, 'editor')
     const sharedTasks = [
       task('shared-1', 'completed', { userId: 1, scope_id: project.id, title: 'Общая задача 1' }),
       task('shared-no-owner', 'completed', { scope_id: project.id, title: 'Общая без владельца' }),
@@ -261,7 +261,7 @@ test('P1-2: viewer не пишет, отозванный участник не �
   try {
     const { scopes, store, memory, rules } = await makeMemory(ctx.dir)
     const project = scopes.create({ title: 'Ремонт', ownerId: '42' })
-    scopes.invite(project.id, '99', 'viewer')
+    scopes.addMember(project.id, '99', 'viewer')
 
     // Viewer пытается запомнить факт напрямую и через инструмент remember.
     const direct = memory.remember('99', 'viewer не должен это записать', { scopeId: project.id })

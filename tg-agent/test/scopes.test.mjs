@@ -72,7 +72,7 @@ test('личное пространство создаётся один раз �
     assert.equal(first.ownerId, 42)
     assert.equal(first.status, 'active')
     assert.equal(first.version, 1)
-    assert.deepEqual(first.members, [{ userId: 42, role: 'owner' }])
+    assert.deepEqual(first.members, [{ userId: 42, platform: 'telegram', principal: 'telegram:42', role: 'owner' }])
     assert.ok(Number.isFinite(Date.parse(first.createdAt)))
     assert.equal(ctx.scopes.store.list().length, 1)
   } finally {
@@ -90,8 +90,8 @@ test('общий проект: владелец, роли, участники и
     assert.equal(ctx.access.canManageScope(1, scope), true)
     assert.equal(ctx.access.canManageScope(2, scope), false)
 
-    assert.deepEqual(ctx.scopes.store.invite(scope.id, 2), { userId: 2, role: 'editor' })
-    assert.deepEqual(ctx.scopes.store.invite(scope.id, 3, 'viewer'), { userId: 3, role: 'viewer' })
+    assert.deepEqual(ctx.scopes.store.addMember(scope.id, 2), { userId: 2, platform: 'telegram', principal: 'telegram:2', role: 'editor' })
+    assert.deepEqual(ctx.scopes.store.addMember(scope.id, 3, 'viewer'), { userId: 3, platform: 'telegram', principal: 'telegram:3', role: 'viewer' })
     assert.equal(ctx.access.roleOf(2, scope), 'editor')
     assert.equal(ctx.access.roleOf(3, scope), 'viewer')
 
@@ -125,8 +125,8 @@ test('матрица ролей: viewer читает, но не пишет; чу
   const ctx = await makeAccess()
   try {
     const scope = ctx.scopes.store.create({ title: 'Дача', ownerId: 1 })
-    ctx.scopes.store.invite(scope.id, 2, 'editor')
-    ctx.scopes.store.invite(scope.id, 3, 'viewer')
+    ctx.scopes.store.addMember(scope.id, 2, 'editor')
+    ctx.scopes.store.addMember(scope.id, 3, 'viewer')
     const record = { id: '1', scope_id: scope.id, userId: 1 }
 
     assert.equal(ctx.access.canRead(1, record), true)
@@ -189,8 +189,8 @@ test('участник видит общий проект; viewer получае
   const ctx = await makeStores()
   try {
     const scope = ctx.scopes.store.create({ title: 'Семья', ownerId: 1 })
-    ctx.scopes.store.invite(scope.id, 2, 'editor')
-    ctx.scopes.store.invite(scope.id, 3, 'viewer')
+    ctx.scopes.store.addMember(scope.id, 2, 'editor')
+    ctx.scopes.store.addMember(scope.id, 3, 'viewer')
     ctx.scopes.store.setActive(1, 555, scope.id)
     ctx.scopes.store.setActive(2, 777, scope.id)
     ctx.scopes.store.setActive(3, 888, scope.id)
@@ -226,7 +226,7 @@ test('домены отвечают текстом: viewer не создаёт �
   const ctx = await makeStores()
   try {
     const scope = ctx.scopes.store.create({ title: 'Дача', ownerId: 1 })
-    ctx.scopes.store.invite(scope.id, 3, 'viewer')
+    ctx.scopes.store.addMember(scope.id, 3, 'viewer')
     ctx.scopes.store.setActive(3, 888, scope.id)
 
     const reminders = rulesOfReminders({ store: ctx.reminders, access: ctx.access, timeZone: 'Europe/Moscow' })
@@ -269,7 +269,7 @@ test('viewer не голосует в опросе общего проекта (
   const ctx = await makeStores()
   try {
     const scope = ctx.scopes.store.create({ title: 'Поездка', ownerId: 1 })
-    ctx.scopes.store.invite(scope.id, 3, 'viewer')
+    ctx.scopes.store.addMember(scope.id, 3, 'viewer')
     ctx.scopes.store.setActive(1, 555, scope.id)
     ctx.scopes.store.setActive(3, 888, scope.id)
 
@@ -409,10 +409,21 @@ test('команды /project: создать, пригласить, выбра�
     assert.match(sent.at(-1), /project-1/)
     assert.match(sent.at(-1), /активен/)
 
+    // Приглашение создаётся pending: до принятия участника и доступа нет.
     await projects.run({ args: 'invite 2 editor' }, message(1))
     assert.match(sent.at(-1), /приглашён/)
+    const codeFor2 = /Код: `([A-Z0-9]+)`/.exec(sent.at(-1))[1]
+    assert.equal(ctx.scopes.store.member('project-1', 2), undefined, 'pending не участник')
+    assert.equal(ctx.access.canReadScope(2, 'project-1'), false, 'pending не даёт доступа')
+    await projects.run({ args: `accept ${codeFor2}` }, message(2, 777))
+    assert.match(sent.at(-1), /Приглашение принято/)
+    assert.equal(ctx.access.roleOf(2, ctx.scopes.store.get('project-1')), 'editor')
+
     await projects.run({ args: 'invite 3 viewer' }, message(1))
     assert.match(sent.at(-1), /ролью viewer/)
+    const codeFor3 = /Код: `([A-Z0-9]+)`/.exec(sent.at(-1))[1]
+    await projects.run({ args: `accept ${codeFor3}` }, message(3, 888))
+    assert.match(sent.at(-1), /Приглашение принято/)
 
     // Участник видит проект и общую запись, которой поделились в другом чате.
     ctx.scopes.store.setActive(1, 555, 'project-1')
@@ -452,7 +463,7 @@ function signInitData(user, { botToken = BOT_TOKEN } = {}) {
 test('Mini App: viewer получает 403 и не меняет данные общего проекта', async (t) => {
   const ctx = await makeStores()
   const scope = ctx.scopes.store.create({ title: 'Дача', ownerId: 1 })
-  ctx.scopes.store.invite(scope.id, 3, 'viewer')
+  ctx.scopes.store.addMember(scope.id, 3, 'viewer')
   ctx.scopes.store.setActive(1, 1, scope.id)
   ctx.scopes.store.setActive(3, 3, scope.id)
   const ownerReminder = ctx.reminders.add({ chatId: 1, userId: 1, text: 'полить', dueAt: FUTURE })

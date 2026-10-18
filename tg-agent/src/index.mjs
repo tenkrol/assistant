@@ -23,7 +23,7 @@ import { createReminderTool } from './reminder-tool.mjs'
 import { ProfileStore } from './profiles.mjs'
 import { EventStore } from './events.mjs'
 import { PollStore, createPollTool } from './polls.mjs'
-import { ScopeStore } from './scopes.mjs'
+import { ScopeStore, migrateScopeMembers } from './scopes.mjs'
 import { createAccess, migrateScopes } from './core/access.mjs'
 import { createYoutubeTool } from './youtube-tool.mjs'
 import { createServerTool } from './server-tool.mjs'
@@ -266,11 +266,26 @@ export async function createInstance({ config, logger, instance, shared, platfor
   }
   const { model, webTools, holidays, jokes, files, ocr } = shared
   // Пространства читаются первыми: без них миграция не знает личных областей.
+  const scopesPath = stateFile(botConfig.dataDir, 'scopes', instance.namespace)
   const scopes = {
-    store: new ScopeStore({ file: stateFile(botConfig.dataDir, 'scopes', instance.namespace), logger }),
+    // Платформа известна из адаптера: по ней старые участники получают principal.
+    store: new ScopeStore({ file: scopesPath, logger, platform: instance.platform }),
   }
   await scopes.store.load()
-  const access = createAccess({ store: scopes.store, logger })
+  // Существующие участники (в том числе Маша) остаются; добавляется платформа.
+  // Копия файла делается до записи, повторный запуск ничего не меняет.
+  const memberMigration = await migrateScopeMembers({
+    store: scopes.store,
+    backupDir: path.join(botConfig.dataDir, 'backups'),
+    logger,
+  })
+  if (memberMigration.migrated > 0) {
+    logger.info('scope members migrated to principals', {
+      records: memberMigration.migrated,
+      backupDir: memberMigration.backupDir,
+    })
+  }
+  const access = createAccess({ store: scopes.store, platform: instance.platform, logger })
   const history = new HistoryStore({
     file: stateFile(botConfig.dataDir, 'history', instance.namespace),
     limit: config.history.limit,

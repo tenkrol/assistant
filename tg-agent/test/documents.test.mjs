@@ -304,7 +304,7 @@ test('ACL: чужой документ не попадает ни в канди�
 
     // Отзыв доступа: документ общего проекта после удаления участника не виден.
     const project = ctx.scopes.create({ title: 'Проект A', ownerId: 11 })
-    ctx.scopes.invite(project.id, 12, 'viewer')
+    ctx.scopes.addMember(project.id, 12, 'viewer')
     await ctx.scopes.flush()
     const shared = await ctx.store.ingest({
       userId: 11,

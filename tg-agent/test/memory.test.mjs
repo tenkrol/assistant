@@ -195,7 +195,7 @@ test('память проекта не попадает в контекст др
 
     // Участник другого проекта не видит память первого. Роль editor, потому
     // что viewer с PLB-022 писать не может — это проверяется отдельно.
-    ctx.scopes.invite(projectB.id, '99', 'editor')
+    ctx.scopes.addMember(projectB.id, '99', 'editor')
     ctx.memory.remember('99', 'моё дело в проекте B', { scopeId: projectB.id })
     assert.match(ctx.store.summary('99', { scopeId: projectB.id }), /моё дело/)
     assert.equal(ctx.store.summary('99', { scopeId: projectA.id }), undefined)
