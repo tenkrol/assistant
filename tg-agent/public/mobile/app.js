@@ -1161,7 +1161,176 @@ function refreshProfile() {
   $('profile-name').textContent = name
   $('profile-letter').textContent = name.trim().charAt(0).toUpperCase() || 'В'
   const via = (settings && settings.user && settings.user.via) || (state.session && state.session.user && state.session.user.via)
-  $('profile-via').textContent = via === 'password' ? 'Вход по паролю' : 'Telegram'
+  const login = (settings && settings.user && settings.user.login) || (state.session && state.session.user && state.session.user.login)
+  $('profile-via').textContent = via === 'password'
+    ? 'Вход: ' + (login || 'по паролю')
+    : 'Telegram'
+}
+
+/* ============================ Аккаунты ============================ */
+
+function accountRoleLabel(role) {
+  return role === 'owner' ? 'владелец' : 'участник'
+}
+
+function accountRow(account, currentLogin) {
+  const row = h('div', 'info-row')
+  const name = h('b', null, account.name + (account.login === currentLogin ? ' · это вы' : ''))
+  name.style.marginLeft = '0'
+  row.append(name, h('span', null, account.login + ' · ' + accountRoleLabel(account.role)))
+  return row
+}
+
+function openCredentialsSheet() {
+  const user = (state.settings && state.settings.user) || (state.session && state.session.user) || {}
+  const wrap = h('div')
+  const current = h('input', 'input')
+  current.type = 'password'
+  current.autocomplete = 'current-password'
+  current.placeholder = 'Текущий пароль'
+  wrap.append(field('Текущий пароль', current))
+
+  const login = h('input', 'input')
+  login.autocomplete = 'username'
+  login.autocapitalize = 'off'
+  login.spellcheck = false
+  login.value = user.login || ''
+  wrap.append(field('Новый логин', login))
+
+  const password = h('input', 'input')
+  password.type = 'password'
+  password.autocomplete = 'new-password'
+  password.placeholder = 'Оставьте пустым, чтобы не менять'
+  wrap.append(field('Новый пароль', password))
+
+  const confirm = h('input', 'input')
+  confirm.type = 'password'
+  confirm.autocomplete = 'new-password'
+  confirm.placeholder = 'Повторите новый пароль'
+  wrap.append(field('Повтор пароля', confirm))
+
+  const error = h('div', 'login-error')
+  error.hidden = true
+  wrap.append(error)
+
+  const submit = h('button', 'btn btn-primary btn-block', 'Сохранить вход')
+  submit.type = 'button'
+  submit.addEventListener('click', async () => {
+    error.hidden = true
+    const nextLogin = login.value.trim().toLowerCase()
+    const nextPassword = password.value
+    const currentPassword = current.value
+    if (currentPassword === '') {
+      error.hidden = false
+      error.textContent = 'Введите текущий пароль'
+      current.focus()
+      return
+    }
+    if (nextLogin === '' && nextPassword === '') {
+      error.hidden = false
+      error.textContent = 'Ничего не меняется'
+      return
+    }
+    if (nextPassword !== '' && nextPassword !== confirm.value) {
+      error.hidden = false
+      error.textContent = 'Новые пароли не совпадают'
+      confirm.focus()
+      return
+    }
+    const patch = { currentPassword }
+    if (nextLogin !== '' && nextLogin !== user.login) patch.login = nextLogin
+    if (nextPassword !== '') patch.password = nextPassword
+    submit.disabled = true
+    try {
+      const result = await api('PATCH', '/api/account', patch)
+      if (state.session && state.session.user) {
+        state.session.user.login = result.user.login
+        state.session.user.name = result.user.name
+        state.session.user.role = result.user.role
+      }
+      if (state.settings && state.settings.user) {
+        state.settings.user.login = result.user.login
+        state.settings.user.name = result.user.name
+        state.settings.user.role = result.user.role
+      }
+      refreshProfile()
+      closeSheet()
+      toast(result.sessionUpdated ? 'Логин и пароль обновлены' : 'Имя обновлено')
+    } catch (err) {
+      submit.disabled = false
+      error.hidden = false
+      error.textContent = err && err.message ? err.message : 'Не удалось сохранить'
+    }
+  })
+  wrap.append(submit)
+  wrap.append(h('p', 'sheet-note', 'После смены пароля старые сессии на других устройствах перестанут работать. Логин и пароль хранятся только на сервере.'))
+  openSheet({ title: 'Логин и пароль', body: wrap })
+}
+
+async function openUsersSheet() {
+  try {
+    const data = await api('GET', '/api/accounts')
+    const wrap = h('div')
+    const currentLogin = data.current ? data.current.login : null
+    if (Array.isArray(data.accounts) && data.accounts.length > 0) {
+      data.accounts.forEach((account) => wrap.append(accountRow(account, currentLogin)))
+    } else {
+      wrap.append(h('p', 'sheet-note', 'Пользователи пока не настроены.'))
+    }
+    if (data.canManage) {
+      wrap.append(h('div', 'group-head', 'Добавить пользователя'))
+      const name = h('input', 'input')
+      name.placeholder = 'Имя, например Маша'
+      wrap.append(field('Имя', name))
+      const login = h('input', 'input')
+      login.placeholder = 'masha'
+      login.autocomplete = 'off'
+      login.autocapitalize = 'off'
+      login.spellcheck = false
+      wrap.append(field('Логин', login))
+      const password = h('input', 'input')
+      password.type = 'password'
+      password.autocomplete = 'new-password'
+      password.placeholder = 'Пароль для входа'
+      wrap.append(field('Пароль', password))
+      const error = h('div', 'login-error')
+      error.hidden = true
+      wrap.append(error)
+      const submit = h('button', 'btn btn-primary btn-block', 'Добавить пользователя')
+      submit.type = 'button'
+      submit.addEventListener('click', async () => {
+        error.hidden = true
+        const payload = {
+          name: name.value.trim(),
+          login: login.value.trim().toLowerCase(),
+          password: password.value
+        }
+        if (payload.name === '' || payload.login === '' || payload.password === '') {
+          error.hidden = false
+          error.textContent = 'Заполните имя, логин и пароль'
+          return
+        }
+        submit.disabled = true
+        try {
+          await api('POST', '/api/accounts', payload)
+          closeSheet()
+          toast('Пользователь добавлен — он входит своим логином')
+          await openUsersSheet()
+        } catch (err) {
+          submit.disabled = false
+          error.hidden = false
+          error.textContent = err && err.message ? err.message : 'Не удалось добавить пользователя'
+        }
+      })
+      wrap.append(submit)
+      wrap.append(h('p', 'sheet-note', 'Telegram id подставится автоматически: следующий свободный из ALLOWED_USER_IDS. У нового человека будут свои напоминания, память и история.'))
+    } else {
+      wrap.append(h('p', 'sheet-note', 'Добавлять пользователей может только владелец.'))
+    }
+    openSheet({ title: 'Пользователи', body: wrap })
+  } catch (error) {
+    handleError(error)
+  }
 }
 
 /* ============================ Статистика ============================ */
@@ -1343,6 +1512,8 @@ function bind() {
       else openSettingsPicker(button.dataset.picker)
     })
   })
+  $('account-credentials').addEventListener('click', openCredentialsSheet)
+  $('account-users').addEventListener('click', () => { void openUsersSheet() })
   $('set-voice').addEventListener('click', () => {
     const next = !$('set-voice').classList.contains('is-on')
     $('set-voice').classList.toggle('is-on', next)

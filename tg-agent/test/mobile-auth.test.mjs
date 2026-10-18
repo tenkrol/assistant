@@ -27,8 +27,10 @@ import { EventStore } from '../src/events.mjs'
 import { ProfileStore } from '../src/profiles.mjs'
 import { UsageStore } from '../src/usage.mjs'
 import { HistoryStore } from '../src/history.mjs'
+import { MobileUserStore } from '../src/mobile-users.mjs'
 
 const USER_ID = 777
+const MASHA_ID = 888
 const BOT_TOKEN = '123456:TEST-bot-token-abcdefghijklmnopqrstuvwxyz'
 const SECRET = 'test-session-secret-0123456789abcdef'
 const PASSWORD = 'правильный-пароль'
@@ -144,6 +146,22 @@ async function createHarness(t, options = {}) {
   const history = new HistoryStore({ file: path.join(dir, 'history.json'), logger: silentLogger })
   await Promise.all([reminders.load(), events.load(), profiles.load(), usage.load(), history.load()])
 
+  let mobileUsers
+  if (options.accounts) {
+    mobileUsers = new MobileUserStore({
+      file: path.join(dir, 'mobile-accounts.json'),
+      logger: silentLogger,
+      seedUsers: [{
+        login: options.ownerLogin ?? 'tenkrol',
+        passwordHash: options.mobilePasswordHash ?? HASH,
+        name: options.mobileUserName ?? 'Владелец',
+        userId: options.mobileUserId ?? USER_ID,
+        role: 'owner',
+      }],
+    })
+    await mobileUsers.load()
+  }
+
   const publicDir = path.join(dir, 'public')
   await fs.mkdir(path.join(publicDir, 'mobile'), { recursive: true })
   await fs.writeFile(path.join(publicDir, 'app.html'), '<!doctype html><title>old</title>')
@@ -156,6 +174,7 @@ async function createHarness(t, options = {}) {
     allowedUserIds: options.allowedUserIds ?? [USER_ID],
     stores: { reminders, events, profiles, usage },
     history,
+    mobileUsers,
     publicDir,
     logger: silentLogger,
     mobilePasswordHash: options.mobilePasswordHash ?? HASH,
@@ -310,6 +329,125 @@ test('вход: логин проверяется вместе с паролем
   })
   assert.equal(ok.status, 200)
   assert.equal((await request(base, '/api/auth/session', { cookieJar: cookies })).status, 200)
+})
+
+test('аккаунты: владелец добавляет Машу, у неё свои данные и свой вход', async (t) => {
+  const { base } = await createHarness(t, {
+    accounts: true,
+    allowedUserIds: [USER_ID, MASHA_ID],
+  })
+  const owner = jar()
+  const loginOwner = await request(base, '/api/auth/login', {
+    method: 'POST',
+    body: { username: 'tenkrol', password: PASSWORD },
+    cookieJar: owner,
+  })
+  assert.equal(loginOwner.status, 200)
+  assert.equal(loginOwner.json.user.role, 'owner')
+
+  const before = await request(base, '/api/accounts', { cookieJar: owner })
+  assert.equal(before.status, 200)
+  assert.equal(before.json.accounts.length, 1)
+  assert.equal(before.json.canManage, true)
+
+  const added = await request(base, '/api/accounts', {
+    method: 'POST',
+    cookieJar: owner,
+    headers: { 'X-Mobile-Client': '1' },
+    body: { login: 'masha', password: 'masha-pass', name: 'Маша' },
+  })
+  assert.equal(added.status, 200)
+  assert.equal(added.json.accounts.length, 2)
+  assert.equal(added.json.user.userId, MASHA_ID)
+  assert.equal(added.json.user.role, 'member')
+
+  const masha = jar()
+  const loginMasha = await request(base, '/api/auth/login', {
+    method: 'POST',
+    body: { username: 'masha', password: 'masha-pass' },
+    cookieJar: masha,
+  })
+  assert.equal(loginMasha.status, 200)
+  assert.equal(loginMasha.json.user.role, 'member')
+  assert.equal((await request(base, '/api/accounts', { cookieJar: masha })).json.canManage, false)
+
+  // Маша пишет свой факт; владелец его не видит.
+  const addFact = await request(base, '/api/memory', {
+    method: 'POST',
+    cookieJar: masha,
+    headers: { 'X-Mobile-Client': '1' },
+    body: { text: 'факт Маши' },
+  })
+  assert.equal(addFact.status, 200)
+  const ownerMemory = await request(base, '/api/memory', { cookieJar: owner })
+  const mashaMemory = await request(base, '/api/memory', { cookieJar: masha })
+  assert.equal(ownerMemory.json.facts.some((fact) => fact.text === 'факт Маши'), false)
+  assert.equal(mashaMemory.json.facts.some((fact) => fact.text === 'факт Маши'), true)
+
+  const forbidden = await request(base, '/api/accounts', {
+    method: 'POST',
+    cookieJar: masha,
+    headers: { 'X-Mobile-Client': '1' },
+    body: { login: 'third', password: 'third-pass', name: 'Третий' },
+  })
+  assert.equal(forbidden.status, 403)
+})
+
+test('аккаунт: смена своего логина и пароля закрывает старые сессии', async (t) => {
+  const { base } = await createHarness(t, { accounts: true })
+  const old = jar()
+  await request(base, '/api/auth/login', {
+    method: 'POST',
+    body: { username: 'tenkrol', password: PASSWORD },
+    cookieJar: old,
+  })
+  const staleCookie = old.cookie
+  assert.equal((await request(base, '/api/auth/session', { cookieJar: old })).status, 200)
+
+  const changed = await request(base, '/api/account', {
+    method: 'PATCH',
+    cookieJar: old,
+    headers: { 'X-Mobile-Client': '1' },
+    body: { currentPassword: PASSWORD, login: 'andryukovy', password: '123' },
+  })
+  assert.equal(changed.status, 200)
+  assert.equal(changed.json.user.login, 'andryukovy')
+  assert.equal(changed.json.sessionUpdated, true)
+
+  // Старая cookie недействительна, новая — из Set-Cookie — работает.
+  assert.equal((await request(base, '/api/auth/session', { headers: { cookie: staleCookie } })).status, 401)
+  assert.equal((await request(base, '/api/auth/session', { cookieJar: old })).status, 200)
+  const oldPassword = await request(base, '/api/auth/login', {
+    method: 'POST',
+    body: { username: 'andryukovy', password: PASSWORD },
+  })
+  assert.equal(oldPassword.status, 401)
+  const newLogin = await request(base, '/api/auth/login', {
+    method: 'POST',
+    body: { username: 'andryukovy', password: '123' },
+  })
+  assert.equal(newLogin.status, 200)
+})
+
+test('аккаунт: неверный текущий пароль не меняет учётные данные', async (t) => {
+  const { base } = await createHarness(t, { accounts: true })
+  const cookies = jar()
+  await request(base, '/api/auth/login', {
+    method: 'POST',
+    body: { username: 'tenkrol', password: PASSWORD },
+    cookieJar: cookies,
+  })
+  const denied = await request(base, '/api/account', {
+    method: 'PATCH',
+    cookieJar: cookies,
+    headers: { 'X-Mobile-Client': '1' },
+    body: { currentPassword: 'wrong', password: 'new-pass' },
+  })
+  assert.equal(denied.status, 403)
+  assert.equal((await request(base, '/api/auth/login', {
+    method: 'POST',
+    body: { username: 'tenkrol', password: PASSWORD },
+  })).status, 200)
 })
 
 test('настройки: чтение, смена и проверка значений', async (t) => {

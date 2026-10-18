@@ -367,6 +367,7 @@ export function createMiniApp({
   mobileUserId,
   mobileUserName = 'Владелец',
   mobileUsername = '',
+  mobileUsers,
   sessionTtlSec = DEFAULT_SESSION_TTL_SEC,
   cookieSecure = true,
   loginRateLimit = {},
@@ -395,7 +396,8 @@ export function createMiniApp({
   const passwordUserValid = Number.isInteger(passwordUserNumber) && passwordUserNumber > 0
   const passwordConfigured = Boolean(passwordUserValid && isPasswordHash(mobilePasswordHash))
   const usernameExpected = typeof mobileUsername === 'string' ? mobileUsername.trim() : ''
-  const passwordAuthEnabled = passwordConfigured && isSessionSecret(mobileSessionSecret)
+  const accounts = mobileUsers && typeof mobileUsers.authenticate === 'function' ? mobileUsers : null
+  const passwordAuthEnabled = Boolean((accounts || passwordConfigured) && isSessionSecret(mobileSessionSecret))
   const loginLimits = {
     maxFailures: positiveInt(loginRateLimit.maxFailures, DEFAULT_LOGIN_MAX_FAILURES),
     windowMs: positiveInt(loginRateLimit.windowMs, DEFAULT_LOGIN_WINDOW_MS),
@@ -498,19 +500,41 @@ export function createMiniApp({
       const cookies = parseCookies(request.headers.cookie)
       const token = cookies[SESSION_COOKIE]
       if (typeof token === 'string' && token !== '') {
-        const session = verifySession(token, mobileSessionSecret, {
-          now: timeNow(),
-          userId: passwordUserNumber,
-        })
-        if (session.ok) {
+        const session = verifySession(token, mobileSessionSecret, { now: timeNow() })
+        if (!session.ok) return { ok: false, via: 'password', reason: session.reason }
+        if (accounts) {
+          // Сессия привязана к аккаунту и его версии: смена пароля или логина
+          // сразу завершает старые cookie.
+          if (typeof session.login !== 'string' || !Number.isInteger(session.version)) {
+            return { ok: false, via: 'password', reason: 'stale' }
+          }
+          const account = accounts.findByLogin(session.login)
+          if (!account
+            || Number(account.version) !== session.version
+            || String(account.userId) !== String(session.userId)) {
+            return { ok: false, via: 'password', reason: 'stale' }
+          }
           return {
             ok: true,
             via: 'password',
-            userId: passwordUserNumber,
-            user: { id: passwordUserNumber, first_name: mobileUserName },
+            userId: Number(account.userId),
+            login: account.login,
+            role: account.role === 'owner' ? 'owner' : 'member',
+            account,
+            user: { id: Number(account.userId), first_name: account.name, login: account.login, role: account.role },
           }
         }
-        return { ok: false, via: 'password', reason: session.reason }
+        if (String(session.userId) !== String(passwordUserNumber)) {
+          return { ok: false, via: 'password', reason: 'wrong_user' }
+        }
+        return {
+          ok: true,
+          via: 'password',
+          userId: passwordUserNumber,
+          login: usernameExpected || undefined,
+          role: 'owner',
+          user: { id: passwordUserNumber, first_name: mobileUserName },
+        }
       }
     }
     return { ok: false, via: 'none', reason: 'no_auth' }
@@ -552,7 +576,9 @@ export function createMiniApp({
       return sendError(response, 400, ERROR_CODES.badRequest, 'Введите логин и пароль')
     }
 
-    if (!verifyUsername(username, usernameExpected) || !verifyPassword(password, mobilePasswordHash)) {
+    const account = accounts ? accounts.authenticate(username, password) : null
+    const legacyOk = !accounts && verifyUsername(username, usernameExpected) && verifyPassword(password, mobilePasswordHash)
+    if (accounts ? !account : !legacyOk) {
       const failed = recordLoginFailure(ip, at)
       logger?.warn?.('mobile login failed', { attempts: failed.failures, blocked: failed.blockedUntil > at })
       const retryAfter = failed.blockedUntil > at
@@ -567,15 +593,32 @@ export function createMiniApp({
     }
 
     loginAttempts.delete(ip)
+    const sessionUser = accounts
+      ? {
+          userId: Number(account.userId),
+          login: account.login,
+          name: account.name,
+          role: account.role === 'owner' ? 'owner' : 'member',
+          version: Number(account.version) || 1,
+        }
+      : {
+          userId: passwordUserNumber,
+          login: usernameExpected || undefined,
+          name: mobileUserName,
+          role: 'owner',
+          version: undefined,
+        }
     const token = signSession({
-      userId: passwordUserNumber,
+      userId: sessionUser.userId,
       ttlSec: sessionTtl,
       now: at,
+      login: sessionUser.login,
+      version: sessionUser.version,
     }, mobileSessionSecret)
-    logger?.info?.('mobile login ok', { userId: passwordUserNumber })
+    logger?.info?.('mobile login ok', { login: sessionUser.login })
     return sendJson(response, 200, {
       ok: true,
-      user: { name: mobileUserName, via: 'password' },
+      user: { name: sessionUser.name, via: 'password', login: sessionUser.login, role: sessionUser.role },
     }, {
       'set-cookie': sessionCookie(token, { maxAgeSec: sessionTtl, secure: cookieSecure }),
     })
@@ -602,9 +645,128 @@ export function createMiniApp({
       user: {
         name: String(auth.user.first_name ?? mobileUserName),
         via: auth.via,
+        login: auth.login ?? null,
+        role: auth.role ?? null,
       },
       telegramUrl,
     })
+  }
+
+  // ---------------------------------------------------------------------------
+  // Аккаунты мобильного сайта: владелец добавляет второго человека, каждый
+  // входит своим логином и видит только свои данные.
+  // ---------------------------------------------------------------------------
+
+  function accountsSnapshot(auth) {
+    if (!accounts) return { accounts: [], canManage: false, current: null }
+    const list = accounts.list()
+    const current = list.find((item) => item.login === auth.login) ?? null
+    return {
+      accounts: auth.role === 'owner' ? list : (current ? [current] : []),
+      canManage: auth.role === 'owner',
+      current,
+    }
+  }
+
+  function accountError(response, error) {
+    const conflict = error?.code === 'conflict'
+    const status = conflict ? 409 : 400
+    return sendJson(response, status, {
+      error: String(error?.message ?? 'Не удалось изменить аккаунт'),
+      code: conflict ? 'conflict' : ERROR_CODES.badRequest,
+    })
+  }
+
+  function listAccounts(request, response, { auth }) {
+    request.resume()
+    if (!accounts) return missingStore(response, 'аккаунты')
+    sendJson(response, 200, accountsSnapshot(auth))
+  }
+
+  /** POST /api/accounts — владелец добавляет второго человека. */
+  async function createAccount(request, response, { auth }) {
+    if (!accounts) return missingStore(response, 'аккаунты')
+    if (auth.role !== 'owner') {
+      request.resume()
+      return sendError(response, 403, ERROR_CODES.forbidden, 'Добавлять пользователей может только владелец')
+    }
+    const body = await readJsonBody(request, bodyLimit)
+    if (!body.ok) return sendError(response, body.status, body.code, body.error)
+    const values = body.value
+    if (values === null || typeof values !== 'object' || Array.isArray(values)) {
+      return badRequest(response, 'Ожидается объект с логином и паролем')
+    }
+    const login = String(values.login ?? '').trim().toLowerCase()
+    const password = typeof values.password === 'string' ? values.password : ''
+    const name = typeof values.name === 'string' ? values.name.trim() : ''
+    let userId = values.userId === undefined || values.userId === null || values.userId === ''
+      ? undefined
+      : Number(values.userId)
+    if (userId === undefined && accounts.freeUserId) {
+      userId = accounts.freeUserId([...allowed])
+    }
+    if (!Number.isInteger(userId) || userId <= 0) {
+      return sendJson(response, 409, {
+        error: 'Нет свободного Telegram id: добавьте его в ALLOWED_USER_IDS',
+        code: 'conflict',
+      })
+    }
+    if (!allowed.has(String(userId))) {
+      return badRequest(response, 'Этот Telegram id не разрешён в ALLOWED_USER_IDS')
+    }
+    try {
+      const user = await accounts.add({ login, password, name, userId, role: 'member' })
+      logger?.info?.('mobile account added', { login: user.login })
+      return sendJson(response, 200, { ok: true, user, ...accountsSnapshot(auth) })
+    } catch (error) {
+      return accountError(response, error)
+    }
+  }
+
+  /** PATCH /api/account — сменить свой логин, пароль или имя. */
+  async function updateAccount(request, response, { auth }) {
+    if (!accounts) return missingStore(response, 'аккаунты')
+    const body = await readJsonBody(request, bodyLimit)
+    if (!body.ok) return sendError(response, body.status, body.code, body.error)
+    const values = body.value
+    if (values === null || typeof values !== 'object' || Array.isArray(values)) {
+      return badRequest(response, 'Ожидается объект с изменениями')
+    }
+    const currentPassword = typeof values.currentPassword === 'string' ? values.currentPassword : ''
+    if (!accounts.authenticate(auth.login, currentPassword)) {
+      return sendError(response, 403, ERROR_CODES.forbidden, 'Неверный текущий пароль')
+    }
+    const changes = {}
+    if (Object.prototype.hasOwnProperty.call(values, 'login')) changes.login = values.login
+    if (Object.prototype.hasOwnProperty.call(values, 'password')) changes.password = values.password
+    if (Object.prototype.hasOwnProperty.call(values, 'name')) changes.name = values.name
+    if (Object.keys(changes).length === 0) return badRequest(response, 'Нет изменений')
+
+    try {
+      const result = await accounts.update(auth.login, changes)
+      const headers = {}
+      if (result.credentialChanged) {
+        // Старая cookie больше не действительна: выдаём новую сразу, чтобы
+        // человека не выкинуло из только что изменённого аккаунта.
+        const token = signSession({
+          userId: result.user.userId,
+          ttlSec: sessionTtl,
+          now: timeNow(),
+          login: result.user.login,
+          version: result.user.version,
+        }, mobileSessionSecret)
+        headers['set-cookie'] = sessionCookie(token, { maxAgeSec: sessionTtl, secure: cookieSecure })
+      }
+      logger?.info?.('mobile account updated', { login: result.user.login })
+      return sendJson(response, 200, {
+        ok: true,
+        user: result.user,
+        sessionUpdated: result.credentialChanged,
+        ...accountsSnapshot({ ...auth, login: result.user.login }),
+      }, headers)
+    } catch (error) {
+      return accountError(response, error)
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -642,6 +804,8 @@ export function createMiniApp({
       user: {
         name: String(displayName || auth.user?.first_name || mobileUserName),
         via: auth.via,
+        login: auth.login ?? null,
+        role: auth.role ?? null,
       },
       city: profiles && typeof profiles.city === 'function' ? profiles.city(userId) ?? null : null,
       persona: profiles && typeof profiles.persona === 'function' ? profiles.persona(userId) ?? null : null,
@@ -990,6 +1154,9 @@ export function createMiniApp({
     { method: 'GET', pattern: /^\/api\/settings$/, handler: getSettings },
     { method: 'PATCH', pattern: /^\/api\/settings$/, handler: updateSettings },
     { method: 'GET', pattern: /^\/api\/stats$/, handler: getStats },
+    { method: 'GET', pattern: /^\/api\/accounts$/, handler: listAccounts },
+    { method: 'POST', pattern: /^\/api\/accounts$/, handler: createAccount },
+    { method: 'PATCH', pattern: /^\/api\/account$/, handler: updateAccount },
   ]
 
   /** Метод для auth-путей проверяется отдельно: вход не требует уже открытой сессии. */

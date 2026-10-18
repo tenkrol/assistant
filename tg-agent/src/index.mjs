@@ -29,6 +29,7 @@ import { createYoutubeTool } from './youtube-tool.mjs'
 import { createServerTool } from './server-tool.mjs'
 import { createEventTool } from './event-tool.mjs'
 import { createMiniApp } from './miniapp.mjs'
+import { MobileUserStore } from './mobile-users.mjs'
 import { createOutbox } from './outbox.mjs'
 import { createAgentEventsStore } from './storage/agent-events.mjs'
 import { createAgentLink } from './agent-link/index.mjs'
@@ -691,6 +692,31 @@ export async function createInstance({ config, logger, instance, shared, platfor
   }
   if (platform.name === 'telegram' && config.miniapp?.enabled && config.miniapp.url) {
     try {
+      let mobileUsers
+      if (config.miniapp.mobile.passwordHash) {
+        const seedUserId = config.miniapp.mobile.userId || [...botConfig.access.allowedUserIds][0]
+        try {
+          mobileUsers = new MobileUserStore({
+            file: stateFile(botConfig.dataDir, 'mobile-accounts', instance.namespace),
+            logger,
+            seedUsers: [{
+              login: config.miniapp.mobile.username || 'owner',
+              passwordHash: config.miniapp.mobile.passwordHash,
+              name: config.miniapp.mobile.userName,
+              userId: Number(seedUserId),
+              role: 'owner',
+            }],
+          })
+          await mobileUsers.load()
+          if (mobileUsers.list().length === 0) {
+            logger.warn('mobile accounts: no valid owner seed, password login disabled')
+            mobileUsers = undefined
+          }
+        } catch (error) {
+          logger.warn('mobile accounts failed to load', { error: error?.message ?? error })
+          mobileUsers = undefined
+        }
+      }
       const miniApp = createMiniApp({
         port: config.miniapp.port,
         host: config.miniapp.host,
@@ -703,6 +729,7 @@ export async function createInstance({ config, logger, instance, shared, platfor
           usage,
         },
         history,
+        mobileUsers,
         mobilePasswordHash: config.miniapp.mobile.passwordHash,
         mobileSessionSecret: config.miniapp.mobile.sessionSecret,
         mobileUserId: config.miniapp.mobile.userId || [...botConfig.access.allowedUserIds][0],

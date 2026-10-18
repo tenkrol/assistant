@@ -146,7 +146,7 @@ export function isSessionSecret(value) {
  * @param {string} secret - `MOBILE_SESSION_SECRET`.
  * @returns {string} токен для cookie.
  */
-export function signSession({ userId, ttlSec, now = Date.now() }, secret) {
+export function signSession({ userId, ttlSec, now = Date.now(), login, version }, secret) {
   if (!isSessionSecret(secret)) throw new MobileAuthConfigError('Секрет сессии короче 32 символов')
   const iat = Math.floor(now / 1000)
   const exp = iat + Number(ttlSec)
@@ -154,6 +154,8 @@ export function signSession({ userId, ttlSec, now = Date.now() }, secret) {
   const payload = b64url(Buffer.from(JSON.stringify({
     v: SESSION_VERSION,
     uid: String(userId),
+    ...(typeof login === 'string' && login !== '' ? { login } : {}),
+    ...(Number.isInteger(version) ? { ver: version } : {}),
     iat,
     exp,
   })))
@@ -199,7 +201,14 @@ export function verifySession(token, secret, { now = Date.now(), userId } = {}) 
   }
   if (userId !== undefined && String(userId) !== data.uid) return { ok: false, reason: 'wrong_user' }
   if (data.exp <= Math.floor(now / 1000)) return { ok: false, reason: 'expired' }
-  return { ok: true, userId: data.uid, iat: data.iat, exp: data.exp }
+  return {
+    ok: true,
+    userId: data.uid,
+    iat: data.iat,
+    exp: data.exp,
+    login: typeof data.login === 'string' ? data.login : undefined,
+    version: Number.isInteger(data.ver) ? data.ver : undefined,
+  }
 }
 
 /** Разобрать `Cookie` без сторонних библиотек; ошибки формата не ломают запрос. */

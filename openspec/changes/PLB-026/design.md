@@ -11,6 +11,8 @@
 ### Сервер
 - `src/mobile-auth.mjs` — чистые функции: scrypt-хеш пароля, HMAC-подписанный токен сессии,
   разбор cookie, `Set-Cookie` с `HttpOnly`, `Secure`, `SameSite=Strict`.
+- `src/mobile-users.mjs` — аккаунты в `mobile-accounts.json`: логин, scrypt-хеш, Telegram id,
+  роль и версия учётных данных; версия входит в сессию и закрывает старые cookie после смены пароля.
 - `src/miniapp.mjs`:
   - `POST /api/auth/login` — принимает пароль, сверяет хеш за постоянное время, ставит
     cookie; лимит попыток по IP (5 ошибок / 15 минут → 429 и `Retry-After`);
@@ -18,6 +20,8 @@
   - существующие API принимают либо `initData`, либо cookie; для cookie-сессии изменяющие
     запросы требуют `X-Mobile-Client: 1` и совпадения `Origin`;
   - новые `GET /api/chat/history`, `GET/PATCH /api/settings`, `GET /api/stats`;
+  - `GET/POST /api/accounts` и `PATCH /api/account` — список, добавление Маши и смена
+    своего логина/пароля; добавлять пользователей может только владелец;
   - статика `/mobile/` с CSP, `nosniff`, `X-Frame-Options: DENY`; `/mobile` → `/mobile/`.
 - `UsageStore.recent(days)` — последние дни для графика.
 - `src/config.mjs` + `.env.example`: `MOBILE_PASSWORD_HASH`, `MOBILE_SESSION_SECRET`,
