@@ -142,6 +142,12 @@ export function createAgentBridgeV2({
     return Array.isArray(payload?.events) ? payload.events : []
   }
 
+  /** Расходы агента (PLB-015). */
+  async function usage() {
+    const payload = await call('/v1/usage', { method: 'GET' })
+    return payload?.usage ?? {}
+  }
+
   const definition = {
     type: 'function',
     function: {
@@ -177,6 +183,7 @@ export function createAgentBridgeV2({
     getTask,
     agents,
     activity,
+    usage,
     uploadFile,
     downloadFile,
 

@@ -183,6 +183,26 @@ export function createCommandRouter(bot) {
         }
         return
       }
+      case 'agentusage': {
+        if (!bot.agentBridge?.enabled || typeof bot.agentBridge.usage !== 'function') {
+          await bot.send(chatId, 'Расходы агента недоступны: мост выключен или старый контракт.')
+          return
+        }
+        try {
+          const usage = await bot.agentBridge.usage()
+          const today = usage.today ?? {}
+          const total = usage.total ?? {}
+          const lines = [
+            '**Расходы агента**',
+            `Сегодня: ${Number(today.prompt ?? 0) + Number(today.completion ?? 0)} ток. (${today.requests ?? 0} зап.)`,
+            `Всего за день учёта: ${Number(total.prompt ?? 0) + Number(total.completion ?? 0)} ток. (${total.requests ?? 0} зап.)`,
+          ]
+          await bot.send(chatId, lines.join('\n'))
+        } catch (error) {
+          await bot.send(chatId, `Не удалось получить расходы: ${String(error?.message ?? error).slice(0, 160)}`)
+        }
+        return
+      }
       case 'server': {
         if (!bot.server) {
           await bot.send(chatId, 'Состояние сервера недоступно в этой сборке.')
