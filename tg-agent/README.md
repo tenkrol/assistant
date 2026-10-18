@@ -108,3 +108,7 @@ node tools/deploy-safe.mjs --notify --test-timeout 900000   # деплой с а
 
 Ограничение: PR через GitHub API не создаются (deploy key только clone/push),
 поэтому бот показывает compare-ссылку; PR открывается вручную или через token/App.
+
+## Схема
+
+![Архитектура](architecture.svg) — каналы, ядро, инструменты, домены, хранение, доставка и потоки данных.
