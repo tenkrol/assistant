@@ -22,6 +22,7 @@ import { characterHint as personaCharacterHint } from '../personas.mjs'
 import { parsePollAction, pollKeyboard, pollMessage } from '../polls.mjs'
 import { parseCommand } from './commands.mjs'
 import { MODES } from './modes.mjs'
+import { looksLikeChangeRequest } from './request-detect.mjs'
 
 const DENY_COOLDOWN_MS = 10 * 60 * 1000
 /** Вопрос «почему это пришло»: короткое объяснение без обращения к модели. */
@@ -149,6 +150,22 @@ export function createConversation(bot) {
     if (command) {
       await bot.runCommand(command, message)
       return
+    }
+    // E4/E11: явный запрос на доработку продукта создаёт draft-заявку без /request.
+    if (bot.agentBridge?.enabled && typeof bot.agentBridge.createRequest === 'function' && looksLikeChangeRequest(text)) {
+      try {
+        const request = await bot.agentBridge.createRequest({ text })
+        const components = (request.analysis?.components ?? []).map((item) => `• ${item.repository}`).join('\n')
+        await bot.send(message.chat.id, [
+          `**Заявка ${request.requestId ?? 'создана'}**`,
+          components ? `Компоненты:\n${components}` : '',
+          request.question ? `❓ ${request.question}` : '',
+          request.compareUrl ? `Сравнение: ${request.compareUrl}` : '',
+        ].filter(Boolean).join('\n'))
+        return
+      } catch (error) {
+        bot.logger?.warn?.('auto request failed, falling back', { error: String(error?.message ?? error) })
+      }
     }
     // «Почему это пришло» — объяснение причины и источника из журнала решений.
     if (bot.proactive && PROACTIVE_WHY.test(text)) {
