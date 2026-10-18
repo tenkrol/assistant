@@ -25,8 +25,14 @@ function syncAppHeight() {
   if (height > previous) stableViewportHeight = height
   // Клавиатура уменьшает видимую высоту заметно сильнее, чем панель браузера.
   const keyboard = stableViewportHeight > 0 && height < stableViewportHeight * 0.8
+  const wasKeyboard = document.body.classList.contains('is-keyboard')
   document.body.classList.toggle('is-keyboard', keyboard)
   document.documentElement.style.setProperty('--app-height', height + 'px')
+  if (keyboard && !wasKeyboard && document.body.dataset.screen === 'chat') {
+    requestAnimationFrame(() => {
+      if (typeof chatScrollToBottom === 'function') chatScrollToBottom()
+    })
+  }
 }
 
 syncAppHeight()
