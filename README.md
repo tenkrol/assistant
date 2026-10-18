@@ -39,7 +39,7 @@ secrets/    шифртекст секретов и имена ключей (бе
 ```sh
 cd tg-agent
 node --test --test-force-exit                       # тесты (сейчас 930)
-node tg-agent/tools/../tools/acceptance.mjs --list  # сценарии приёмки (из корня)
+bash tg-agent/tools/acceptance.mjs --list   # сценарии приёмки (из корня)
 node tools/deploy-safe.mjs --notify --test-timeout 900000   # деплой с откатом
 ```
 
