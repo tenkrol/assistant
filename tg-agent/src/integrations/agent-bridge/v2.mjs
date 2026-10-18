@@ -148,6 +148,12 @@ export function createAgentBridgeV2({
     return payload?.usage ?? {}
   }
 
+  /** Создать draft-заявку (PLB-017). */
+  async function createRequest({ text, title } = {}) {
+    const payload = await call('/v1/requests', { body: { text, title } })
+    return payload ?? {}
+  }
+
   const definition = {
     type: 'function',
     function: {
@@ -181,6 +187,7 @@ export function createAgentBridgeV2({
     replyTask,
     cancelTask,
     getTask,
+    createRequest,
     agents,
     activity,
     usage,
