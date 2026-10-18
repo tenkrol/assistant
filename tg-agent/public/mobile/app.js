@@ -632,8 +632,9 @@ async function refreshGroupChat() {
     const data = await api('GET', '/api/chat/history?limit=60&chatId=' + encodeURIComponent(target.id))
     if (!state.chatTarget || String(state.chatTarget.id) !== String(target.id)) return
     if (data.chat) state.chatTarget = { id: String(data.chat.chatId), type: data.chat.type, title: data.chat.title }
+    const previous = state.chat && state.chat.messages
     state.chat = data
-    if (!sameMessages(state.chat && state.chat.messages, data.messages)) {
+    if (!sameMessages(previous, data.messages)) {
       renderChat()
       chatScrollToBottom()
     }
