@@ -438,12 +438,14 @@ function showApp(session) {
 
 async function login(event) {
   if (event) event.preventDefault()
+  const userInput = $('login-username')
   const input = $('login-password')
+  const username = userInput.value.trim()
   const password = input.value
-  if (password === '') {
+  if (username === '' || password === '') {
     $('login-error').hidden = false
-    $('login-error').textContent = 'Введите пароль'
-    input.focus()
+    $('login-error').textContent = 'Введите логин и пароль'
+    ;(username === '' ? userInput : input).focus()
     return
   }
   const button = $('login-submit')
@@ -451,7 +453,7 @@ async function login(event) {
   $('login-error').hidden = true
   $('login-label').textContent = 'Проверяю…'
   try {
-    await api('POST', '/api/auth/login', { password })
+    await api('POST', '/api/auth/login', { username, password })
     const session = await api('GET', '/api/auth/session')
     showApp(session)
     toast('Вход выполнен')

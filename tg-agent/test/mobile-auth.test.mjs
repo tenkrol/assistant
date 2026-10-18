@@ -19,6 +19,7 @@ import {
   signSession,
   verifyPassword,
   verifySession,
+  verifyUsername,
 } from '../src/mobile-auth.mjs'
 import { createMiniApp } from '../src/miniapp.mjs'
 import { ReminderStore } from '../src/reminders.mjs'
@@ -49,6 +50,14 @@ test('verifyPassword отклоняет мусор и чужой формат', 
   for (const value of [undefined, null, '', 'plain', 'bcrypt$1$2$3$4$5', HASH.replace('$1024$', '$999999$')]) {
     assert.equal(verifyPassword(PASSWORD, value), false)
   }
+})
+
+test('verifyUsername: логин сравнивается, пустой конфиг пропускает', () => {
+  assert.equal(verifyUsername('tenkrol', 'tenkrol'), true)
+  assert.equal(verifyUsername('TenKrol', 'tenkrol'), false)
+  assert.equal(verifyUsername('', 'tenkrol'), false)
+  assert.equal(verifyUsername('tenkrol', ''), true)
+  assert.equal(verifyUsername(undefined, 'tenkrol'), false)
 })
 
 test('session secret: короткий секрет не принимается', () => {
@@ -153,6 +162,7 @@ async function createHarness(t, options = {}) {
     mobileSessionSecret: options.mobileSessionSecret ?? SECRET,
     mobileUserId: options.mobileUserId ?? USER_ID,
     mobileUserName: options.mobileUserName ?? 'Владелец',
+    mobileUsername: options.mobileUsername ?? '',
     cookieSecure: options.cookieSecure ?? false,
     sessionTtlSec: options.sessionTtlSec ?? 3600,
     loginRateLimit: options.loginRateLimit ?? {},
@@ -182,7 +192,7 @@ test('вход: неверный пароль, затем верный и cookie
 
   const wrong = await request(base, '/api/auth/login', { method: 'POST', body: { password: 'неверный' }, cookieJar: cookies })
   assert.equal(wrong.status, 401)
-  assert.equal(wrong.json.error, 'Неверный пароль')
+  assert.equal(wrong.json.error, 'Неверный логин или пароль')
   assert.equal(cookies.cookie, '')
 
   const login = await request(base, '/api/auth/login', { method: 'POST', body: { password: PASSWORD }, cookieJar: cookies })
@@ -275,6 +285,31 @@ test('лимит попыток: после серии ошибок 429 и Retry
   current += 61_000
   const ok = await request(base, '/api/auth/login', { method: 'POST', body: { password: PASSWORD } })
   assert.equal(ok.status, 200)
+})
+
+test('вход: логин проверяется вместе с паролем', async (t) => {
+  const { base } = await createHarness(t, { mobileUsername: 'tenkrol' })
+  const cookies = jar()
+
+  const noUsername = await request(base, '/api/auth/login', { method: 'POST', body: { password: PASSWORD }, cookieJar: cookies })
+  assert.equal(noUsername.status, 401)
+  assert.equal(cookies.cookie, '')
+
+  const wrongUsername = await request(base, '/api/auth/login', {
+    method: 'POST',
+    body: { username: 'другой', password: PASSWORD },
+    cookieJar: cookies,
+  })
+  assert.equal(wrongUsername.status, 401)
+  assert.equal(cookies.cookie, '')
+
+  const ok = await request(base, '/api/auth/login', {
+    method: 'POST',
+    body: { username: 'tenkrol', password: PASSWORD },
+    cookieJar: cookies,
+  })
+  assert.equal(ok.status, 200)
+  assert.equal((await request(base, '/api/auth/session', { cookieJar: cookies })).status, 200)
 })
 
 test('настройки: чтение, смена и проверка значений', async (t) => {

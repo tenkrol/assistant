@@ -110,6 +110,25 @@ export function verifyPassword(password, encoded) {
   return derived.length === expected.length && crypto.timingSafeEqual(derived, expected)
 }
 
+/**
+ * Сверить логин за постоянное время.
+ *
+ * Пустой `expected` означает «логин не настроен» и пропускает любой логин: это
+ * обратная совместимость со старыми установками, где был только пароль.
+ *
+ * @param {string} provided - введённый логин.
+ * @param {string} expected - значение `MOBILE_USERNAME`.
+ * @returns {boolean} совпадает ли логин.
+ */
+export function verifyUsername(provided, expected) {
+  if (typeof expected !== 'string' || expected === '') return true
+  if (typeof provided !== 'string' || provided === '') return false
+  const left = Buffer.from(provided, 'utf8')
+  const right = Buffer.from(expected, 'utf8')
+  // Разная длина уже означает «не тот логин»; сравнивать байты бессмысленно.
+  return left.length === right.length && crypto.timingSafeEqual(left, right)
+}
+
 /** Случайный секрет подписи сессий; в env попадает только он. */
 export function createSessionSecret() {
   return b64url(crypto.randomBytes(32))

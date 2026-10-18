@@ -35,6 +35,7 @@ echo 'свой-длинный-пароль' | node tools/mobile-password.mjs --p
 Добавьте в `/opt/tg-agent/.env` (не в репозиторий):
 
 ```
+MOBILE_USERNAME=tenkrol
 MOBILE_PASSWORD_HASH=<из /root/mobile-site.env>
 MOBILE_SESSION_SECRET=<из /root/mobile-site.env>
 MOBILE_USER_ID=<ваш Telegram id из ALLOWED_USER_IDS>
@@ -71,7 +72,7 @@ curl -sS -o /dev/null -w '%{http_code}\n' https://tenkrol.ru/                  #
 На телефоне:
 
 1. открыть `https://tenkrol.ru/mobile/` — должен быть экран входа;
-2. ввести пароль из менеджера — открываются «Планы» и «Чат»;
+2. ввести логин `tenkrol` и пароль из менеджера — открываются «Планы» и «Чат»;
 3. создать напоминание и проверить, что оно видно боту в Telegram;
 4. выйти и убедиться, что без пароля данные не показываются;
 5. «Добавить на экран» — приложение открывается без адресной строки.

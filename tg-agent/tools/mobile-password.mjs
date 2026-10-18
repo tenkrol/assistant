@@ -66,10 +66,13 @@ async function main() {
   }
   if (args.has('--password-stdin')) {
     const password = (await readStdinLine()).trim()
-    if (password.length < 8) {
-      process.stderr.write('Пароль короче 8 символов — отказываюсь.\n')
+    if (password.length < 8 && !args.has('--allow-weak')) {
+      process.stderr.write('Пароль короче 8 символов — отказываюсь. Для явно слабого пароля добавьте --allow-weak.\n')
       process.exitCode = 1
       return
+    }
+    if (password.length < 8) {
+      process.stderr.write('ВНИМАНИЕ: выбран слабый пароль, сайт защищён только лимитом попыток.\n')
     }
     printEnv(password, false)
     return
