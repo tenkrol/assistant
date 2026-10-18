@@ -23,7 +23,10 @@
   - `GET/POST /api/accounts` и `PATCH /api/account` — список, добавление Маши и смена
     своего логина/пароля; добавлять пользователей может только владелец;
   - `POST /api/chat/message` — текст уходит в `bot.handleWebMessage`; ответы и файлы
-    возвращаются JSON-ом, а не отправляются в Telegram.
+    возвращаются JSON-ом, а не отправляются в Telegram;
+  - `GET /api/agent/status` — доступность моста, агенты и последние события (кеш 10 с);
+  - `POST /api/agent/task` — шаблонное задание сразу в `agentBridge.execute('ask_agent')`
+    с маршрутом в чат пользователя; задание и подтверждение добавляются в историю.
   - статика `/mobile/` с CSP, `nosniff`, `X-Frame-Options: DENY`; `/mobile` → `/mobile/`.
 - `UsageStore.recent(days)` — последние дни для графика.
 - `src/config.mjs` + `.env.example`: `MOBILE_PASSWORD_HASH`, `MOBILE_SESSION_SECRET`,
@@ -40,6 +43,11 @@
 
 Пароль нигде не сохраняется; cookie HttpOnly. Если страница открыта внутри Telegram и есть
 `initData`, вход по паролю не нужен — используется подпись Telegram.
+
+**Агент.** Раздел показывает блоки-шаблоны (документ, таблица, отчёт, исследование,
+перевод, проверка, своя задача). Клиент собирает текст задания, даёт его отредактировать и
+отправляет в `/api/agent/task`. Сервер вызывает мост напрямую — без лишнего вызова модели —
+и возвращает номер задачи; результат приходит в чат через outbox и попадает в историю.
 
 **Веб-чат.** `Assistant.handleWebMessage` запускает тот же `conversation.handleMessage`,
 что и Telegram, но через `AsyncLocalStorage` подменяет доставку: `send`, стример и файлы
