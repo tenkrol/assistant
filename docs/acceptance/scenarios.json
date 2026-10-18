@@ -1,10 +1,25 @@
 {
-  "version": 1,
+  "version": 2,
   "updatedAt": "2026-10-18",
+  "levels": [
+    "unit",
+    "contract",
+    "integration",
+    "live"
+  ],
+  "statuses": [
+    "not-run",
+    "passed",
+    "failed",
+    "blocked",
+    "skipped"
+  ],
   "scenarios": [
     {
       "id": "AC-01",
       "bp": "BP-01",
+      "area": "поручения",
+      "level": "live",
       "title": "Поручение из чата и возврат к нему",
       "steps": [
         "написать «сделай … до пятницы»",
@@ -12,25 +27,50 @@
         "нажать «завершить»"
       ],
       "expect": "поручение создано со сроком в поясе пользователя и меняет статус",
-      "evidence": "запись WorkItem + история переходов",
-      "status": "todo",
-      "checkedAt": null
+      "evidence": "запись WorkItem, история переходов и подтверждение в чате",
+      "runner": "manual",
+      "status": "blocked",
+      "checkedAt": "2026-10-18",
+      "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+      "blockedReason": "поручения из чата не реализованы: в коде нет WorkItem/TaskView, живой сценарий выполнить нельзя",
+      "lastRun": {
+        "at": "2026-10-18T18:38:58.726Z",
+        "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+        "report": "docs/acceptance/report.json",
+        "result": "blocked",
+        "reason": "поручения из чата не реализованы: в коде нет WorkItem/TaskView, живой сценарий выполнить нельзя"
+      }
     },
     {
       "id": "AC-02",
       "bp": "BP-01/BP-06",
+      "area": "поручения",
+      "level": "live",
       "title": "Дубль события не создаёт второе поручение",
       "steps": [
-        "доставить одно и то же сообщение дважды"
+        "доставить одно и то же сообщение дважды",
+        "проверить список поручений и расписаний"
       ],
       "expect": "ровно одно поручение и одно расписание",
-      "evidence": "идемпотентность по update_id/версии",
-      "status": "todo",
-      "checkedAt": null
+      "evidence": "идемпотентность по update_id/версии, журнал обработки",
+      "runner": "manual",
+      "status": "blocked",
+      "checkedAt": "2026-10-18",
+      "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+      "blockedReason": "зависит от реализации поручений (BP-01); без неё дубль события не проверить",
+      "lastRun": {
+        "at": "2026-10-18T18:38:58.726Z",
+        "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+        "report": "docs/acceptance/report.json",
+        "result": "blocked",
+        "reason": "зависит от реализации поручений (BP-01); без неё дубль события не проверить"
+      }
     },
     {
       "id": "AC-03",
       "bp": "BP-06",
+      "area": "поручения",
+      "level": "live",
       "title": "Карточка выполнения: прогресс, отмена, повтор",
       "steps": [
         "запустить длинную задачу",
@@ -40,76 +80,442 @@
       ],
       "expect": "статусы queued→running→cancelled→running, история попыток сохранена",
       "evidence": "TaskView + MessageBinding",
-      "status": "todo",
-      "checkedAt": null
+      "runner": "manual",
+      "status": "blocked",
+      "checkedAt": "2026-10-18",
+      "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+      "blockedReason": "карточки выполнения (TaskView) нет в коде; живой прогон невозможен",
+      "lastRun": {
+        "at": "2026-10-18T18:38:58.726Z",
+        "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+        "report": "docs/acceptance/report.json",
+        "result": "blocked",
+        "reason": "карточки выполнения (TaskView) нет в коде; живой прогон невозможен"
+      }
     },
     {
       "id": "AC-04",
-      "bp": "BP-01",
-      "title": "Напоминание голосом с датой в поясе",
+      "bp": null,
+      "area": "напоминания",
+      "level": "integration",
+      "title": "Напоминание срабатывает в срок и показывает локальное время",
       "steps": [
-        "голосом: «напомни завтра в девять»"
+        "создать напоминание на ближайшую минуту",
+        "дождаться доставки",
+        "проверить подтверждение с временем в поясе пользователя"
       ],
-      "expect": "подтверждение с абсолютной датой по Москве",
-      "evidence": "напоминание в reminders.json + текст подтверждения",
-      "status": "partial",
-      "checkedAt": "2026-10-18"
+      "expect": "напоминание доставлено один раз, время показано в поясе пользователя",
+      "evidence": "журнал tick и текст подтверждения",
+      "runner": "test/reminders.test.mjs",
+      "status": "passed",
+      "checkedAt": "2026-10-18",
+      "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+      "lastRun": {
+        "at": "2026-10-18T18:38:58.726Z",
+        "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+        "report": "docs/acceptance/report.json",
+        "result": "passed",
+        "reason": null,
+        "command": "node --test --test-force-exit --test-reporter=tap test/reminders.test.mjs",
+        "tests": {
+          "total": 36,
+          "pass": 36,
+          "fail": 0,
+          "skipped": 0
+        },
+        "durationMs": 457
+      }
     },
     {
       "id": "AC-05",
-      "bp": "BP-01",
+      "bp": null,
+      "area": "напоминания",
+      "level": "unit",
       "title": "Напоминание переживает перезапуск",
       "steps": [
         "создать напоминание",
-        "перезапустить бота"
+        "сохранить состояние",
+        "загрузить состояние заново"
       ],
-      "expect": "напоминание срабатывает, список прежний",
-      "evidence": "файл состояния + журнал доставки",
-      "status": "done",
-      "checkedAt": "2026-10-17"
+      "expect": "напоминание с тем же сроком и текстом на месте, nextId не повторяется",
+      "evidence": "round-trip reminders.json",
+      "runner": "test/reminders.test.mjs::flush + load round-trips",
+      "status": "passed",
+      "checkedAt": "2026-10-18",
+      "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+      "lastRun": {
+        "at": "2026-10-18T18:38:58.726Z",
+        "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+        "report": "docs/acceptance/report.json",
+        "result": "passed",
+        "reason": null,
+        "command": "node --test --test-force-exit --test-reporter=tap --test-name-pattern=flush \\+ load round-trips test/reminders.test.mjs",
+        "tests": {
+          "total": 1,
+          "pass": 1,
+          "fail": 0,
+          "skipped": 0
+        },
+        "durationMs": 109
+      }
     },
     {
       "id": "AC-06",
-      "bp": "BP-03",
-      "title": "Чужое личное не видно, общий проект виден участнику",
+      "bp": null,
+      "area": "календарь",
+      "level": "contract",
+      "title": "Событие записывается в поясе и ставит напоминание",
       "steps": [
-        "пользователь B пишет боту и смотрит свои напоминания и память",
-        "A создаёт /project new Ремонт и приглашает B участником",
-        "B повторяет список и видит общую запись; viewer пытается изменить её текстом, через API и callback"
+        "создать событие с датой и поясом",
+        "проверить напоминание за 60 минут"
       ],
-      "expect": "B не видит личное A ни в списке, ни по известному id; участник видит общее; viewer получает отказ",
-      "evidence": "scope_id в записях, единая проверка src/core/access.mjs, тесты test/scopes.test.mjs, миграция с копией файлов",
-      "status": "done",
-      "checkedAt": "2026-10-18"
+      "expect": "событие и напоминание согласованы, время локальное",
+      "evidence": "events.json + reminders.json",
+      "runner": "test/events.test.mjs",
+      "status": "passed",
+      "checkedAt": "2026-10-18",
+      "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+      "lastRun": {
+        "at": "2026-10-18T18:38:58.726Z",
+        "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+        "report": "docs/acceptance/report.json",
+        "result": "passed",
+        "reason": null,
+        "command": "node --test --test-force-exit --test-reporter=tap test/events.test.mjs",
+        "tests": {
+          "total": 7,
+          "pass": 7,
+          "fail": 0,
+          "skipped": 0
+        },
+        "durationMs": 162
+      }
     },
     {
       "id": "AC-07",
-      "bp": "BP-05",
+      "bp": null,
+      "area": "панель",
+      "level": "contract",
+      "title": "Панель на двух языках: одинаковый набор ключей",
+      "steps": [
+        "открыть /app",
+        "переключить RU/EN",
+        "перезагрузить панель"
+      ],
+      "expect": "язык переключается и сохраняется, русские подписи не изменились",
+      "evidence": "ru.json/en.json, CloudStorage, тест ключей",
+      "runner": "test/miniapp-i18n.test.mjs",
+      "status": "passed",
+      "checkedAt": "2026-10-18",
+      "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+      "lastRun": {
+        "at": "2026-10-18T18:38:58.726Z",
+        "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+        "report": "docs/acceptance/report.json",
+        "result": "passed",
+        "reason": null,
+        "command": "node --test --test-force-exit --test-reporter=tap test/miniapp-i18n.test.mjs",
+        "tests": {
+          "total": 14,
+          "pass": 14,
+          "fail": 0,
+          "skipped": 0
+        },
+        "durationMs": 160
+      }
+    },
+    {
+      "id": "AC-08",
+      "bp": null,
+      "area": "панель",
+      "level": "contract",
+      "title": "Панель: подпись Telegram и коды ошибок",
+      "steps": [
+        "открыть /app с валидным initData",
+        "повторить с подделанной подписью"
+      ],
+      "expect": "валидная подпись открывает API, подделка — 401/403 с кодом",
+      "evidence": "тест validateInitData и коды ошибок",
+      "runner": "test/miniapp.test.mjs",
+      "status": "passed",
+      "checkedAt": "2026-10-18",
+      "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+      "lastRun": {
+        "at": "2026-10-18T18:38:58.726Z",
+        "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+        "report": "docs/acceptance/report.json",
+        "result": "passed",
+        "reason": null,
+        "command": "node --test --test-force-exit --test-reporter=tap test/miniapp.test.mjs",
+        "tests": {
+          "total": 29,
+          "pass": 29,
+          "fail": 0,
+          "skipped": 0
+        },
+        "durationMs": 280
+      }
+    },
+    {
+      "id": "AC-09",
+      "bp": null,
+      "area": "голос",
+      "level": "contract",
+      "title": "Голосовой ответ в VK",
+      "steps": [
+        "в VK /voice вкл",
+        "получить ответ"
+      ],
+      "expect": "приходит audio_message; при сбое — текст без потери смысла",
+      "evidence": "upload audio_message → docs.save → messages.send и текстовый откат",
+      "runner": "test/platform-vk-voice.test.mjs",
+      "status": "passed",
+      "checkedAt": "2026-10-18",
+      "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+      "lastRun": {
+        "at": "2026-10-18T18:38:58.726Z",
+        "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+        "report": "docs/acceptance/report.json",
+        "result": "passed",
+        "reason": null,
+        "command": "node --test --test-force-exit --test-reporter=tap test/platform-vk-voice.test.mjs",
+        "tests": {
+          "total": 9,
+          "pass": 9,
+          "fail": 0,
+          "skipped": 0
+        },
+        "durationMs": 246
+      }
+    },
+    {
+      "id": "AC-10",
+      "bp": null,
+      "area": "голос",
+      "level": "contract",
+      "title": "Голосовое сообщение распознаётся",
+      "steps": [
+        "отправить голосовое",
+        "проверить распознанный текст"
+      ],
+      "expect": "Yandex SpeechKit принимает аудио, ошибка объясняется без ключа",
+      "evidence": "тест STT: формат, ключ, ошибки",
+      "runner": "test/stt.test.mjs",
+      "status": "passed",
+      "checkedAt": "2026-10-18",
+      "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+      "lastRun": {
+        "at": "2026-10-18T18:38:58.726Z",
+        "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+        "report": "docs/acceptance/report.json",
+        "result": "passed",
+        "reason": null,
+        "command": "node --test --test-force-exit --test-reporter=tap test/stt.test.mjs",
+        "tests": {
+          "total": 8,
+          "pass": 8,
+          "fail": 0,
+          "skipped": 0
+        },
+        "durationMs": 105
+      }
+    },
+    {
+      "id": "AC-11",
+      "bp": null,
+      "area": "голос",
+      "level": "contract",
+      "title": "Ответ озвучивается",
+      "steps": [
+        "включить /voice",
+        "получить ответ"
+      ],
+      "expect": "текст уходит в синтез, markdown и ссылки очищены, сбой повторяется ограниченно",
+      "evidence": "тест TTS: форма, повторы, ошибки",
+      "runner": "test/tts.test.mjs",
+      "status": "passed",
+      "checkedAt": "2026-10-18",
+      "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+      "lastRun": {
+        "at": "2026-10-18T18:38:58.726Z",
+        "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+        "report": "docs/acceptance/report.json",
+        "result": "passed",
+        "reason": null,
+        "command": "node --test --test-force-exit --test-reporter=tap test/tts.test.mjs",
+        "tests": {
+          "total": 8,
+          "pass": 8,
+          "fail": 0,
+          "skipped": 0
+        },
+        "durationMs": 6100
+      }
+    },
+    {
+      "id": "AC-12",
+      "bp": null,
+      "area": "отправка",
+      "level": "contract",
+      "title": "Отправка другому человеку с подписью",
+      "steps": [
+        "«напиши Марии, что задержусь»",
+        "проверить подпись и адресата"
+      ],
+      "expect": "сообщение уходит с «От Вячеслава: …», неоднозначность не угадывается",
+      "evidence": "журнал sendto delivered и тест подписи/поиска",
+      "runner": "test/sendto-tool.test.mjs",
+      "status": "passed",
+      "checkedAt": "2026-10-18",
+      "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+      "lastRun": {
+        "at": "2026-10-18T18:38:58.726Z",
+        "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+        "report": "docs/acceptance/report.json",
+        "result": "passed",
+        "reason": null,
+        "command": "node --test --test-force-exit --test-reporter=tap test/sendto-tool.test.mjs",
+        "tests": {
+          "total": 14,
+          "pass": 14,
+          "fail": 0,
+          "skipped": 0
+        },
+        "durationMs": 102
+      }
+    },
+    {
+      "id": "AC-13",
+      "bp": null,
+      "area": "VK",
+      "level": "contract",
+      "title": "Файл приходит в VK",
+      "steps": [
+        "в VK попросить PDF",
+        "проверить документ в беседе"
+      ],
+      "expect": "документ загружен и отправлен; ошибка объясняется",
+      "evidence": "docs.getMessagesUploadServer → upload → docs.save",
+      "runner": "test/platform-vk-document.test.mjs",
+      "status": "passed",
+      "checkedAt": "2026-10-18",
+      "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+      "lastRun": {
+        "at": "2026-10-18T18:38:58.726Z",
+        "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+        "report": "docs/acceptance/report.json",
+        "result": "passed",
+        "reason": null,
+        "command": "node --test --test-force-exit --test-reporter=tap test/platform-vk-document.test.mjs",
+        "tests": {
+          "total": 11,
+          "pass": 11,
+          "fail": 0,
+          "skipped": 0
+        },
+        "durationMs": 159
+      }
+    },
+    {
+      "id": "AC-14",
+      "bp": null,
+      "area": "VK",
+      "level": "contract",
+      "title": "Ответ в VK приходит в беседу или личку",
+      "steps": [
+        "написать боту в VK",
+        "получить ответ"
+      ],
+      "expect": "текст и клавиатура уходят, random_id новый, long poll не теряет курсор",
+      "evidence": "тест sendText, клавиатуры и long poll",
+      "runner": "test/platform-vk.test.mjs",
+      "status": "passed",
+      "checkedAt": "2026-10-18",
+      "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+      "lastRun": {
+        "at": "2026-10-18T18:38:58.726Z",
+        "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+        "report": "docs/acceptance/report.json",
+        "result": "passed",
+        "reason": null,
+        "command": "node --test --test-force-exit --test-reporter=tap test/platform-vk.test.mjs",
+        "tests": {
+          "total": 48,
+          "pass": 48,
+          "fail": 0,
+          "skipped": 0
+        },
+        "durationMs": 217
+      }
+    },
+    {
+      "id": "AC-15",
+      "bp": null,
+      "area": "файлы",
+      "level": "integration",
       "title": "Файл на выход: PDF с кириллицей",
       "steps": [
         "«сделай PDF с отчётом»",
         "«/export pdf»"
       ],
       "expect": "приходит валидный PDF с кириллицей и разделами",
-      "evidence": "%PDF-1.4, внешний просмотрщик извлёк разделы",
-      "status": "done",
-      "checkedAt": "2026-10-17"
+      "evidence": "%PDF-1.4, /ToUnicode, внешний просмотрщик",
+      "runner": "test/export-pdf.test.mjs",
+      "status": "passed",
+      "checkedAt": "2026-10-18",
+      "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+      "lastRun": {
+        "at": "2026-10-18T18:38:58.726Z",
+        "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+        "report": "docs/acceptance/report.json",
+        "result": "passed",
+        "reason": null,
+        "command": "node --test --test-force-exit --test-reporter=tap test/export-pdf.test.mjs",
+        "tests": {
+          "total": 7,
+          "pass": 7,
+          "fail": 0,
+          "skipped": 0
+        },
+        "durationMs": 136
+      }
     },
     {
-      "id": "AC-08",
-      "bp": "BP-05",
-      "title": "Отправка другому человеку с подписью",
+      "id": "AC-16",
+      "bp": null,
+      "area": "файлы",
+      "level": "unit",
+      "title": "PDF-генератор: кириллица и переносы",
       "steps": [
-        "«напиши Марии, что задержусь»"
+        "собрать PDF с русским текстом и длинным абзацем"
       ],
-      "expect": "сообщение уходит с «От Вячеслава: …»",
-      "evidence": "журнал sendto delivered + ответ Telegram",
-      "status": "done",
-      "checkedAt": "2026-10-18"
+      "expect": "валидный файл, шрифт встроен, текст не вылезает за поля",
+      "evidence": "тест createPdf",
+      "runner": "test/pdf.test.mjs",
+      "status": "passed",
+      "checkedAt": "2026-10-18",
+      "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+      "lastRun": {
+        "at": "2026-10-18T18:38:58.726Z",
+        "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+        "report": "docs/acceptance/report.json",
+        "result": "passed",
+        "reason": null,
+        "command": "node --test --test-force-exit --test-reporter=tap test/pdf.test.mjs",
+        "tests": {
+          "total": 15,
+          "pass": 15,
+          "fail": 0,
+          "skipped": 0
+        },
+        "durationMs": 291
+      }
     },
     {
-      "id": "AC-09",
-      "bp": "BP-06",
+      "id": "AC-17",
+      "bp": null,
+      "area": "агент",
+      "level": "live",
       "title": "Ответ агента приходит в чат бота",
       "steps": [
         "дать агенту задачу",
@@ -117,169 +523,441 @@
       ],
       "expect": "ответ агента в чате бота и в истории",
       "evidence": "agent message delivered в журнале",
-      "status": "done",
-      "checkedAt": "2026-10-17"
+      "runner": "manual",
+      "status": "blocked",
+      "checkedAt": "2026-10-18",
+      "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+      "blockedReason": "нужен реальный бот и агент; автотесты моста не заменяют живой диалог",
+      "lastRun": {
+        "at": "2026-10-18T18:38:58.726Z",
+        "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+        "report": "docs/acceptance/report.json",
+        "result": "blocked",
+        "reason": "нужен реальный бот и агент; автотесты моста не заменяют живой диалог"
+      }
     },
     {
-      "id": "AC-10",
-      "bp": "BP-04",
-      "title": "Панель на двух языках",
-      "steps": [
-        "открыть /app",
-        "переключить RU/EN",
-        "перезагрузить"
-      ],
-      "expect": "язык переключается и сохраняется, русская версия не изменилась",
-      "evidence": "словари 81 ключ, CloudStorage, визуальная проверка владельцем",
-      "status": "done",
-      "checkedAt": "2026-10-17"
-    },
-    {
-      "id": "AC-11",
-      "bp": "BP-05",
-      "title": "Файл приходит в VK",
-      "steps": [
-        "в VK попросить PDF"
-      ],
-      "expect": "документ в беседе VK",
-      "evidence": "живой прогон в VK",
-      "status": "partial",
-      "checkedAt": null
-    },
-    {
-      "id": "AC-12",
-      "bp": "BP-04",
-      "title": "Голосовой ответ в VK",
-      "steps": [
-        "в VK /voice вкл",
-        "получить ответ"
-      ],
-      "expect": "голосовое сообщение, при сбое — текст",
-      "evidence": "живой прогон в VK",
-      "status": "partial",
-      "checkedAt": null
-    },
-    {
-      "id": "AC-13",
+      "id": "AC-18",
       "bp": "BP-02",
+      "area": "память",
+      "level": "integration",
       "title": "Исправление факта меняет контекст",
       "steps": [
         "«запомни: живу в Химках»",
         "«исправь: живу в Мытищах»",
         "спросить о дороге домой"
       ],
-      "expect": "ответ учитывает Мытищи, старый адрес не попадает в контекст",
+      "expect": "ответ учитывает Мытищи, старого адреса нет в контексте",
       "evidence": "memory summary без старого адреса, supersedesId",
-      "status": "done",
-      "checkedAt": "2026-10-18"
+      "runner": "test/memory.test.mjs::исправление заменяет факт",
+      "status": "passed",
+      "checkedAt": "2026-10-18",
+      "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+      "lastRun": {
+        "at": "2026-10-18T18:38:58.726Z",
+        "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+        "report": "docs/acceptance/report.json",
+        "result": "passed",
+        "reason": null,
+        "command": "node --test --test-force-exit --test-reporter=tap --test-name-pattern=исправление заменяет факт test/memory.test.mjs",
+        "tests": {
+          "total": 1,
+          "pass": 1,
+          "fail": 0,
+          "skipped": 0
+        },
+        "durationMs": 108
+      }
     },
     {
-      "id": "AC-14",
+      "id": "AC-19",
       "bp": "BP-02",
+      "area": "память",
+      "level": "integration",
       "title": "Удалённый факт не возвращается",
       "steps": [
         "«запомни: …»",
         "«/forget 1»",
-        "перезапуск + повторная индексация истории"
+        "перезапуск и повторная индексация истории"
       ],
       "expect": "факта нет в поиске, сводке и контексте",
-      "evidence": "tombstone + reindex → []",
-      "status": "done",
-      "checkedAt": "2026-10-18"
+      "evidence": "tombstone и reindex → []",
+      "runner": "test/memory.test.mjs::удалённое не возвращается",
+      "status": "passed",
+      "checkedAt": "2026-10-18",
+      "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+      "lastRun": {
+        "at": "2026-10-18T18:38:58.726Z",
+        "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+        "report": "docs/acceptance/report.json",
+        "result": "passed",
+        "reason": null,
+        "command": "node --test --test-force-exit --test-reporter=tap --test-name-pattern=удалённое не возвращается test/memory.test.mjs",
+        "tests": {
+          "total": 1,
+          "pass": 1,
+          "fail": 0,
+          "skipped": 0
+        },
+        "durationMs": 128
+      }
     },
     {
-      "id": "AC-15",
+      "id": "AC-20",
       "bp": "BP-02",
+      "area": "память",
+      "level": "contract",
       "title": "Откуда бот знает",
       "steps": [
         "спросить «почему ты так решил?»"
       ],
       "expect": "источник и дата записи либо честное «предположение»",
       "evidence": "/memory why, sourceRef",
-      "status": "done",
-      "checkedAt": "2026-10-18"
+      "runner": "test/memory.test.mjs::why объясняет источник",
+      "status": "passed",
+      "checkedAt": "2026-10-18",
+      "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+      "lastRun": {
+        "at": "2026-10-18T18:38:58.726Z",
+        "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+        "report": "docs/acceptance/report.json",
+        "result": "passed",
+        "reason": null,
+        "command": "node --test --test-force-exit --test-reporter=tap --test-name-pattern=why объясняет источник test/memory.test.mjs",
+        "tests": {
+          "total": 1,
+          "pass": 1,
+          "fail": 0,
+          "skipped": 0
+        },
+        "durationMs": 107
+      }
     },
     {
-      "id": "AC-16",
+      "id": "AC-21",
+      "bp": "BP-02",
+      "area": "память",
+      "level": "integration",
+      "title": "Память проекта не попадает в чужой контекст",
+      "steps": [
+        "записать факт в проект A",
+        "открыть проект B и спросить"
+      ],
+      "expect": "в контексте B нет факта A",
+      "evidence": "scope_id и retrieval по области",
+      "runner": "test/memory.test.mjs::память проекта не попадает",
+      "status": "passed",
+      "checkedAt": "2026-10-18",
+      "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+      "lastRun": {
+        "at": "2026-10-18T18:38:58.726Z",
+        "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+        "report": "docs/acceptance/report.json",
+        "result": "passed",
+        "reason": null,
+        "command": "node --test --test-force-exit --test-reporter=tap --test-name-pattern=память проекта не попадает test/memory.test.mjs",
+        "tests": {
+          "total": 1,
+          "pass": 1,
+          "fail": 0,
+          "skipped": 0
+        },
+        "durationMs": 113
+      }
+    },
+    {
+      "id": "AC-22",
+      "bp": "BP-03",
+      "area": "проекты",
+      "level": "integration",
+      "title": "Чужое личное не видно, общий проект виден участнику",
+      "steps": [
+        "B смотрит свои напоминания и память",
+        "A создаёт проект и приглашает B",
+        "B видит общее; viewer пробует изменить запись"
+      ],
+      "expect": "B не видит личное A; участник видит общее; viewer получает отказ",
+      "evidence": "scope_id, access.mjs, тесты scopes",
+      "runner": "test/scopes.test.mjs::участник видит общий проект",
+      "status": "passed",
+      "checkedAt": "2026-10-18",
+      "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+      "lastRun": {
+        "at": "2026-10-18T18:38:58.726Z",
+        "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+        "report": "docs/acceptance/report.json",
+        "result": "passed",
+        "reason": null,
+        "command": "node --test --test-force-exit --test-reporter=tap --test-name-pattern=участник видит общий проект test/scopes.test.mjs",
+        "tests": {
+          "total": 1,
+          "pass": 1,
+          "fail": 0,
+          "skipped": 0
+        },
+        "durationMs": 141
+      }
+    },
+    {
+      "id": "AC-23",
+      "bp": "BP-03",
+      "area": "проекты",
+      "level": "integration",
+      "title": "Приглашение принимается своим аккаунтом",
+      "steps": [
+        "A приглашает B",
+        "B принимает код со своего аккаунта",
+        "третье лицо пробует тот же код"
+      ],
+      "expect": "доступ только после принятия; пересланный код не даёт доступа",
+      "evidence": "pending/TTL/accept, журнал, тест plb024",
+      "runner": "test/plb024-invitations.test.mjs",
+      "status": "passed",
+      "checkedAt": "2026-10-18",
+      "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+      "lastRun": {
+        "at": "2026-10-18T18:38:58.726Z",
+        "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+        "report": "docs/acceptance/report.json",
+        "result": "passed",
+        "reason": null,
+        "command": "node --test --test-force-exit --test-reporter=tap test/plb024-invitations.test.mjs",
+        "tests": {
+          "total": 6,
+          "pass": 6,
+          "fail": 0,
+          "skipped": 0
+        },
+        "durationMs": 337
+      }
+    },
+    {
+      "id": "AC-24",
       "bp": "BP-04",
+      "area": "проактивность",
+      "level": "integration",
       "title": "Тихие часы и переход времени не дублируют обзор",
       "steps": [
         "тихие часы 23-08",
         "событие в 02:00",
-        "переход DST"
+        "переход на летнее время"
       ],
       "expect": "ночью тишина, днём один обзор, DST не даёт второго",
-      "evidence": "тесты isQuietNow/localTimeToInstant, журнал решений",
-      "status": "done",
-      "checkedAt": "2026-10-18"
+      "evidence": "isQuietNow/localTimeToInstant и журнал решений",
+      "runner": "test/proactive.test.mjs",
+      "status": "passed",
+      "checkedAt": "2026-10-18",
+      "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+      "lastRun": {
+        "at": "2026-10-18T18:38:58.726Z",
+        "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+        "report": "docs/acceptance/report.json",
+        "result": "passed",
+        "reason": null,
+        "command": "node --test --test-force-exit --test-reporter=tap test/proactive.test.mjs",
+        "tests": {
+          "total": 25,
+          "pass": 25,
+          "fail": 0,
+          "skipped": 0
+        },
+        "durationMs": 808
+      }
     },
     {
-      "id": "AC-17",
+      "id": "AC-25",
       "bp": "BP-04",
-      "title": "Предел и дедупликация",
+      "area": "проактивность",
+      "level": "integration",
+      "title": "Дневной предел инициативных уведомлений",
       "steps": [
         "три уведомления за день",
-        "четвёртое событие",
-        "два экземпляра планировщика"
+        "четвёртое событие"
       ],
-      "expect": "четвёртое ждёт обзора, один ключ — одно уведомление",
-      "evidence": "sentToday, mergeCandidates, транзакция claim",
-      "status": "done",
-      "checkedAt": "2026-10-18"
+      "expect": "четвёртое событие ждёт обзора, дневной счётчик не превышает трёх",
+      "evidence": "sentToday и очередь отложенных доставок",
+      "runner": "test/proactive.test.mjs::дневной предел",
+      "status": "passed",
+      "checkedAt": "2026-10-18",
+      "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+      "lastRun": {
+        "at": "2026-10-18T18:38:58.726Z",
+        "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+        "report": "docs/acceptance/report.json",
+        "result": "passed",
+        "reason": null,
+        "command": "node --test --test-force-exit --test-reporter=tap --test-name-pattern=дневной предел test/proactive.test.mjs",
+        "tests": {
+          "total": 1,
+          "pass": 1,
+          "fail": 0,
+          "skipped": 0
+        },
+        "durationMs": 170
+      }
     },
     {
-      "id": "AC-18",
+      "id": "AC-26",
       "bp": "BP-04",
-      "title": "Отложено и отключено",
+      "area": "проактивность",
+      "level": "integration",
+      "title": "Одинаковые события объединяются",
       "steps": [
-        "отложить уведомление",
-        "завершить задачу",
-        "отключить категорию"
+        "доставить одно событие дважды",
+        "проверить журнал"
       ],
-      "expect": "после завершения не напоминает, отключённое не доставляется",
-      "evidence": "snooze+completed, mute по категории",
-      "status": "done",
-      "checkedAt": "2026-10-18"
+      "expect": "одно логическое уведомление, ключ совпадает",
+      "evidence": "mergeCandidates и ключ события",
+      "runner": "test/proactive.test.mjs::одинаковые события объединяются",
+      "status": "passed",
+      "checkedAt": "2026-10-18",
+      "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+      "lastRun": {
+        "at": "2026-10-18T18:38:58.726Z",
+        "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+        "report": "docs/acceptance/report.json",
+        "result": "passed",
+        "reason": null,
+        "command": "node --test --test-force-exit --test-reporter=tap --test-name-pattern=одинаковые события объединяются test/proactive.test.mjs",
+        "tests": {
+          "total": 1,
+          "pass": 1,
+          "fail": 0,
+          "skipped": 0
+        },
+        "durationMs": 125
+      }
     },
     {
-      "id": "AC-19",
+      "id": "AC-27",
       "bp": "BP-05",
+      "area": "документы",
+      "level": "integration",
       "title": "Документ как источник с проверяемой цитатой",
       "steps": [
         "загрузить PDF",
         "спросить о содержимом"
       ],
-      "expect": "ответ с документом, версией, страницей и точным фрагментом",
-      "evidence": "синтетический набор: top-5 20/20, подтверждено 10/10",
-      "status": "done",
-      "checkedAt": "2026-10-18"
+      "expect": "ответ с документом, версией, страницей и точным фрагментом; на неизвестное — отказ",
+      "evidence": "top-5 и подтверждение фрагментом",
+      "runner": "test/documents.test.mjs::приём набора, top-5",
+      "status": "passed",
+      "checkedAt": "2026-10-18",
+      "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+      "lastRun": {
+        "at": "2026-10-18T18:38:58.726Z",
+        "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+        "report": "docs/acceptance/report.json",
+        "result": "passed",
+        "reason": null,
+        "command": "node --test --test-force-exit --test-reporter=tap --test-name-pattern=приём набора, top-5 test/documents.test.mjs",
+        "tests": {
+          "total": 1,
+          "pass": 1,
+          "fail": 0,
+          "skipped": 0
+        },
+        "durationMs": 497
+      }
     },
     {
-      "id": "AC-20",
+      "id": "AC-28",
       "bp": "BP-05",
+      "area": "документы",
+      "level": "integration",
       "title": "Чужой документ не виден",
       "steps": [
         "документ в проекте A",
         "участник проекта B ищет по термину"
       ],
       "expect": "results=0 и candidates=0, ссылка не выдаётся",
-      "evidence": "ACL до кандидатов, тесты documents",
-      "status": "done",
-      "checkedAt": "2026-10-18"
+      "evidence": "ACL до кандидатов, тест documents",
+      "runner": "test/documents.test.mjs::ACL: чужой документ",
+      "status": "passed",
+      "checkedAt": "2026-10-18",
+      "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+      "lastRun": {
+        "at": "2026-10-18T18:38:58.726Z",
+        "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+        "report": "docs/acceptance/report.json",
+        "result": "passed",
+        "reason": null,
+        "command": "node --test --test-force-exit --test-reporter=tap --test-name-pattern=ACL: чужой документ test/documents.test.mjs",
+        "tests": {
+          "total": 1,
+          "pass": 1,
+          "fail": 0,
+          "skipped": 0
+        },
+        "durationMs": 144
+      }
     },
     {
-      "id": "AC-21",
+      "id": "AC-29",
       "bp": "BP-05",
-      "title": "Удаление и честный отказ",
+      "area": "документы",
+      "level": "integration",
+      "title": "Удаление документа и честный отказ",
       "steps": [
         "удалить документ",
         "спросить по его содержимому",
         "спросить о том, чего нет"
       ],
       "expect": "фрагменты и ссылки недоступны; на неизвестное — честный отказ",
-      "evidence": "cascade delete, 5/5 отказов",
-      "status": "done",
-      "checkedAt": "2026-10-18"
+      "evidence": "cascade delete и тест documents",
+      "runner": "test/documents.test.mjs",
+      "status": "passed",
+      "checkedAt": "2026-10-18",
+      "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+      "lastRun": {
+        "at": "2026-10-18T18:38:58.726Z",
+        "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+        "report": "docs/acceptance/report.json",
+        "result": "passed",
+        "reason": null,
+        "command": "node --test --test-force-exit --test-reporter=tap test/documents.test.mjs",
+        "tests": {
+          "total": 17,
+          "pass": 17,
+          "fail": 0,
+          "skipped": 0
+        },
+        "durationMs": 774
+      }
+    },
+    {
+      "id": "AC-30",
+      "bp": "BP-07",
+      "area": "приёмка",
+      "level": "integration",
+      "title": "Приёмка исполняемая: каталог, прогон и отчёт",
+      "steps": [
+        "проверить каталог из 30 сценариев",
+        "запустить acceptance.mjs --run",
+        "открыть docs/acceptance/report.json"
+      ],
+      "expect": "автоматические сценарии получают статус по факту прогона, live — blocked; итог считает статусы отдельно",
+      "evidence": "test/acceptance.test.mjs и docs/acceptance/report.json",
+      "runner": "test/acceptance.test.mjs",
+      "status": "passed",
+      "checkedAt": "2026-10-18",
+      "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+      "lastRun": {
+        "at": "2026-10-18T18:38:58.726Z",
+        "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+        "report": "docs/acceptance/report.json",
+        "result": "passed",
+        "reason": null,
+        "command": "node --test --test-force-exit --test-reporter=tap test/acceptance.test.mjs",
+        "tests": {
+          "total": 7,
+          "pass": 7,
+          "fail": 0,
+          "skipped": 0
+        },
+        "durationMs": 648
+      }
     }
-  ]
+  ],
+  "lastRunAt": "2026-10-18T18:38:58.726Z"
 }

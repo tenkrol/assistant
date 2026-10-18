@@ -1,0 +1,866 @@
+{
+  "version": 1,
+  "generatedAt": "2026-10-18T18:38:58.726Z",
+  "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+  "shortSha": "be3181b",
+  "dirty": true,
+  "catalog": "docs/acceptance/scenarios.json",
+  "report": "docs/acceptance/report.json",
+  "levels": [
+    "unit",
+    "contract",
+    "integration",
+    "live"
+  ],
+  "statuses": [
+    "not-run",
+    "passed",
+    "failed",
+    "blocked",
+    "skipped"
+  ],
+  "summary": {
+    "total": 30,
+    "passed": 26,
+    "failed": 0,
+    "blocked": 4,
+    "skipped": 0,
+    "not-run": 0
+  },
+  "scenarios": [
+    {
+      "id": "AC-01",
+      "bp": "BP-01",
+      "area": "поручения",
+      "level": "live",
+      "title": "Поручение из чата и возврат к нему",
+      "runner": "manual",
+      "status": "blocked",
+      "checkedAt": "2026-10-18",
+      "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+      "evidence": "запись WorkItem, история переходов и подтверждение в чате",
+      "blockedReason": "поручения из чата не реализованы: в коде нет WorkItem/TaskView, живой сценарий выполнить нельзя",
+      "lastRun": {
+        "at": "2026-10-18T18:38:58.726Z",
+        "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+        "report": "docs/acceptance/report.json",
+        "result": "blocked",
+        "reason": "поручения из чата не реализованы: в коде нет WorkItem/TaskView, живой сценарий выполнить нельзя"
+      }
+    },
+    {
+      "id": "AC-02",
+      "bp": "BP-01/BP-06",
+      "area": "поручения",
+      "level": "live",
+      "title": "Дубль события не создаёт второе поручение",
+      "runner": "manual",
+      "status": "blocked",
+      "checkedAt": "2026-10-18",
+      "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+      "evidence": "идемпотентность по update_id/версии, журнал обработки",
+      "blockedReason": "зависит от реализации поручений (BP-01); без неё дубль события не проверить",
+      "lastRun": {
+        "at": "2026-10-18T18:38:58.726Z",
+        "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+        "report": "docs/acceptance/report.json",
+        "result": "blocked",
+        "reason": "зависит от реализации поручений (BP-01); без неё дубль события не проверить"
+      }
+    },
+    {
+      "id": "AC-03",
+      "bp": "BP-06",
+      "area": "поручения",
+      "level": "live",
+      "title": "Карточка выполнения: прогресс, отмена, повтор",
+      "runner": "manual",
+      "status": "blocked",
+      "checkedAt": "2026-10-18",
+      "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+      "evidence": "TaskView + MessageBinding",
+      "blockedReason": "карточки выполнения (TaskView) нет в коде; живой прогон невозможен",
+      "lastRun": {
+        "at": "2026-10-18T18:38:58.726Z",
+        "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+        "report": "docs/acceptance/report.json",
+        "result": "blocked",
+        "reason": "карточки выполнения (TaskView) нет в коде; живой прогон невозможен"
+      }
+    },
+    {
+      "id": "AC-04",
+      "bp": null,
+      "area": "напоминания",
+      "level": "integration",
+      "title": "Напоминание срабатывает в срок и показывает локальное время",
+      "runner": "test/reminders.test.mjs",
+      "status": "passed",
+      "checkedAt": "2026-10-18",
+      "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+      "evidence": "журнал tick и текст подтверждения",
+      "blockedReason": null,
+      "lastRun": {
+        "at": "2026-10-18T18:38:58.726Z",
+        "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+        "report": "docs/acceptance/report.json",
+        "result": "passed",
+        "reason": null,
+        "command": "node --test --test-force-exit --test-reporter=tap test/reminders.test.mjs",
+        "tests": {
+          "total": 36,
+          "pass": 36,
+          "fail": 0,
+          "skipped": 0
+        },
+        "durationMs": 457,
+        "outputTail": "…, counts them and drops the one-off ones\nok 16 - tick delivers due reminders, counts them and drops the one-off ones\n  ---\n  duration_ms: 9.753\n  type: 'test'\n  ...\n# Subtest: a repeating reminder is delivered and moved to the future, staying in the store\nok 17 - a repeating reminder is delivered and moved to the future, staying in the store\n  ---\n  duration_ms: 10.713\n  type: 'test'\n  ...\n# Subtest: tick does not deliver a reminder that is not due yet\nok 18 - tick does not deliver a reminder that is not due yet\n  ---\n  duration_ms: 5.989125\n  type: 'test'\n  ...\n# Subtest: a failing delivery keeps the reminder and is retried by the next tick\nok 19 - a failing delivery keeps the reminder and is retried by the next tick\n  ---\n  duration_ms: 6.124666\n  type: 'test'\n  ...\n# Subtest: lateMs and lateNotice describe how overdue a reminder was\nok 20 - lateMs and lateNotice describe how overdue a reminder was\n  ---\n  duration_ms: 9.930875\n  type: 'test'\n  ...\n# Subtest: overlapping ticks deliver one reminder exactly once\nok 21 - overlapping ticks deliver one reminder exactly once\n  ---\n  duration_ms: 9.940458\n  type: 'test'\n  ...\n# Subtest: start arms the interval, stop clears it and flushes\nok 22 - start arms the interval, stop clears it and flushes\n  ---\n  duration_ms: 99.698417\n  type: 'test'\n  ...\n# Subtest: zonedTimeToUtc converts a Moscow wall-clock time to UTC\nok 23 - zonedTimeToUtc converts a Moscow wall-clock time to UTC\n  ---\n  duration_ms: 15.305\n  type: 'test'\n  ...\n# Subtest: zonedTimeToUtc converts a Tokyo wall-clock time to UTC\nok 24 - zonedTimeToUtc converts a Tokyo wall-clock time to UTC\n  ---\n  duration_ms: 0.244959\n  type: 'test'\n  ...\n# Subtest: zonedTimeToUtc honours an explicit offset regardless of the zone\nok 25 - zonedTimeToUtc honours an explicit offset regardless of the zone\n  ---\n  duration_ms: 0.056917\n  type: 'test'\n  ...\n# Subtest: zonedTimeToUtc refuses garbage\nok 26 - zonedTimeToUtc refuses garbage\n  ---\n  duration_ms: 0.102375\n  type: 'test'\n  ...\n# Subtest: in_minutes schedules about now + the given minutes\nok 27 - in_minutes schedules about now + the given minutes\n  ---\n  duration_ms: 12.566166\n  type: 'test'\n  ...\n# Subtest: a naive `at` is resolved in the configured zone\nok 28 - a naive `at` is resolved in the configured zone\n  ---\n  duration_ms: 9.431459\n  type: 'test'\n  ...\n# Subtest: `at` with an explicit offset is taken as is, whatever the zone\nok 29 - `at` with an explicit offset is taken as is, whatever the zone\n  ---\n  duration_ms: 8.950667\n  type: 'test'\n  ...\n# Subtest: in_minutes together with at is refused and creates nothing\nok 30 - in_minutes together with at is refused and creates nothing\n  ---\n  duration_ms: 5.567167\n  type: 'test'\n  ...\n# Subtest: without in_minutes and at the tool asks for a time and creates nothing\nok 31 - without in_minutes and at the tool asks for a time and creates nothing\n  ---\n  duration_ms: 5.942625\n  type: 'test'\n  ...\n# Subtest: in_minutes outside the supported range is refused\nok 32 - in_minutes outside the supported range is refused\n  ---\n  duration_ms: 3.724458\n  type: 'test'\n  ...\n# Subtest: a time in the past is refused with «прошло» and creates nothing\nok 33 - a time in the past is refused with «прошло» and creates nothing\n  ---\n  duration_ms: 6.143167\n  type: 'test'\n  ...\n# Subtest: an unsupported repeat is refused and creates nothing\nok 34 - an unsupported repeat is refused and creates nothing\n  ---\n  duration_ms: 5.920625\n  type: 'test'\n  ...\n# Subtest: the confirmation carries the number, the local time and the text\nok 35 - the confirmation carries the number, the local time and the text\n  ---\n  duration_ms: 10.017417\n  type: 'test'\n  ...\n# Subtest: without a chatId the tool reports it instead of creating a reminder\nok 36 - without a chatId the tool reports it instead of creating a reminder\n  ---\n  duration_ms: 5.907916\n  type: 'test'\n  ...\n1..36\n# tests 36\n# suites 0\n# pass 36\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 417.214458\n\n"
+      }
+    },
+    {
+      "id": "AC-05",
+      "bp": null,
+      "area": "напоминания",
+      "level": "unit",
+      "title": "Напоминание переживает перезапуск",
+      "runner": "test/reminders.test.mjs::flush + load round-trips",
+      "status": "passed",
+      "checkedAt": "2026-10-18",
+      "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+      "evidence": "round-trip reminders.json",
+      "blockedReason": null,
+      "lastRun": {
+        "at": "2026-10-18T18:38:58.726Z",
+        "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+        "report": "docs/acceptance/report.json",
+        "result": "passed",
+        "reason": null,
+        "command": "node --test --test-force-exit --test-reporter=tap --test-name-pattern=flush \\+ load round-trips test/reminders.test.mjs",
+        "tests": {
+          "total": 1,
+          "pass": 1,
+          "fail": 0,
+          "skipped": 0
+        },
+        "durationMs": 109,
+        "outputTail": "TAP version 13\n# Subtest: flush + load round-trips reminders and keeps nextId going\nok 1 - flush + load round-trips reminders and keeps nextId going\n  ---\n  duration_ms: 15.837708\n  type: 'test'\n  ...\n1..1\n# tests 1\n# suites 0\n# pass 1\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 69.585541\n\n"
+      }
+    },
+    {
+      "id": "AC-06",
+      "bp": null,
+      "area": "календарь",
+      "level": "contract",
+      "title": "Событие записывается в поясе и ставит напоминание",
+      "runner": "test/events.test.mjs",
+      "status": "passed",
+      "checkedAt": "2026-10-18",
+      "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+      "evidence": "events.json + reminders.json",
+      "blockedReason": null,
+      "lastRun": {
+        "at": "2026-10-18T18:38:58.726Z",
+        "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+        "report": "docs/acceptance/report.json",
+        "result": "passed",
+        "reason": null,
+        "command": "node --test --test-force-exit --test-reporter=tap test/events.test.mjs",
+        "tests": {
+          "total": 7,
+          "pass": 7,
+          "fail": 0,
+          "skipped": 0
+        },
+        "durationMs": 162,
+        "outputTail": "TAP version 13\n# Subtest: an event survives a restart and keeps its local time\nok 1 - an event survives a restart and keeps its local time\n  ---\n  duration_ms: 22.729208\n  type: 'test'\n  ...\n# Subtest: a yearly event rolls over to the next year\nok 2 - a yearly event rolls over to the next year\n  ---\n  duration_ms: 0.992042\n  type: 'test'\n  ...\n# Subtest: the tool books an event in the user zone and writes its reminder\nok 3 - the tool books an event in the user zone and writes its reminder\n  ---\n  duration_ms: 12.679792\n  type: 'test'\n  ...\n# Subtest: the tool refuses a missing date and lists or removes what exists\nok 4 - the tool refuses a missing date and lists or removes what exists\n  ---\n  duration_ms: 12.018708\n  type: 'test'\n  ...\n# Subtest: a birthday is not reminded unless asked\nok 5 - a birthday is not reminded unless asked\n  ---\n  duration_ms: 5.276042\n  type: 'test'\n  ...\n# Subtest: a past event is stored but never listed as upcoming\nok 6 - a past event is stored but never listed as upcoming\n  ---\n  duration_ms: 17.901666\n  type: 'test'\n  ...\n# Subtest: the day key follows the user zone\nok 7 - the day key follows the user zone\n  ---\n  duration_ms: 0.367667\n  type: 'test'\n  ...\n1..7\n# tests 7\n# suites 0\n# pass 7\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 125.355833\n\n"
+      }
+    },
+    {
+      "id": "AC-07",
+      "bp": null,
+      "area": "панель",
+      "level": "contract",
+      "title": "Панель на двух языках: одинаковый набор ключей",
+      "runner": "test/miniapp-i18n.test.mjs",
+      "status": "passed",
+      "checkedAt": "2026-10-18",
+      "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+      "evidence": "ru.json/en.json, CloudStorage, тест ключей",
+      "blockedReason": null,
+      "lastRun": {
+        "at": "2026-10-18T18:38:58.726Z",
+        "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+        "report": "docs/acceptance/report.json",
+        "result": "passed",
+        "reason": null,
+        "command": "node --test --test-force-exit --test-reporter=tap test/miniapp-i18n.test.mjs",
+        "tests": {
+          "total": 14,
+          "pass": 14,
+          "fail": 0,
+          "skipped": 0
+        },
+        "durationMs": 160,
+        "outputTail": "TAP version 13\n# Subtest: locales: ru.json и en.json содержат одинаковый набор ключей\nok 1 - locales: ru.json и en.json содержат одинаковый набор ключей\n  ---\n  duration_ms: 0.971584\n  type: 'test'\n  ...\n# Subtest: locales: в en.json не осталось кириллицы\nok 2 - locales: в en.json не осталось кириллицы\n  ---\n  duration_ms: 0.159958\n  type: 'test'\n  ...\n# Subtest: app.html: в разметке вне <script> нет кириллицы\nok 3 - app.html: в разметке вне <script> нет кириллицы\n  ---\n  duration_ms: 3.063958\n  type: 'test'\n  ...\n# Subtest: app.html: все ключи data-i18n есть в обоих словарях\nok 4 - app.html: все ключи data-i18n есть в обоих словарях\n  ---\n  duration_ms: 0.541583\n  type: 'test'\n  ...\n# Subtest: app.html: в разметке нет видимого текста, только ключи\nok 5 - app.html: в разметке нет видимого текста, только ключи\n  ---\n  duration_ms: 0.51775\n  type: 'test'\n  ...\n# Subtest: resolveLanguage: сохранённый выбор, затем язык Telegram, иначе русский\nok 6 - resolveLanguage: сохранённый выбор, затем язык Telegram, иначе русский\n  ---\n  duration_ms: 0.177916\n  type: 'test'\n  ...\n# Subtest: languageFromInitData: берёт language_code из JSON-поля user\nok 7 - languageFromInitData: берёт language_code из JSON-поля user\n  ---\n  duration_ms: 0.170875\n  type: 'test'\n  ...\n# Subtest: translate: подставляет значения и возвращает ключ для пропуска\nok 8 - translate: подставляет значения и возвращает ключ для пропуска\n  ---\n  duration_ms: 0.143208\n  type: 'test'\n  ...\n# Subtest: русские подписи повторов совпадают с describeRepeat для всех значений\nok 9 - русские подписи повторов совпадают с describeRepeat для всех значений\n  ---\n  duration_ms: 0.795166\n  type: 'test'\n  ...\n# Subtest: API: 401 и 403 несут коды unauthorized и forbidden\nok 10 - API: 401 и 403 несут коды unauthorized и forbidden\n  ---\n  duration_ms: 22.8995\n  type: 'test'\n  ...\n# Subtest: API: 404 и 405 несут коды not_found и method_not_allowed\nok 11 - API: 404 и 405 несут коды not_found и method_not_allowed\n  ---\n  duration_ms: 6.387042\n  type: 'test'\n  ...\n# Subtest: API: 400 и 413 несут коды bad_request и too_large, тексты прежние\nok 12 - API: 400 и 413 несут коды bad_request и too_large, тексты прежние\n  ---\n  duration_ms: 7.811875\n  type: 'test'\n  ...\n# Subtest: API: 503 и 500 несут коды unavailable и internal\nok 13 - API: 503 и 500 несут коды unavailable и internal\n  ---\n  duration_ms: 5.748833\n  type: 'test'\n  ...\n# Subtest: static: словари и модуль локализации отдаются браузеру\nok 14 - static: словари и модуль локализации отдаются браузеру\n  ---\n  duration_ms: 4.856417\n  type: 'test'\n  ...\n1..14\n# tests 14\n# suites 0\n# pass 14\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 122.099209\n\n"
+      }
+    },
+    {
+      "id": "AC-08",
+      "bp": null,
+      "area": "панель",
+      "level": "contract",
+      "title": "Панель: подпись Telegram и коды ошибок",
+      "runner": "test/miniapp.test.mjs",
+      "status": "passed",
+      "checkedAt": "2026-10-18",
+      "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+      "evidence": "тест validateInitData и коды ошибок",
+      "blockedReason": null,
+      "lastRun": {
+        "at": "2026-10-18T18:38:58.726Z",
+        "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+        "report": "docs/acceptance/report.json",
+        "result": "passed",
+        "reason": null,
+        "command": "node --test --test-force-exit --test-reporter=tap test/miniapp.test.mjs",
+        "tests": {
+          "total": 29,
+          "pass": 29,
+          "fail": 0,
+          "skipped": 0
+        },
+        "durationMs": 280,
+        "outputTail": "… of the optional signature field\nok 8 - validateInitData accepts both readings of the optional signature field\n  ---\n  duration_ms: 0.251458\n  type: 'test'\n  ...\n# Subtest: a valid signature opens the API\nok 9 - a valid signature opens the API\n  ---\n  duration_ms: 44.354875\n  type: 'test'\n  ...\n# Subtest: state reports the remembered profile\nok 10 - state reports the remembered profile\n  ---\n  duration_ms: 11.020042\n  type: 'test'\n  ...\n# Subtest: a forged initData is refused with 401\nok 11 - a forged initData is refused with 401\n  ---\n  duration_ms: 3.08\n  type: 'test'\n  ...\n# Subtest: an expired or unreadable signature is refused with 401\nok 12 - an expired or unreadable signature is refused with 401\n  ---\n  duration_ms: 4.953\n  type: 'test'\n  ...\n# Subtest: a verified user outside the whitelist gets 403\nok 13 - a verified user outside the whitelist gets 403\n  ---\n  duration_ms: 2.041\n  type: 'test'\n  ...\n# Subtest: an empty allow-list closes the panel to everyone\nok 14 - an empty allow-list closes the panel to everyone\n  ---\n  duration_ms: 3.154875\n  type: 'test'\n  ...\n# Subtest: /healthz answers without a signature and refuses other methods\nok 15 - /healthz answers without a signature and refuses other methods\n  ---\n  duration_ms: 4.946625\n  type: 'test'\n  ...\n# Subtest: reminders: empty, add, list, delete, empty — and the write reaches disk\nok 16 - reminders: empty, add, list, delete, empty — and the write reaches disk\n  ---\n  duration_ms: 18.991875\n  type: 'test'\n  ...\n# Subtest: reminders: empty text, a past date and an unknown repeat are refused and create nothing\nok 17 - reminders: empty text, a past date and an unknown repeat are refused and create nothing\n  ---\n  duration_ms: 5.465583\n  type: 'test'\n  ...\n# Subtest: chatIdOf decides which chat the store is keyed by\nok 18 - chatIdOf decides which chat the store is keyed by\n  ---\n  duration_ms: 7.944542\n  type: 'test'\n  ...\n# Subtest: events: add, list for 14 days, delete — a yearly repeat survives\nok 19 - events: add, list for 14 days, delete — a yearly repeat survives\n  ---\n  duration_ms: 17.083791\n  type: 'test'\n  ...\n# Subtest: events: a bad repeat, a past date and a bad days window are refused\nok 20 - events: a bad repeat, a past date and a bad days window are refused\n  ---\n  duration_ms: 4.055042\n  type: 'test'\n  ...\n# Subtest: memory: a fact is added, listed on disk and removed; the city is read-only\nok 21 - memory: a fact is added, listed on disk and removed; the city is read-only\n  ---\n  duration_ms: 21.647084\n  type: 'test'\n  ...\n# Subtest: memory: an empty fact is refused\nok 22 - memory: an empty fact is refused\n  ---\n  duration_ms: 2.51675\n  type: 'test'\n  ...\n# Subtest: a missing store answers 503 on its endpoints\nok 23 - a missing store answers 503 on its endpoints\n  ---\n  duration_ms: 4.859417\n  type: 'test'\n  ...\n# Subtest: an oversized body is refused with 413 and writes nothing\nok 24 - an oversized body is refused with 413 and writes nothing\n  ---\n  duration_ms: 2.173542\n  type: 'test'\n  ...\n# Subtest: an unknown path is 404 and a wrong method is 405\nok 25 - an unknown path is 404 and a wrong method is 405\n  ---\n  duration_ms: 3.117542\n  type: 'test'\n  ...\n# Subtest: a broken store is a 500 with a logged error and no stack in the body\nok 26 - a broken store is a 500 with a logged error and no stack in the body\n  ---\n  duration_ms: 2.082916\n  type: 'test'\n  ...\n# Subtest: static: / serves the panel as UTF-8 HTML\nok 27 - static: / serves the panel as UTF-8 HTML\n  ---\n  duration_ms: 3.762042\n  type: 'test'\n  ...\n# Subtest: static: traversal and neighbouring secrets are not served\nok 28 - static: traversal and neighbouring secrets are not served\n  ---\n  duration_ms: 3.583\n  type: 'test'\n  ...\n# Subtest: the panel page never renders data as markup\nok 29 - the panel page never renders data as markup\n  ---\n  duration_ms: 1.464708\n  type: 'test'\n  ...\n1..29\n# tests 29\n# suites 0\n# pass 29\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 243.076542\n\n"
+      }
+    },
+    {
+      "id": "AC-09",
+      "bp": null,
+      "area": "голос",
+      "level": "contract",
+      "title": "Голосовой ответ в VK",
+      "runner": "test/platform-vk-voice.test.mjs",
+      "status": "passed",
+      "checkedAt": "2026-10-18",
+      "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+      "evidence": "upload audio_message → docs.save → messages.send и текстовый откат",
+      "blockedReason": null,
+      "lastRun": {
+        "at": "2026-10-18T18:38:58.726Z",
+        "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+        "report": "docs/acceptance/report.json",
+        "result": "passed",
+        "reason": null,
+        "command": "node --test --test-force-exit --test-reporter=tap test/platform-vk-voice.test.mjs",
+        "tests": {
+          "total": 9,
+          "pass": 9,
+          "fail": 0,
+          "skipped": 0
+        },
+        "durationMs": 246,
+        "outputTail": "TAP version 13\n# Subtest: sendVoice в VK: upload server → upload → docs.save → messages.send\nok 1 - sendVoice в VK: upload server → upload → docs.save → messages.send\n  ---\n  duration_ms: 25.211\n  type: 'test'\n  ...\n# Subtest: sendVoice принимает старый ответ docs.save массивом\nok 2 - sendVoice принимает старый ответ docs.save массивом\n  ---\n  duration_ms: 10.032167\n  type: 'test'\n  ...\n# Subtest: сбой загрузки голосового: ответ уходит текстом, причина в журнале\nok 3 - сбой загрузки голосового: ответ уходит текстом, причина в журнале\n  ---\n  duration_ms: 4.729542\n  type: 'test'\n  ...\n# Subtest: сбой адреса загрузки: тоже текстовый откат\nok 4 - сбой адреса загрузки: тоже текстовый откат\n  ---\n  duration_ms: 3.078792\n  type: 'test'\n  ...\n# Subtest: сбой messages.send для голосового: текст уходит вторым сообщением\nok 5 - сбой messages.send для голосового: текст уходит вторым сообщением\n  ---\n  duration_ms: 4.568042\n  type: 'test'\n  ...\n# Subtest: без подписи откат не отправляет пустое сообщение\nok 6 - без подписи откат не отправляет пустое сообщение\n  ---\n  duration_ms: 2.834459\n  type: 'test'\n  ...\n# Subtest: пустое голосовое не отправляется и не ходит в сеть\nok 7 - пустое голосовое не отправляется и не ходит в сеть\n  ---\n  duration_ms: 92.153083\n  type: 'test'\n  ...\n# Subtest: ядро видит у VK и sendVoice, и sendDocument\nok 8 - ядро видит у VK и sendVoice, и sendDocument\n  ---\n  duration_ms: 0.16175\n  type: 'test'\n  ...\n# Subtest: возможности VK: файлы и голосовые ответы доступны\nok 9 - возможности VK: файлы и голосовые ответы доступны\n  ---\n  duration_ms: 0.216041\n  type: 'test'\n  ...\n1..9\n# tests 9\n# suites 0\n# pass 9\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 208.815917\n\n"
+      }
+    },
+    {
+      "id": "AC-10",
+      "bp": null,
+      "area": "голос",
+      "level": "contract",
+      "title": "Голосовое сообщение распознаётся",
+      "runner": "test/stt.test.mjs",
+      "status": "passed",
+      "checkedAt": "2026-10-18",
+      "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+      "evidence": "тест STT: формат, ключ, ошибки",
+      "blockedReason": null,
+      "lastRun": {
+        "at": "2026-10-18T18:38:58.726Z",
+        "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+        "report": "docs/acceptance/report.json",
+        "result": "passed",
+        "reason": null,
+        "command": "node --test --test-force-exit --test-reporter=tap test/stt.test.mjs",
+        "tests": {
+          "total": 8,
+          "pass": 8,
+          "fail": 0,
+          "skipped": 0
+        },
+        "durationMs": 105,
+        "outputTail": "TAP version 13\n# Subtest: yandex: sends the audio as-is with the folder id and an API key\nok 1 - yandex: sends the audio as-is with the folder id and an API key\n  ---\n  duration_ms: 1.156708\n  type: 'test'\n  ...\n# Subtest: yandex: an IAM token is sent as a bearer token\nok 2 - yandex: an IAM token is sent as a bearer token\n  ---\n  duration_ms: 0.178916\n  type: 'test'\n  ...\n# Subtest: yandex: formats are mapped and unknown audio falls back to opus\nok 3 - yandex: formats are mapped and unknown audio falls back to opus\n  ---\n  duration_ms: 0.556083\n  type: 'test'\n  ...\n# Subtest: yandex: a rejected request becomes a readable error without the key\nok 4 - yandex: a rejected request becomes a readable error without the key\n  ---\n  duration_ms: 0.326458\n  type: 'test'\n  ...\n# Subtest: yandex: an unreadable answer is reported, not thrown as a parser error\nok 5 - yandex: an unreadable answer is reported, not thrown as a parser error\n  ---\n  duration_ms: 0.126583\n  type: 'test'\n  ...\n# Subtest: openai: still posts a multipart form to the transcriptions endpoint\nok 6 - openai: still posts a multipart form to the transcriptions endpoint\n  ---\n  duration_ms: 12.944709\n  type: 'test'\n  ...\n# Subtest: the factory picks the provider and refuses an unknown one honestly\nok 7 - the factory picks the provider and refuses an unknown one honestly\n  ---\n  duration_ms: 0.161417\n  type: 'test'\n  ...\n# Subtest: yandex: a bare language code is expanded to a locale\nok 8 - yandex: a bare language code is expanded to a locale\n  ---\n  duration_ms: 0.230375\n  type: 'test'\n  ...\n1..8\n# tests 8\n# suites 0\n# pass 8\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 66.559916\n\n"
+      }
+    },
+    {
+      "id": "AC-11",
+      "bp": null,
+      "area": "голос",
+      "level": "contract",
+      "title": "Ответ озвучивается",
+      "runner": "test/tts.test.mjs",
+      "status": "passed",
+      "checkedAt": "2026-10-18",
+      "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+      "evidence": "тест TTS: форма, повторы, ошибки",
+      "blockedReason": null,
+      "lastRun": {
+        "at": "2026-10-18T18:38:58.726Z",
+        "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+        "report": "docs/acceptance/report.json",
+        "result": "passed",
+        "reason": null,
+        "command": "node --test --test-force-exit --test-reporter=tap test/tts.test.mjs",
+        "tests": {
+          "total": 8,
+          "pass": 8,
+          "fail": 0,
+          "skipped": 0
+        },
+        "durationMs": 6100,
+        "outputTail": "TAP version 13\n# Subtest: the answer is posted as a form body with the SpeechKit key\nok 1 - the answer is posted as a form body with the SpeechKit key\n  ---\n  duration_ms: 1.63975\n  type: 'test'\n  ...\n# Subtest: markdown, links and code are turned into speakable text\nok 2 - markdown, links and code are turned into speakable text\n  ---\n  duration_ms: 0.385667\n  type: 'test'\n  ...\n# Subtest: a failed synthesis is a readable error without the key\nok 3 - a failed synthesis is a readable error without the key\n  ---\n  duration_ms: 0.37475\n  type: 'test'\n  ...\n# Subtest: empty text is refused before any request\nok 4 - empty text is refused before any request\n  ---\n  duration_ms: 0.126458\n  type: 'test'\n  ...\n# Subtest: a key is required\nok 5 - a key is required\n  ---\n  duration_ms: 0.086375\n  type: 'test'\n  ...\n# Subtest: a temporary provider failure is retried and then succeeds\nok 6 - a temporary provider failure is retried and then succeeds\n  ---\n  duration_ms: 4503.225334\n  type: 'test'\n  ...\n# Subtest: a network error is retried too\nok 7 - a network error is retried too\n  ---\n  duration_ms: 1502.668334\n  type: 'test'\n  ...\n# Subtest: a permanent error is not retried beyond the limit\nok 8 - a permanent error is not retried beyond the limit\n  ---\n  duration_ms: 0.622084\n  type: 'test'\n  ...\n1..8\n# tests 8\n# suites 0\n# pass 8\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 6061.17225\n\n"
+      }
+    },
+    {
+      "id": "AC-12",
+      "bp": null,
+      "area": "отправка",
+      "level": "contract",
+      "title": "Отправка другому человеку с подписью",
+      "runner": "test/sendto-tool.test.mjs",
+      "status": "passed",
+      "checkedAt": "2026-10-18",
+      "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+      "evidence": "журнал sendto delivered и тест подписи/поиска",
+      "blockedReason": null,
+      "lastRun": {
+        "at": "2026-10-18T18:38:58.726Z",
+        "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+        "report": "docs/acceptance/report.json",
+        "result": "passed",
+        "reason": null,
+        "command": "node --test --test-force-exit --test-reporter=tap test/sendto-tool.test.mjs",
+        "tests": {
+          "total": 14,
+          "pass": 14,
+          "fail": 0,
+          "skipped": 0
+        },
+        "durationMs": 102,
+        "outputTail": "TAP version 13\n# Subtest: подписывает сообщение именем владельца\nok 1 - подписывает сообщение именем владельца\n  ---\n  duration_ms: 1.003583\n  type: 'test'\n  ...\n# Subtest: находит человека по @нику из справочника\nok 2 - находит человека по @нику из справочника\n  ---\n  duration_ms: 0.11325\n  type: 'test'\n  ...\n# Subtest: находит человека по телефону в любом формате\nok 3 - находит человека по телефону в любом формате\n  ---\n  duration_ms: 0.147833\n  type: 'test'\n  ...\n# Subtest: неизвестный телефон объясняет, почему нельзя искать по номеру\nok 4 - неизвестный телефон объясняет, почему нельзя искать по номеру\n  ---\n  duration_ms: 0.10525\n  type: 'test'\n  ...\n# Subtest: не угадывает, если под имя подходит несколько человек\nok 5 - не угадывает, если под имя подходит несколько человек\n  ---\n  duration_ms: 0.168083\n  type: 'test'\n  ...\n# Subtest: «Мария» находит «Машу», если она одна\nok 6 - «Мария» находит «Машу», если она одна\n  ---\n  duration_ms: 0.186542\n  type: 'test'\n  ...\n# Subtest: «Мария» находит «Марину» по общей основе без окончания\nok 7 - «Мария» находит «Марину» по общей основе без окончания\n  ---\n  duration_ms: 0.151208\n  type: 'test'\n  ...\n# Subtest: двое подходящих по мягкому совпадению — прежний вопрос с уточнением\nok 8 - двое подходящих по мягкому совпадению — прежний вопрос с уточнением\n  ---\n  duration_ms: 0.101167\n  type: 'test'\n  ...\n# Subtest: неизвестное имя по-прежнему даёт список известных\nok 9 - неизвестное имя по-прежнему даёт список известных\n  ---\n  duration_ms: 0.102792\n  type: 'test'\n  ...\n# Subtest: перечисляет известных людей, если адресат не найден\nok 10 - перечисляет известных людей, если адресат не найден\n  ---\n  duration_ms: 0.200958\n  type: 'test'\n  ...\n# Subtest: пустой текст не отправляется\nok 11 - пустой текст не отправляется\n  ---\n  duration_ms: 0.100375\n  type: 'test'\n  ...\n# Subtest: отказ Telegram объясняется как «не начинал диалог»\nok 12 - отказ Telegram объясняется как «не начинал диалог»\n  ---\n  duration_ms: 0.139416\n  type: 'test'\n  ...\n# Subtest: прочая ошибка отправки не выдаётся за успех\nok 13 - прочая ошибка отправки не выдаётся за успех\n  ---\n  duration_ms: 0.197166\n  type: 'test'\n  ...\n# Subtest: телефон сравнивается по последним 10 цифрам\nok 14 - телефон сравнивается по последним 10 цифрам\n  ---\n  duration_ms: 0.0605\n  type: 'test'\n  ...\n1..14\n# tests 14\n# suites 0\n# pass 14\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 54.967625\n\n"
+      }
+    },
+    {
+      "id": "AC-13",
+      "bp": null,
+      "area": "VK",
+      "level": "contract",
+      "title": "Файл приходит в VK",
+      "runner": "test/platform-vk-document.test.mjs",
+      "status": "passed",
+      "checkedAt": "2026-10-18",
+      "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+      "evidence": "docs.getMessagesUploadServer → upload → docs.save",
+      "blockedReason": null,
+      "lastRun": {
+        "at": "2026-10-18T18:38:58.726Z",
+        "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+        "report": "docs/acceptance/report.json",
+        "result": "passed",
+        "reason": null,
+        "command": "node --test --test-force-exit --test-reporter=tap test/platform-vk-document.test.mjs",
+        "tests": {
+          "total": 11,
+          "pass": 11,
+          "fail": 0,
+          "skipped": 0
+        },
+        "durationMs": 159,
+        "outputTail": "TAP version 13\n# Subtest: sendDocument в личный чат: upload server → upload → docs.save → messages.send\nok 1 - sendDocument в личный чат: upload server → upload → docs.save → messages.send\n  ---\n  duration_ms: 25.499625\n  type: 'test'\n  ...\n# Subtest: sendDocument в беседу: peer_id 2000000000 + chat_id и пустая подпись\nok 2 - sendDocument в беседу: peer_id 2000000000 + chat_id и пустая подпись\n  ---\n  duration_ms: 10.045833\n  type: 'test'\n  ...\n# Subtest: sendDocument принимает старый ответ docs.save массивом\nok 3 - sendDocument принимает старый ответ docs.save массивом\n  ---\n  duration_ms: 5.017792\n  type: 'test'\n  ...\n# Subtest: ошибка загрузки файла объясняется по-русски и не доходит до docs.save\nok 4 - ошибка загрузки файла объясняется по-русски и не доходит до docs.save\n  ---\n  duration_ms: 3.208333\n  type: 'test'\n  ...\n# Subtest: ошибка docs.save объясняется по-русски и не отправляет сообщение\nok 5 - ошибка docs.save объясняется по-русски и не отправляет сообщение\n  ---\n  duration_ms: 4.084375\n  type: 'test'\n  ...\n# Subtest: ошибка docs.getMessagesUploadServer объясняется по-русски\nok 6 - ошибка docs.getMessagesUploadServer объясняется по-русски\n  ---\n  duration_ms: 1.7575\n  type: 'test'\n  ...\n# Subtest: ошибка messages.send объясняется по-русски после успешной загрузки\nok 7 - ошибка messages.send объясняется по-русски после успешной загрузки\n  ---\n  duration_ms: 3.870375\n  type: 'test'\n  ...\n# Subtest: ответ upload-сервера без поля file — понятная ошибка\nok 8 - ответ upload-сервера без поля file — понятная ошибка\n  ---\n  duration_ms: 3.527959\n  type: 'test'\n  ...\n# Subtest: пустой файл не отправляется и не ходит в сеть\nok 9 - пустой файл не отправляется и не ходит в сеть\n  ---\n  duration_ms: 0.192416\n  type: 'test'\n  ...\n# Subtest: ядро видит у VK и sendDocument, и появившийся в PLB-011 sendVoice\nok 10 - ядро видит у VK и sendDocument, и появившийся в PLB-011 sendVoice\n  ---\n  duration_ms: 0.107875\n  type: 'test'\n  ...\n# Subtest: возможности VK: файлы на выход есть, озвучка больше не скрывается\nok 11 - возможности VK: файлы на выход есть, озвучка больше не скрывается\n  ---\n  duration_ms: 0.185583\n  type: 'test'\n  ...\n1..11\n# tests 11\n# suites 0\n# pass 11\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 119.409375\n\n"
+      }
+    },
+    {
+      "id": "AC-14",
+      "bp": null,
+      "area": "VK",
+      "level": "contract",
+      "title": "Ответ в VK приходит в беседу или личку",
+      "runner": "test/platform-vk.test.mjs",
+      "status": "passed",
+      "checkedAt": "2026-10-18",
+      "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+      "evidence": "тест sendText, клавиатуры и long poll",
+      "blockedReason": null,
+      "lastRun": {
+        "at": "2026-10-18T18:38:58.726Z",
+        "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+        "report": "docs/acceptance/report.json",
+        "result": "passed",
+        "reason": null,
+        "command": "node --test --test-force-exit --test-reporter=tap test/platform-vk.test.mjs",
+        "tests": {
+          "total": 48,
+          "pass": 48,
+          "fail": 0,
+          "skipped": 0
+        },
+        "durationMs": 217,
+        "outputTail": "…adFile refuses a file above maxBytes by its declared length\nok 29 - downloadFile refuses a file above maxBytes by its declared length\n  ---\n  duration_ms: 0.857417\n  type: 'test'\n  ...\n# Subtest: setReaction uses the conversation id and reaction id, and unknown emoji is a no-op\nok 30 - setReaction uses the conversation id and reaction id, and unknown emoji is a no-op\n  ---\n  duration_ms: 2.306\n  type: 'test'\n  ...\n# Subtest: setReaction degrades to a no-op when VK refuses the reaction\nok 31 - setReaction degrades to a no-op when VK refuses the reaction\n  ---\n  duration_ms: 2.577333\n  type: 'test'\n  ...\n# Subtest: error_code 5 is fatal, raised as VkError, and never leaks the token\nok 32 - error_code 5 is fatal, raised as VkError, and never leaks the token\n  ---\n  duration_ms: 2.888958\n  type: 'test'\n  ...\n# Subtest: error_code 6 is retried with backoff and then succeeds\nok 33 - error_code 6 is retried with backoff and then succeeds\n  ---\n  duration_ms: 3.192708\n  type: 'test'\n  ...\n# Subtest: a network failure is retried and the token is redacted from the retry log\nok 34 - a network failure is retried and the token is redacted from the retry log\n  ---\n  duration_ms: 1.198625\n  type: 'test'\n  ...\n# Subtest: a missing token fails immediately without building a query\nok 35 - a missing token fails immediately without building a query\n  ---\n  duration_ms: 0.18525\n  type: 'test'\n  ...\n# Subtest: isFatalError recognises 5/15/27 and not 6\nok 36 - isFatalError recognises 5/15/27 and not 6\n  ---\n  duration_ms: 0.10275\n  type: 'test'\n  ...\n# Subtest: redactToken removes the secret wherever it appears\nok 37 - redactToken removes the secret wherever it appears\n  ---\n  duration_ms: 0.036042\n  type: 'test'\n  ...\n# Subtest: markdownToVkText strips the markers VK cannot render\nok 38 - markdownToVkText strips the markers VK cannot render\n  ---\n  duration_ms: 0.142583\n  type: 'test'\n  ...\n# Subtest: splitVkText respects the limit, keeps paragraphs and survives emoji\nok 39 - splitVkText respects the limit, keeps paragraphs and survives emoji\n  ---\n  duration_ms: 0.207709\n  type: 'test'\n  ...\n# Subtest: toVkKeyboard trims what VK cannot render and caps the rows\nok 40 - toVkKeyboard trims what VK cannot render and caps the rows\n  ---\n  duration_ms: 0.210583\n  type: 'test'\n  ...\n# Subtest: encodeCallbackData round-trips through decodeCallbackData within the VK payload cap\nok 41 - encodeCallbackData round-trips through decodeCallbackData within the VK payload cap\n  ---\n  duration_ms: 0.062042\n  type: 'test'\n  ...\n# Subtest: pickPhotoSize prefers the largest copy and tolerates legacy src fields\nok 42 - pickPhotoSize prefers the largest copy and tolerates legacy src fields\n  ---\n  duration_ms: 0.053667\n  type: 'test'\n  ...\n# Subtest: peer helpers and nextTs follow the documented ranges\nok 43 - peer helpers and nextTs follow the documented ranges\n  ---\n  duration_ms: 0.032458\n  type: 'test'\n  ...\n# Subtest: createVkPlatform builds a usable adapter with the whole port surface\nok 44 - createVkPlatform builds a usable adapter with the whole port surface\n  ---\n  duration_ms: 1.703792\n  type: 'test'\n  ...\n# Subtest: the adapter never reads the process environment\nok 45 - the adapter never reads the process environment\n  ---\n  duration_ms: 0.882791\n  type: 'test'\n  ...\n# Subtest: an expired long-poll session is routine: handled quietly without a warning\nok 46 - an expired long-poll session is routine: handled quietly without a warning\n  ---\n  duration_ms: 2.988042\n  type: 'test'\n  ...\n# Subtest: the typing indicator is sent once and never retried\nok 47 - the typing indicator is sent once and never retried\n  ---\n  duration_ms: 1.355625\n  type: 'test'\n  ...\n# Subtest: a mention before a command is stripped so the command still works\nok 48 - a mention before a command is stripped so the command still works\n  ---\n  duration_ms: 0.248083\n  type: 'test'\n  ...\n1..48\n# tests 48\n# suites 0\n# pass 48\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 180.892208\n\n"
+      }
+    },
+    {
+      "id": "AC-15",
+      "bp": null,
+      "area": "файлы",
+      "level": "integration",
+      "title": "Файл на выход: PDF с кириллицей",
+      "runner": "test/export-pdf.test.mjs",
+      "status": "passed",
+      "checkedAt": "2026-10-18",
+      "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+      "evidence": "%PDF-1.4, /ToUnicode, внешний просмотрщик",
+      "blockedReason": null,
+      "lastRun": {
+        "at": "2026-10-18T18:38:58.726Z",
+        "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+        "report": "docs/acceptance/report.json",
+        "result": "passed",
+        "reason": null,
+        "command": "node --test --test-force-exit --test-reporter=tap test/export-pdf.test.mjs",
+        "tests": {
+          "total": 7,
+          "pass": 7,
+          "fail": 0,
+          "skipped": 0
+        },
+        "durationMs": 136,
+        "outputTail": "TAP version 13\n# Subtest: /export без аргумента остаётся прежней текстовой выгрузкой\nok 1 - /export без аргумента остаётся прежней текстовой выгрузкой\n  ---\n  duration_ms: 2.915416\n  type: 'test'\n  ...\n# Subtest: /export без аргумента на пустых данных показывает прежние заглушки\nok 2 - /export без аргумента на пустых данных показывает прежние заглушки\n  ---\n  duration_ms: 0.265333\n  type: 'test'\n  ...\n# Subtest: /export pdf присылает валидный PDF с теми же разделами\nok 3 - /export pdf присылает валидный PDF с теми же разделами\n  ---\n  duration_ms: 25.208167\n  type: 'test'\n  ...\n# Subtest: /export pdf: нет шрифта — понятный текст, а не падение\nok 4 - /export pdf: нет шрифта — понятный текст, а не падение\n  ---\n  duration_ms: 15.256916\n  type: 'test'\n  ...\n# Subtest: ошибка сборки PDF объясняется пользователю и не роняет команду\nok 5 - ошибка сборки PDF объясняется пользователю и не роняет команду\n  ---\n  duration_ms: 0.224375\n  type: 'test'\n  ...\n# Subtest: buildExportPdf отказывается без данных, без шрифта и с нечитаемым шрифтом\nok 6 - buildExportPdf отказывается без данных, без шрифта и с нечитаемым шрифтом\n  ---\n  duration_ms: 0.369417\n  type: 'test'\n  ...\n# Subtest: /export с другим аргументом сохраняет прежнюю текстовую выгрузку\nok 7 - /export с другим аргументом сохраняет прежнюю текстовую выгрузку\n  ---\n  duration_ms: 0.167833\n  type: 'test'\n  ...\n1..7\n# tests 7\n# suites 0\n# pass 7\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 99.808167\n\n"
+      }
+    },
+    {
+      "id": "AC-16",
+      "bp": null,
+      "area": "файлы",
+      "level": "unit",
+      "title": "PDF-генератор: кириллица и переносы",
+      "runner": "test/pdf.test.mjs",
+      "status": "passed",
+      "checkedAt": "2026-10-18",
+      "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+      "evidence": "тест createPdf",
+      "blockedReason": null,
+      "lastRun": {
+        "at": "2026-10-18T18:38:58.726Z",
+        "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+        "report": "docs/acceptance/report.json",
+        "result": "passed",
+        "reason": null,
+        "command": "node --test --test-force-exit --test-reporter=tap test/pdf.test.mjs",
+        "tests": {
+          "total": 15,
+          "pass": 15,
+          "fail": 0,
+          "skipped": 0
+        },
+        "durationMs": 291,
+        "outputTail": "TAP version 13\n# Subtest: файл — это Buffer от %PDF- до %%EOF\nok 1 - файл — это Buffer от %PDF- до %%EOF\n  ---\n  duration_ms: 24.940708\n  type: 'test'\n  ...\n# Subtest: пустые blocks дают валидный файл с одной страницей\nok 2 - пустые blocks дают валидный файл с одной страницей\n  ---\n  duration_ms: 14.4065\n  type: 'test'\n  ...\n# Subtest: кириллица попадает в /ToUnicode\nok 3 - кириллица попадает в /ToUnicode\n  ---\n  duration_ms: 14.762167\n  type: 'test'\n  ...\n# Subtest: шрифт встроен как Type0 / CIDFontType2 с FontFile2\nok 4 - шрифт встроен как Type0 / CIDFontType2 с FontFile2\n  ---\n  duration_ms: 14.119417\n  type: 'test'\n  ...\n# Subtest: строки идут сверху вниз внутри полей страницы\nok 5 - строки идут сверху вниз внутри полей страницы\n  ---\n  duration_ms: 18.102875\n  type: 'test'\n  ...\n# Subtest: длинный абзац переносится и не вылезает за поля\nok 6 - длинный абзац переносится и не вылезает за поля\n  ---\n  duration_ms: 18.726833\n  type: 'test'\n  ...\n# Subtest: очень длинное слово переносится по буквам\nok 7 - очень длинное слово переносится по буквам\n  ---\n  duration_ms: 17.82975\n  type: 'test'\n  ...\n# Subtest: запасной вариант переноса держится в лимите\nok 8 - запасной вариант переноса держится в лимите\n  ---\n  duration_ms: 0.233416\n  type: 'test'\n  ...\n# Subtest: многострочный текст занимает больше одной страницы\nok 9 - многострочный текст занимает больше одной страницы\n  ---\n  duration_ms: 21.671083\n  type: 'test'\n  ...\n# Subtest: спецсимволы ( ) \\\\ не ломают файл\nok 10 - спецсимволы ( ) \\\\ не ломают файл\n  ---\n  duration_ms: 14.748417\n  type: 'test'\n  ...\n# Subtest: без шрифта createPdf падает с понятной ошибкой\nok 11 - без шрифта createPdf падает с понятной ошибкой\n  ---\n  duration_ms: 0.387375\n  type: 'test'\n  ...\n# Subtest: нечитаемый файл шрифта даёт понятную ошибку\nok 12 - нечитаемый файл шрифта даёт понятную ошибку\n  ---\n  duration_ms: 0.154292\n  type: 'test'\n  ...\n# Subtest: символ без глифа заменяется на ? и не роняет генератор\nok 13 - символ без глифа заменяется на ? и не роняет генератор\n  ---\n  duration_ms: 14.379333\n  type: 'test'\n  ...\n# Subtest: обрезанный файл шрифта не роняет процесс\nok 14 - обрезанный файл шрифта не роняет процесс\n  ---\n  duration_ms: 0.938042\n  type: 'test'\n  ...\n# Subtest: h1, h2, bullet и spacer дают целый документ\nok 15 - h1, h2, bullet и spacer дают целый документ\n  ---\n  duration_ms: 20.210666\n  type: 'test'\n  ...\n1..15\n# tests 15\n# suites 0\n# pass 15\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 252.864042\n\n"
+      }
+    },
+    {
+      "id": "AC-17",
+      "bp": null,
+      "area": "агент",
+      "level": "live",
+      "title": "Ответ агента приходит в чат бота",
+      "runner": "manual",
+      "status": "blocked",
+      "checkedAt": "2026-10-18",
+      "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+      "evidence": "agent message delivered в журнале",
+      "blockedReason": "нужен реальный бот и агент; автотесты моста не заменяют живой диалог",
+      "lastRun": {
+        "at": "2026-10-18T18:38:58.726Z",
+        "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+        "report": "docs/acceptance/report.json",
+        "result": "blocked",
+        "reason": "нужен реальный бот и агент; автотесты моста не заменяют живой диалог"
+      }
+    },
+    {
+      "id": "AC-18",
+      "bp": "BP-02",
+      "area": "память",
+      "level": "integration",
+      "title": "Исправление факта меняет контекст",
+      "runner": "test/memory.test.mjs::исправление заменяет факт",
+      "status": "passed",
+      "checkedAt": "2026-10-18",
+      "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+      "evidence": "memory summary без старого адреса, supersedesId",
+      "blockedReason": null,
+      "lastRun": {
+        "at": "2026-10-18T18:38:58.726Z",
+        "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+        "report": "docs/acceptance/report.json",
+        "result": "passed",
+        "reason": null,
+        "command": "node --test --test-force-exit --test-reporter=tap --test-name-pattern=исправление заменяет факт test/memory.test.mjs",
+        "tests": {
+          "total": 1,
+          "pass": 1,
+          "fail": 0,
+          "skipped": 0
+        },
+        "durationMs": 108,
+        "outputTail": "TAP version 13\n# Subtest: исправление заменяет факт в контексте и оставляет историю\nok 1 - исправление заменяет факт в контексте и оставляет историю\n  ---\n  duration_ms: 13.064667\n  type: 'test'\n  ...\n1..1\n# tests 1\n# suites 0\n# pass 1\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 69.119084\n\n"
+      }
+    },
+    {
+      "id": "AC-19",
+      "bp": "BP-02",
+      "area": "память",
+      "level": "integration",
+      "title": "Удалённый факт не возвращается",
+      "runner": "test/memory.test.mjs::удалённое не возвращается",
+      "status": "passed",
+      "checkedAt": "2026-10-18",
+      "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+      "evidence": "tombstone и reindex → []",
+      "blockedReason": null,
+      "lastRun": {
+        "at": "2026-10-18T18:38:58.726Z",
+        "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+        "report": "docs/acceptance/report.json",
+        "result": "passed",
+        "reason": null,
+        "command": "node --test --test-force-exit --test-reporter=tap --test-name-pattern=удалённое не возвращается test/memory.test.mjs",
+        "tests": {
+          "total": 1,
+          "pass": 1,
+          "fail": 0,
+          "skipped": 0
+        },
+        "durationMs": 128,
+        "outputTail": "TAP version 13\n# Subtest: удалённое не возвращается после рестарта и повторной индексации\nok 1 - удалённое не возвращается после рестарта и повторной индексации\n  ---\n  duration_ms: 18.626958\n  type: 'test'\n  ...\n1..1\n# tests 1\n# suites 0\n# pass 1\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 90.18125\n\n"
+      }
+    },
+    {
+      "id": "AC-20",
+      "bp": "BP-02",
+      "area": "память",
+      "level": "contract",
+      "title": "Откуда бот знает",
+      "runner": "test/memory.test.mjs::why объясняет источник",
+      "status": "passed",
+      "checkedAt": "2026-10-18",
+      "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+      "evidence": "/memory why, sourceRef",
+      "blockedReason": null,
+      "lastRun": {
+        "at": "2026-10-18T18:38:58.726Z",
+        "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+        "report": "docs/acceptance/report.json",
+        "result": "passed",
+        "reason": null,
+        "command": "node --test --test-force-exit --test-reporter=tap --test-name-pattern=why объясняет источник test/memory.test.mjs",
+        "tests": {
+          "total": 1,
+          "pass": 1,
+          "fail": 0,
+          "skipped": 0
+        },
+        "durationMs": 107,
+        "outputTail": "TAP version 13\n# Subtest: why объясняет источник и честно называет предположение\nok 1 - why объясняет источник и честно называет предположение\n  ---\n  duration_ms: 11.511417\n  type: 'test'\n  ...\n1..1\n# tests 1\n# suites 0\n# pass 1\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 69.549041\n\n"
+      }
+    },
+    {
+      "id": "AC-21",
+      "bp": "BP-02",
+      "area": "память",
+      "level": "integration",
+      "title": "Память проекта не попадает в чужой контекст",
+      "runner": "test/memory.test.mjs::память проекта не попадает",
+      "status": "passed",
+      "checkedAt": "2026-10-18",
+      "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+      "evidence": "scope_id и retrieval по области",
+      "blockedReason": null,
+      "lastRun": {
+        "at": "2026-10-18T18:38:58.726Z",
+        "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+        "report": "docs/acceptance/report.json",
+        "result": "passed",
+        "reason": null,
+        "command": "node --test --test-force-exit --test-reporter=tap --test-name-pattern=память проекта не попадает test/memory.test.mjs",
+        "tests": {
+          "total": 1,
+          "pass": 1,
+          "fail": 0,
+          "skipped": 0
+        },
+        "durationMs": 113,
+        "outputTail": "TAP version 13\n# Subtest: память проекта не попадает в контекст другой области\nok 1 - память проекта не попадает в контекст другой области\n  ---\n  duration_ms: 18.826125\n  type: 'test'\n  ...\n1..1\n# tests 1\n# suites 0\n# pass 1\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 74.909708\n\n"
+      }
+    },
+    {
+      "id": "AC-22",
+      "bp": "BP-03",
+      "area": "проекты",
+      "level": "integration",
+      "title": "Чужое личное не видно, общий проект виден участнику",
+      "runner": "test/scopes.test.mjs::участник видит общий проект",
+      "status": "passed",
+      "checkedAt": "2026-10-18",
+      "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+      "evidence": "scope_id, access.mjs, тесты scopes",
+      "blockedReason": null,
+      "lastRun": {
+        "at": "2026-10-18T18:38:58.726Z",
+        "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+        "report": "docs/acceptance/report.json",
+        "result": "passed",
+        "reason": null,
+        "command": "node --test --test-force-exit --test-reporter=tap --test-name-pattern=участник видит общий проект test/scopes.test.mjs",
+        "tests": {
+          "total": 1,
+          "pass": 1,
+          "fail": 0,
+          "skipped": 0
+        },
+        "durationMs": 141,
+        "outputTail": "TAP version 13\n# Subtest: участник видит общий проект; viewer получает отказ на запись\nok 1 - участник видит общий проект; viewer получает отказ на запись\n  ---\n  duration_ms: 12.329541\n  type: 'test'\n  ...\n1..1\n# tests 1\n# suites 0\n# pass 1\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 102.226042\n\n"
+      }
+    },
+    {
+      "id": "AC-23",
+      "bp": "BP-03",
+      "area": "проекты",
+      "level": "integration",
+      "title": "Приглашение принимается своим аккаунтом",
+      "runner": "test/plb024-invitations.test.mjs",
+      "status": "passed",
+      "checkedAt": "2026-10-18",
+      "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+      "evidence": "pending/TTL/accept, журнал, тест plb024",
+      "blockedReason": null,
+      "lastRun": {
+        "at": "2026-10-18T18:38:58.726Z",
+        "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+        "report": "docs/acceptance/report.json",
+        "result": "passed",
+        "reason": null,
+        "command": "node --test --test-force-exit --test-reporter=tap test/plb024-invitations.test.mjs",
+        "tests": {
+          "total": 6,
+          "pass": 6,
+          "fail": 0,
+          "skipped": 0
+        },
+        "durationMs": 337,
+        "outputTail": "TAP version 13\n# Subtest: PLB-024: pending не даёт доступа, принятие своим аккаунтом делает участником\nok 1 - PLB-024: pending не даёт доступа, принятие своим аккаунтом делает участником\n  ---\n  duration_ms: 38.396875\n  type: 'test'\n  ...\n# Subtest: PLB-024: пересланный код третьему лицу не даёт доступа и попадает в журнал\nok 2 - PLB-024: пересланный код третьему лицу не даёт доступа и попадает в журнал\n  ---\n  duration_ms: 28.386834\n  type: 'test'\n  ...\n# Subtest: PLB-024: просроченное, отозванное и отклонённое приглашение не дают доступа\nok 3 - PLB-024: просроченное, отозванное и отклонённое приглашение не дают доступа\n  ---\n  duration_ms: 59.114875\n  type: 'test'\n  ...\n# Subtest: PLB-024: telegram:7 и vk:7 — разные люди, чужой проект недоступен\nok 4 - PLB-024: telegram:7 и vk:7 — разные люди, чужой проект недоступен\n  ---\n  duration_ms: 11.595959\n  type: 'test'\n  ...\n# Subtest: PLB-024: миграция сохраняет Машу, добавляет платформу, копия одна и повтор пустой\nok 5 - PLB-024: миграция сохраняет Машу, добавляет платформу, копия одна и повтор пустой\n  ---\n  duration_ms: 9.067042\n  type: 'test'\n  ...\n# Subtest: PLB-024: запуск бота мигрирует участников с копией и не повторяет миграцию\nok 6 - PLB-024: запуск бота мигрирует участников с копией и не повторяет миграцию\n  ---\n  duration_ms: 66.68425\n  type: 'test'\n  ...\n1..6\n# tests 6\n# suites 0\n# pass 6\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 301.036167\n\n"
+      }
+    },
+    {
+      "id": "AC-24",
+      "bp": "BP-04",
+      "area": "проактивность",
+      "level": "integration",
+      "title": "Тихие часы и переход времени не дублируют обзор",
+      "runner": "test/proactive.test.mjs",
+      "status": "passed",
+      "checkedAt": "2026-10-18",
+      "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+      "evidence": "isQuietNow/localTimeToInstant и журнал решений",
+      "blockedReason": null,
+      "lastRun": {
+        "at": "2026-10-18T18:38:58.726Z",
+        "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+        "report": "docs/acceptance/report.json",
+        "result": "passed",
+        "reason": null,
+        "command": "node --test --test-force-exit --test-reporter=tap test/proactive.test.mjs",
+        "tests": {
+          "total": 25,
+          "pass": 25,
+          "fail": 0,
+          "skipped": 0
+        },
+        "durationMs": 808,
+        "outputTail": "…t: рестарт: просроченное по TTL не отправляется и старый обзор не повторяется\nok 6 - рестарт: просроченное по TTL не отправляется и старый обзор не повторяется\n  ---\n  duration_ms: 19.708208\n  type: 'test'\n  ...\n# Subtest: после простоя приходит не больше одного актуального обзора\nok 7 - после простоя приходит не больше одного актуального обзора\n  ---\n  duration_ms: 29.918167\n  type: 'test'\n  ...\n# Subtest: отключённая категория не доставляется\nok 8 - отключённая категория не доставляется\n  ---\n  duration_ms: 13.079833\n  type: 'test'\n  ...\n# Subtest: недоступный источник помечается, а не выдаётся за «встреч нет»\nok 9 - недоступный источник помечается, а не выдаётся за «встреч нет»\n  ---\n  duration_ms: 17.2185\n  type: 'test'\n  ...\n# Subtest: одинаковые события объединяются по ключу\nok 10 - одинаковые события объединяются по ключу\n  ---\n  duration_ms: 17.782625\n  type: 'test'\n  ...\n# Subtest: пустой обзор не отправляется, пропуск фиксируется в журнале\nok 11 - пустой обзор не отправляется, пропуск фиксируется в журнале\n  ---\n  duration_ms: 13.372708\n  type: 'test'\n  ...\n# Subtest: дневной предел: три инициативных, четвёртое ждёт и уходит на следующий день\nok 12 - дневной предел: три инициативных, четвёртое ждёт и уходит на следующий день\n  ---\n  duration_ms: 63.869542\n  type: 'test'\n  ...\n# Subtest: неизменившийся статус — не новость, завершение и ошибка — новость\nok 13 - неизменившийся статус — не новость, завершение и ошибка — новость\n  ---\n  duration_ms: 34.487458\n  type: 'test'\n  ...\n# Subtest: отложенное перепроверяется: завершённая задача не напоминается\nok 14 - отложенное перепроверяется: завершённая задача не напоминается\n  ---\n  duration_ms: 33.070875\n  type: 'test'\n  ...\n# Subtest: кнопки открыть/выполнено/отложить/отключить и объяснение по запросу\nok 15 - кнопки открыть/выполнено/отложить/отключить и объяснение по запросу\n  ---\n  duration_ms: 17.152917\n  type: 'test'\n  ...\n# Subtest: обзор показывает не больше согласованного числа важных пунктов\nok 16 - обзор показывает не больше согласованного числа важных пунктов\n  ---\n  duration_ms: 1.293375\n  type: 'test'\n  ...\n# Subtest: напоминание в обзор попадает, но отдельным уведомлением не дублируется\nok 17 - напоминание в обзор попадает, но отдельным уведомлением не дублируется\n  ---\n  duration_ms: 24.141375\n  type: 'test'\n  ...\n# Subtest: миграция proactive.json: копия до изменения и идемпотентность\nok 18 - миграция proactive.json: копия до изменения и идемпотентность\n  ---\n  duration_ms: 7.103875\n  type: 'test'\n  ...\n# Subtest: проактивность использует существующий таймер напоминаний, а не второй\nok 19 - проактивность использует существующий таймер напоминаний, а не второй\n  ---\n  duration_ms: 6.640334\n  type: 'test'\n  ...\n# Subtest: кандидат помнит источник и причину, а TTL отбрасывает старое\nok 20 - кандидат помнит источник и причину, а TTL отбрасывает старое\n  ---\n  duration_ms: 0.775917\n  type: 'test'\n  ...\n# Subtest: обзор не раскрывает записи чужого пространства\nok 21 - обзор не раскрывает записи чужого пространства\n  ---\n  duration_ms: 27.766875\n  type: 'test'\n  ...\n# Subtest: недоступный календарь не отменяет уже известное событие\nok 22 - недоступный календарь не отменяет уже известное событие\n  ---\n  duration_ms: 11.151708\n  type: 'test'\n  ...\n# Subtest: весенний пропуск: несуществующее местное время не уводит обзор в прошлое\nok 23 - весенний пропуск: несуществующее местное время не уводит обзор в прошлое\n  ---\n  duration_ms: 134.217125\n  type: 'test'\n  ...\n# Subtest: обзор приходит с кнопками; отложенный обзор отправляется после срока\nok 24 - обзор приходит с кнопками; отложенный обзор отправляется после срока\n  ---\n  duration_ms: 53.392292\n  type: 'test'\n  ...\n# Subtest: отложенная встреча возвращается в срок, а не выдаётся за перенос\nok 25 - отложенная встреча возвращается в срок, а не выдаётся за перенос\n  ---\n  duration_ms: 26.915\n  type: 'test'\n  ...\n1..25\n# tests 25\n# suites 0\n# pass 25\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 769.616833\n\n"
+      }
+    },
+    {
+      "id": "AC-25",
+      "bp": "BP-04",
+      "area": "проактивность",
+      "level": "integration",
+      "title": "Дневной предел инициативных уведомлений",
+      "runner": "test/proactive.test.mjs::дневной предел",
+      "status": "passed",
+      "checkedAt": "2026-10-18",
+      "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+      "evidence": "sentToday и очередь отложенных доставок",
+      "blockedReason": null,
+      "lastRun": {
+        "at": "2026-10-18T18:38:58.726Z",
+        "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+        "report": "docs/acceptance/report.json",
+        "result": "passed",
+        "reason": null,
+        "command": "node --test --test-force-exit --test-reporter=tap --test-name-pattern=дневной предел test/proactive.test.mjs",
+        "tests": {
+          "total": 1,
+          "pass": 1,
+          "fail": 0,
+          "skipped": 0
+        },
+        "durationMs": 170,
+        "outputTail": "TAP version 13\n# Subtest: дневной предел: три инициативных, четвёртое ждёт и уходит на следующий день\nok 1 - дневной предел: три инициативных, четвёртое ждёт и уходит на следующий день\n  ---\n  duration_ms: 63.549083\n  type: 'test'\n  ...\n1..1\n# tests 1\n# suites 0\n# pass 1\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 132.241708\n\n"
+      }
+    },
+    {
+      "id": "AC-26",
+      "bp": "BP-04",
+      "area": "проактивность",
+      "level": "integration",
+      "title": "Одинаковые события объединяются",
+      "runner": "test/proactive.test.mjs::одинаковые события объединяются",
+      "status": "passed",
+      "checkedAt": "2026-10-18",
+      "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+      "evidence": "mergeCandidates и ключ события",
+      "blockedReason": null,
+      "lastRun": {
+        "at": "2026-10-18T18:38:58.726Z",
+        "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+        "report": "docs/acceptance/report.json",
+        "result": "passed",
+        "reason": null,
+        "command": "node --test --test-force-exit --test-reporter=tap --test-name-pattern=одинаковые события объединяются test/proactive.test.mjs",
+        "tests": {
+          "total": 1,
+          "pass": 1,
+          "fail": 0,
+          "skipped": 0
+        },
+        "durationMs": 125,
+        "outputTail": "TAP version 13\n# Subtest: одинаковые события объединяются по ключу\nok 1 - одинаковые события объединяются по ключу\n  ---\n  duration_ms: 23.3545\n  type: 'test'\n  ...\n1..1\n# tests 1\n# suites 0\n# pass 1\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 89.0085\n\n"
+      }
+    },
+    {
+      "id": "AC-27",
+      "bp": "BP-05",
+      "area": "документы",
+      "level": "integration",
+      "title": "Документ как источник с проверяемой цитатой",
+      "runner": "test/documents.test.mjs::приём набора, top-5",
+      "status": "passed",
+      "checkedAt": "2026-10-18",
+      "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+      "evidence": "top-5 и подтверждение фрагментом",
+      "blockedReason": null,
+      "lastRun": {
+        "at": "2026-10-18T18:38:58.726Z",
+        "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+        "report": "docs/acceptance/report.json",
+        "result": "passed",
+        "reason": null,
+        "command": "node --test --test-force-exit --test-reporter=tap --test-name-pattern=приём набора, top-5 test/documents.test.mjs",
+        "tests": {
+          "total": 1,
+          "pass": 1,
+          "fail": 0,
+          "skipped": 0
+        },
+        "durationMs": 497,
+        "outputTail": "TAP version 13\n# [documents] отчёт: документов 20, top-5 20/20, подтверждено 10/10, отказов 5/5\n# Subtest: приём набора, top-5, подтверждение фрагментом и честный отказ\nok 1 - приём набора, top-5, подтверждение фрагментом и честный отказ\n  ---\n  duration_ms: 397.813167\n  type: 'test'\n  ...\n1..1\n# tests 1\n# suites 0\n# pass 1\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 460.876333\n\n"
+      }
+    },
+    {
+      "id": "AC-28",
+      "bp": "BP-05",
+      "area": "документы",
+      "level": "integration",
+      "title": "Чужой документ не виден",
+      "runner": "test/documents.test.mjs::ACL: чужой документ",
+      "status": "passed",
+      "checkedAt": "2026-10-18",
+      "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+      "evidence": "ACL до кандидатов, тест documents",
+      "blockedReason": null,
+      "lastRun": {
+        "at": "2026-10-18T18:38:58.726Z",
+        "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+        "report": "docs/acceptance/report.json",
+        "result": "passed",
+        "reason": null,
+        "command": "node --test --test-force-exit --test-reporter=tap --test-name-pattern=ACL: чужой документ test/documents.test.mjs",
+        "tests": {
+          "total": 1,
+          "pass": 1,
+          "fail": 0,
+          "skipped": 0
+        },
+        "durationMs": 144,
+        "outputTail": "TAP version 13\n# Subtest: ACL: чужой документ не попадает ни в кандидатов, ни в кеш, ни в ссылки\nok 1 - ACL: чужой документ не попадает ни в кандидатов, ни в кеш, ни в ссылки\n  ---\n  duration_ms: 42.886708\n  type: 'test'\n  ...\n1..1\n# tests 1\n# suites 0\n# pass 1\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 107.288917\n\n"
+      }
+    },
+    {
+      "id": "AC-29",
+      "bp": "BP-05",
+      "area": "документы",
+      "level": "integration",
+      "title": "Удаление документа и честный отказ",
+      "runner": "test/documents.test.mjs",
+      "status": "passed",
+      "checkedAt": "2026-10-18",
+      "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+      "evidence": "cascade delete и тест documents",
+      "blockedReason": null,
+      "lastRun": {
+        "at": "2026-10-18T18:38:58.726Z",
+        "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+        "report": "docs/acceptance/report.json",
+        "result": "passed",
+        "reason": null,
+        "command": "node --test --test-force-exit --test-reporter=tap test/documents.test.mjs",
+        "tests": {
+          "total": 17,
+          "pass": 17,
+          "fail": 0,
+          "skipped": 0
+        },
+        "durationMs": 774,
+        "outputTail": "TAP version 13\n# Subtest: DOCUMENTS_ENABLED включён по умолчанию и выключается флагом\nok 1 - DOCUMENTS_ENABLED включён по умолчанию и выключается флагом\n  ---\n  duration_ms: 1.766708\n  type: 'test'\n  ...\n# [documents] отчёт: документов 20, top-5 20/20, подтверждено 10/10, отказов 5/5\n# Subtest: приём набора, top-5, подтверждение фрагментом и честный отказ\nok 2 - приём набора, top-5, подтверждение фрагментом и честный отказ\n  ---\n  duration_ms: 411.808375\n  type: 'test'\n  ...\n# Subtest: повторная загрузка в той же области — одна запись, в чужой — своя\nok 3 - повторная загрузка в той же области — одна запись, в чужой — своя\n  ---\n  duration_ms: 23.713541\n  type: 'test'\n  ...\n# Subtest: неподдерживаемый формат: оригинал сохранён, индекса нет, ограничение понятное\nok 4 - неподдерживаемый формат: оригинал сохранён, индекса нет, ограничение понятное\n  ---\n  duration_ms: 13.974041\n  type: 'test'\n  ...\n# Subtest: ACL: чужой документ не попадает ни в кандидатов, ни в кеш, ни в ссылки\nok 5 - ACL: чужой документ не попадает ни в кандидатов, ни в кеш, ни в ссылки\n  ---\n  duration_ms: 29.342584\n  type: 'test'\n  ...\n# Subtest: цитата PDF: страница 4 и точный фрагмент, без выдуманных страниц\nok 6 - цитата PDF: страница 4 и точный фрагмент, без выдуманных страниц\n  ---\n  duration_ms: 11.752208\n  type: 'test'\n  ...\n# Subtest: версии: связь по подтверждению и содержательное сравнение со ссылками\nok 7 - версии: связь по подтверждению и содержательное сравнение со ссылками\n  ---\n  duration_ms: 35.77725\n  type: 'test'\n  ...\n# Subtest: удаление каскадом: текст, чанки, кеш и ссылки недоступны\nok 8 - удаление каскадом: текст, чанки, кеш и ссылки недоступны\n  ---\n  duration_ms: 17.64675\n  type: 'test'\n  ...\n# Subtest: OCR недоступен: оригинал сохранён, статус ожидает, повтор без второй копии\nok 9 - OCR недоступен: оригинал сохранён, статус ожидает, повтор без второй копии\n  ---\n  duration_ms: 18.711125\n  type: 'test'\n  ...\n# Subtest: документ — данные: инструкция внутри файла не исполняется\nok 10 - документ — данные: инструкция внутри файла не исполняется\n  ---\n  duration_ms: 12.968083\n  type: 'test'\n  ...\n# Subtest: конфликтующие даты и срок не создаётся без подтверждения\nok 11 - конфликтующие даты и срок не создаётся без подтверждения\n  ---\n  duration_ms: 12.319084\n  type: 'test'\n  ...\n# Subtest: ссылки ограничены сроком и проверяют доступ перед выдачей\nok 12 - ссылки ограничены сроком и проверяют доступ перед выдачей\n  ---\n  duration_ms: 13.0855\n  type: 'test'\n  ...\n# Subtest: лимиты разбора: большой файл не принимается, страницы ограничены\nok 13 - лимиты разбора: большой файл не принимается, страницы ограничены\n  ---\n  duration_ms: 12.734875\n  type: 'test'\n  ...\n# Subtest: миграция documents.json: копия до изменения и идемпотентность\nok 14 - миграция documents.json: копия до изменения и идемпотентность\n  ---\n  duration_ms: 9.054708\n  type: 'test'\n  ...\n# Subtest: инструмент documents: цитаты и честный отказ, идентичность из контекста\nok 15 - инструмент documents: цитаты и честный отказ, идентичность из контекста\n  ---\n  duration_ms: 12.403333\n  type: 'test'\n  ...\n# Subtest: семантическое переранжирование получает только ACL-кандидатов\nok 16 - семантическое переранжирование получает только ACL-кандидатов\n  ---\n  duration_ms: 23.214\n  type: 'test'\n  ...\n# Subtest: вложение становится документом, а инструмент доступен реестру\nok 17 - вложение становится документом, а инструмент доступен реестру\n  ---\n  duration_ms: 12.456708\n  type: 'test'\n  ...\n1..17\n# tests 17\n# suites 0\n# pass 17\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 735.178791\n\n"
+      }
+    },
+    {
+      "id": "AC-30",
+      "bp": "BP-07",
+      "area": "приёмка",
+      "level": "integration",
+      "title": "Приёмка исполняемая: каталог, прогон и отчёт",
+      "runner": "test/acceptance.test.mjs",
+      "status": "passed",
+      "checkedAt": "2026-10-18",
+      "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+      "evidence": "test/acceptance.test.mjs и docs/acceptance/report.json",
+      "blockedReason": null,
+      "lastRun": {
+        "at": "2026-10-18T18:38:58.726Z",
+        "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+        "report": "docs/acceptance/report.json",
+        "result": "passed",
+        "reason": null,
+        "command": "node --test --test-force-exit --test-reporter=tap test/acceptance.test.mjs",
+        "tests": {
+          "total": 7,
+          "pass": 7,
+          "fail": 0,
+          "skipped": 0
+        },
+        "durationMs": 648,
+        "outputTail": "TAP version 13\n# Subtest: каталог сценариев приёмки: 30 сценариев, уровни и связи BP\nok 1 - каталог сценариев приёмки: 30 сценариев, уровни и связи BP\n  ---\n  duration_ms: 1.829542\n  type: 'test'\n  ...\n# Subtest: acceptance.mjs --check проходит на реальном каталоге\nok 2 - acceptance.mjs --check проходит на реальном каталоге\n  ---\n  duration_ms: 38.119166\n  type: 'test'\n  ...\n# Subtest: --check падает на сценарии без уровня, статуса и раннера\nok 3 - --check падает на сценарии без уровня, статуса и раннера\n  ---\n  duration_ms: 71.995917\n  type: 'test'\n  ...\n# Subtest: --run не ставит passed без прогона и честно считает failed/blocked\nok 4 - --run не ставит passed без прогона и честно считает failed/blocked\n  ---\n  duration_ms: 250.632125\n  type: 'test'\n  ...\n# Subtest: --report показывает blocked отдельно и не выдаёт его за успех\nok 5 - --report показывает blocked отдельно и не выдаёт его за успех\n  ---\n  duration_ms: 196.9095\n  type: 'test'\n  ...\n# Subtest: матрица приёмки: BP-01…BP-07 и четыре раздельных статуса\nok 6 - матрица приёмки: BP-01…BP-07 и четыре раздельных статуса\n  ---\n  duration_ms: 0.286667\n  type: 'test'\n  ...\n# Subtest: отчёт приёмки: passed только после прогона, live не passed\nok 7 - отчёт приёмки: passed только после прогона, live не passed\n  ---\n  duration_ms: 0.548083\n  type: 'test'\n  ...\n1..7\n# tests 7\n# suites 0\n# pass 7\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 610.371666\n\n"
+      }
+    }
+  ]
+}

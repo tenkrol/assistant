@@ -30,16 +30,18 @@ secrets/    шифртекст секретов и имена ключей (бе
 `openspec/specs/`. Правила для любой сессии — [AGENTS.md](AGENTS.md) и
 [openspec/conventions.md](openspec/conventions.md).
 
-Продуктовые сценарии приёмки — [docs/acceptance/](docs/acceptance/) и
-`node tg-agent/tools/acceptance.mjs --list`. План работ — [docs/ROADMAP.md](docs/ROADMAP.md),
+Продуктовые сценарии приёмки — [docs/acceptance/](docs/acceptance/), матрица готовности —
+[docs/ACCEPTANCE-MATRIX.md](docs/ACCEPTANCE-MATRIX.md); прогон и отчёт:
+`node tg-agent/tools/acceptance.mjs --run --report`. План работ — [docs/ROADMAP.md](docs/ROADMAP.md),
 текущее состояние — [docs/HANDOFF.md](docs/HANDOFF.md).
 
 ## Быстрый старт
 
 ```sh
 cd tg-agent
-node --test --test-force-exit                       # тесты (сейчас 930)
-bash tg-agent/tools/acceptance.mjs --list   # сценарии приёмки (из корня)
+node --test --test-force-exit                       # тесты (сейчас 951)
+node tools/acceptance.mjs --run --report            # приёмка: прогон и отчёт
+node tools/acceptance.mjs --check                   # схема каталога приёмки
 node tools/deploy-safe.mjs --notify --test-timeout 900000   # деплой с откатом
 ```
 
