@@ -1958,6 +1958,50 @@ const AGENT_TEMPLATES = {
     ],
     build: (v) => `Проверь ${v.target}.\nЧто проверить: ${v.checks}\nДай список найденного с приоритетом и конкретными шагами. Формат: ${v.format}.`
   },
+  code: {
+    title: 'Код',
+    fields: [
+      { key: 'project', label: 'Проект или репозиторий', placeholder: 'tenkrol/assistant или путь на сервере' },
+      { key: 'task', label: 'Что сделать', type: 'textarea', placeholder: 'Исправить ошибку, добавить функцию, обновить тесты' },
+      { key: 'criteria', label: 'Критерии готовности', type: 'textarea', placeholder: 'Что должно работать и какие тесты должны пройти' },
+      { key: 'checks', label: 'Проверка', type: 'select', options: ['Тесты и линтер', 'Только тесты', 'Без запуска тестов'] }
+    ],
+    build: (v) => `Работай с кодом проекта: ${v.project}.\nЗадача: ${v.task}\nКритерии готовности: ${v.criteria}\nПроверка: ${v.checks}. Сделай изменения, прогони проверку и пришли отчёт с результатом.`
+  },
+  monitor: {
+    title: 'Сервер',
+    fields: [
+      { key: 'target', label: 'Что проверить', type: 'select', options: ['Сайт tenkrol.ru', 'Сервер Испания', 'Сервер Финляндия', 'Все сервисы'] },
+      { key: 'checks', label: 'Что именно', type: 'textarea', placeholder: 'Диск, память, systemd, nginx, ошибки в логах, сертификаты' },
+      { key: 'format', label: 'Формат отчёта', type: 'select', options: ['Кратко в чат', 'Подробный отчёт', 'PDF'] }
+    ],
+    build: (v) => `Проверь: ${v.target}.\nЧто проверить: ${v.checks}\nДай статус сервисов, диск и память, свежие ошибки, риски и рекомендации. Формат: ${v.format}.`
+  },
+  personal: {
+    title: 'Память',
+    fields: [
+      { key: 'action', label: 'Что сделать', type: 'select', options: ['Запомнить факт', 'Напомнить', 'Изменить настройку'] },
+      { key: 'details', label: 'Детали', type: 'textarea', placeholder: 'Что запомнить, о чём напомнить или какую настройку поменять' },
+      { key: 'when', label: 'Когда', placeholder: 'например, завтра в 9:00 или «без срока»' }
+    ],
+    build: (v) => `Личная задача: ${v.action}.\nДетали: ${v.details}\nКогда: ${v.when}. Учти контекст владельца и подтверди, что сделано.`
+  },
+  complex: {
+    title: 'Сложная задача',
+    fields: [
+      { key: 'goal', label: 'Цель', type: 'textarea', placeholder: 'Что нужно получить в итоге' },
+      { key: 'constraints', label: 'Ограничения', type: 'textarea', placeholder: 'Сроки, бюджет, что нельзя трогать' },
+      { key: 'format', label: 'Формат результата', type: 'select', options: ['Отчёт в чат', 'Документ DOCX', 'Таблица XLSX'] }
+    ],
+    build: (v) => `Сложная задача: ${v.goal}\nОграничения: ${v.constraints}\nРазбей на шаги, выполни и пришли результат в формате: ${v.format}. Покажи прогресс и итог.`
+  },
+  quick: {
+    title: 'Быстро',
+    fields: [
+      { key: 'task', label: 'Что нужно', type: 'textarea', placeholder: 'Короткий вопрос, перевод, справка или одно действие' }
+    ],
+    build: (v) => `Быстрая задача: ${v.task}`
+  },
   custom: {
     title: 'Своя задача',
     fields: [
@@ -2062,6 +2106,51 @@ function openAgentTemplate(key) {
   openSheet({ title: template.title, body: wrap })
 }
 
+const AGENT_CAPABILITY_LABELS = {
+  code: 'Код',
+  files: 'Файлы',
+  documents: 'Документы',
+  office: 'Office',
+  'long-task': 'Долгие задачи',
+  'verification-repair': 'Проверка и починка',
+  monitor: 'Мониторинг',
+  host: 'Серверы',
+  alerts: 'Алерты',
+  personal: 'Личные дела',
+  memory: 'Память',
+  reminders: 'Напоминания',
+  preferences: 'Настройки',
+  tasks: 'Планирование',
+  lifecycle: 'Этапы',
+  budget: 'Бюджет',
+  quick: 'Быстро'
+}
+
+function renderAgentCapabilities(data) {
+  const box = $('agent-capabilities')
+  if (!box) return
+  const capabilities = []
+  ;(data && Array.isArray(data.agents) ? data.agents : []).forEach((agent) => {
+    ;(agent.capabilities ?? []).forEach((capability) => {
+      if (!capabilities.includes(capability)) capabilities.push(capability)
+    })
+  })
+  const ordered = Object.keys(AGENT_CAPABILITY_LABELS).filter((key) => capabilities.includes(key))
+  const extra = capabilities.filter((key) => !AGENT_CAPABILITY_LABELS[key])
+  const chips = [...ordered, ...extra]
+  box.replaceChildren()
+  if (chips.length === 0) {
+    box.hidden = true
+    return
+  }
+  box.hidden = false
+  chips.forEach((capability) => {
+    const chip = h('span', 'agent-cap')
+    chip.append(icon('check'), h('span', null, AGENT_CAPABILITY_LABELS[capability] || capability))
+    box.append(chip)
+  })
+}
+
 function renderAgentStatus(data) {
   const pill = $('agent-status-pill')
   if (data && data.enabled) {
@@ -2071,6 +2160,7 @@ function renderAgentStatus(data) {
     pill.classList.add('is-off')
     pill.replaceChildren(h('span', 'dot'), h('span', null, 'недоступен'))
   }
+  renderAgentCapabilities(data)
   const box = $('agent-events')
   const events = data && Array.isArray(data.events) ? data.events : []
   $('agent-events-count').textContent = String(events.length)

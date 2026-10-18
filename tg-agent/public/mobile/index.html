@@ -266,9 +266,15 @@
           <p>Выберите блок — откроется шаблон. Заполните поля, проверьте задание и отправьте: агент выполнит его в песочнице, а отчёт придёт в чат.</p>
         </div>
 
+        <div class="agent-capabilities" id="agent-capabilities" hidden></div>
+
         <div class="tile-grid agent-grid" id="agent-templates">
+          <button class="tile" data-agent-template="code">
+            <span class="tile-ic blue"><svg class="ic"><use href="#i-cpu"/></svg></span>
+            <b>Код</b><span>правки, баги, тесты</span>
+          </button>
           <button class="tile" data-agent-template="document">
-            <span class="tile-ic blue"><svg class="ic"><use href="#i-file"/></svg></span>
+            <span class="tile-ic green"><svg class="ic"><use href="#i-file"/></svg></span>
             <b>Документ</b><span>письмо, справка, договор</span>
           </button>
           <button class="tile" data-agent-template="table">
@@ -288,8 +294,24 @@
             <b>Перевод</b><span>текст или страница</span>
           </button>
           <button class="tile" data-agent-template="site">
-            <span class="tile-ic green"><svg class="ic"><use href="#i-server"/></svg></span>
+            <span class="tile-ic green"><svg class="ic"><use href="#i-shield"/></svg></span>
             <b>Проверка</b><span>сайт, код, ошибки</span>
+          </button>
+          <button class="tile" data-agent-template="monitor">
+            <span class="tile-ic amber"><svg class="ic"><use href="#i-server"/></svg></span>
+            <b>Сервер</b><span>диск, сервисы, логи</span>
+          </button>
+          <button class="tile" data-agent-template="personal">
+            <span class="tile-ic violet"><svg class="ic"><use href="#i-user"/></svg></span>
+            <b>Память</b><span>запомнить и напомнить</span>
+          </button>
+          <button class="tile" data-agent-template="complex">
+            <span class="tile-ic blue"><svg class="ic"><use href="#i-bolt"/></svg></span>
+            <b>Сложная</b><span>план и несколько шагов</span>
+          </button>
+          <button class="tile" data-agent-template="quick">
+            <span class="tile-ic green"><svg class="ic"><use href="#i-spark"/></svg></span>
+            <b>Быстро</b><span>короткий ответ или действие</span>
           </button>
         </div>
 
