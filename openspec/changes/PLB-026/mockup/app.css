@@ -189,7 +189,9 @@ svg.ic {
   }
 
   .app {
-    height: min(880px, calc(100dvh - 44px));
+    width: 390px;
+    max-width: 390px;
+    height: min(844px, calc(100dvh - 44px));
     border: 1px solid var(--border-2);
     border-radius: 36px;
     box-shadow: var(--shadow);
