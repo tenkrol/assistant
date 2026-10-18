@@ -1897,3 +1897,69 @@ test('веб-команда возвращает ответ на сайт, а н
     await ctx.cleanup()
   }
 })
+
+// F1: напоминания — это данные, а не заявка на разработку.
+test('a reminder message does not create a feature request', async () => {
+  const ctx = await setup({ responses: [{ content: 'напоминание принято' }] })
+  try {
+    let requests = 0
+    ctx.bot.agentBridge = { enabled: true, createRequest: async () => { requests += 1; return { requestId: 'REQ-X' } } }
+    const update = textUpdate({ text: 'Добавь напоминание завтра в 10:00 позвонить маме', updateId: 1, userId: ALLOWED })
+    update.message.addressed = true
+    await ctx.bot.handleMessage(update.message)
+    await waitFor(() => ctx.modelStub.state.requests.length >= 1, { what: 'the normal model turn' })
+    assert.equal(requests, 0, 'createRequest не вызывается для напоминания')
+    assert.ok(ctx.modelStub.state.requests.length >= 1, 'обычный путь обработки выполнен')
+  } finally {
+    await ctx.cleanup()
+  }
+})
+
+test('an explicit product change creates a request instead of a reminder', async () => {
+  const ctx = await setup({ responses: [{ content: 'ответ модели' }] })
+  try {
+    const seen = []
+    ctx.bot.agentBridge = {
+      enabled: true,
+      createRequest: async ({ text }) => { seen.push(text); return { requestId: 'REQ-1', analysis: { components: [] }, compareUrl: 'https://example/c' } },
+    }
+    const update = textUpdate({ text: 'Добавь в бота возможность повторять напоминание до подтверждения', updateId: 2, userId: ALLOWED })
+    update.message.addressed = true
+    await ctx.bot.handleMessage(update.message)
+    assert.equal(seen.length, 1)
+    assert.ok(ctx.telegramStub.state.sends.some((item) => /REQ-1/.test(item.text)))
+  } finally {
+    await ctx.cleanup()
+  }
+})
+
+test('/request remains an explicit path to a change request', async () => {
+  const ctx = await setup({ responses: [{ content: 'ответ модели' }] })
+  try {
+    let requests = 0
+    ctx.bot.agentBridge = { enabled: true, createRequest: async () => { requests += 1; return { requestId: 'REQ-2', analysis: { components: [] } } } }
+    const update = textUpdate({ text: '/request добавь в бота команду показа релиза', updateId: 3, userId: ALLOWED })
+    update.message.addressed = true
+    await ctx.bot.handleMessage(update.message)
+    assert.equal(requests, 1)
+  } finally {
+    await ctx.cleanup()
+  }
+})
+
+test('an answer to an open agent question is not intercepted as a feature request', async () => {
+  const ctx = await setup({ responses: [{ content: 'ответ модели' }] })
+  try {
+    let requests = 0
+    ctx.bot.agentBridge = { enabled: true, createRequest: async () => { requests += 1; return { requestId: 'REQ-3' } } }
+    let answered = 0
+    ctx.bot.agentLink = { handleOwnerMessage: async () => { answered += 1; return { handled: true, message: 'ответ агента' } } }
+    const update = textUpdate({ text: 'Добавь в бота команду показа релиза', updateId: 4, userId: ALLOWED })
+    update.message.addressed = true
+    await ctx.bot.handleMessage(update.message)
+    assert.equal(requests, 0)
+    assert.equal(answered, 1, 'ответ на открытый вопрос агента обработан до детектора заявок')
+  } finally {
+    await ctx.cleanup()
+  }
+})
