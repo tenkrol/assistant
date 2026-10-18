@@ -143,6 +143,7 @@ const state = {
   memory: { facts: [], city: null },
   stats: null,
   chat: null,
+  chatSending: false,
   chats: [],
   chatTarget: null,
   factQuery: '',
@@ -626,7 +627,7 @@ async function refreshGroupChat() {
   if (groupPollInFlight || document.hidden || currentScreen !== 'chat') return
   const target = state.chatTarget
   if (!target || target.type === 'private' || state.loading.chat) return
-  if ($('chat-send').disabled) return
+  if (state.chatSending) return
   groupPollInFlight = true
   try {
     const data = await api('GET', '/api/chat/history?limit=60&chatId=' + encodeURIComponent(target.id))
@@ -822,6 +823,7 @@ async function sendSiteMessage() {
   input.value = ''
   updateChatSend()
   button.disabled = true
+  state.chatSending = true
   showChatTyping()
   try {
     const data = await api('POST', '/api/chat/message', {
@@ -850,6 +852,7 @@ async function sendSiteMessage() {
     }
     appendChatMessage('assistant', '⚠️ ' + (error && error.message ? error.message : 'Не удалось получить ответ'))
   } finally {
+    state.chatSending = false
     updateChatSend()
   }
 }
