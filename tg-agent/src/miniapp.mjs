@@ -381,6 +381,7 @@ export function createMiniApp({
   groupChatType = 'group',
   pushStore,
   pushPublicKey = '',
+  pushTest,
   chatResponder,
   agentResponder,
   agentStatus,
@@ -836,6 +837,22 @@ export function createMiniApp({
     request.resume()
     const enabled = Boolean(pushStore && typeof pushStore.add === 'function' && pushPublicKey)
     sendJson(response, 200, { enabled, publicKey: enabled ? pushPublicKey : '' })
+  }
+
+  /** POST /api/push/test — отправить тестовый push текущему аккаунту. */
+  async function testPush(request, response, { userId }) {
+    if (typeof pushTest !== 'function') {
+      request.resume()
+      return missingStore(response, 'уведомления')
+    }
+    request.resume()
+    try {
+      const result = await pushTest({ userId })
+      sendJson(response, 200, result ?? { sent: 0, failed: 0, subscribed: 0 })
+    } catch (error) {
+      logger?.warn?.('push test failed', { error: error?.message ?? error, userId })
+      sendError(response, 502, 'push_unavailable', 'Не удалось отправить тестовый push')
+    }
   }
 
   /** POST /api/push/subscribe — сохранить подписку браузера. */
@@ -1378,6 +1395,7 @@ export function createMiniApp({
     { method: 'GET', pattern: /^\/api\/push\/config$/, handler: getPushConfig },
     { method: 'POST', pattern: /^\/api\/push\/subscribe$/, handler: subscribePush },
     { method: 'POST', pattern: /^\/api\/push\/unsubscribe$/, handler: unsubscribePush },
+    { method: 'POST', pattern: /^\/api\/push\/test$/, handler: testPush },
     { method: 'GET', pattern: /^\/api\/agent\/status$/, handler: getAgentStatus },
     { method: 'POST', pattern: /^\/api\/agent\/task$/, handler: submitAgentTask },
     { method: 'GET', pattern: /^\/api\/settings$/, handler: getSettings },

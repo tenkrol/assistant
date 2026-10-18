@@ -777,6 +777,27 @@ export async function createInstance({ config, logger, instance, shared, platfor
         mobileUsers,
         pushStore: mobilePush,
         pushPublicKey: pushVapid ? pushVapid.publicKey : '',
+        pushTest: async ({ userId }) => {
+          if (!mobilePush || !pushVapid) return { sent: 0, failed: 0, subscribed: 0, error: 'VAPID не настроен' }
+          const subscriptions = mobilePush.listForUsers([userId])
+          if (subscriptions.length === 0) return { sent: 0, failed: 0, subscribed: 0 }
+          const results = await Promise.all(subscriptions.map(async (item) => ({
+            item,
+            result: await sendPush({ endpoint: item.endpoint, keys: item.keys }, { vapid: pushVapid }),
+          })))
+          for (const { item, result } of results) {
+            if (result.expired) await mobilePush.removeSubscription({ endpoint: item.endpoint }).catch(() => {})
+          }
+          await mobilePush.flush().catch(() => {})
+          const sent = results.filter(({ result }) => result.ok).length
+          const failed = results.length - sent
+          return {
+            sent,
+            failed,
+            subscribed: subscriptions.length,
+            ...(failed > 0 ? { error: results.find(({ result }) => !result.ok)?.result?.error ?? 'push не принят' } : {}),
+          }
+        },
         chatResponder: (input) => bot.handleWebMessage(input),
         agentResponder: async ({ task, userId, chatId }) => {
           if (!bot.agentBridge?.enabled) return { ok: false, error: 'Мост к агенту не настроен' }

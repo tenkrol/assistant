@@ -29,7 +29,8 @@
   - `POST /api/agent/task` — шаблонное задание сразу в `agentBridge.execute('ask_agent')`
     с маршрутом в чат пользователя; задание и подтверждение добавляются в историю;
   - `GET /api/push/config`, `POST /api/push/subscribe`, `POST /api/push/unsubscribe` —
-    VAPID-ключ и подписки браузера; сами push отправляются при напоминаниях, ответах
+    VAPID-ключ и подписки браузера; `POST /api/push/test` — тестовый push текущему
+    аккаунту с числом принятых устройств; сами push отправляются при напоминаниях, ответах
     агента и дайджесте, а не на каждое сообщение.
   - статика `/mobile/` с CSP, `nosniff`, `X-Frame-Options: DENY`; `/mobile` → `/mobile/`.
 - `UsageStore.recent(days)` — последние дни для графика.

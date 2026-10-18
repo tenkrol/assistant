@@ -1705,6 +1705,27 @@ async function enablePush() {
   }
 }
 
+async function testPushNotification() {
+  const button = $('push-test')
+  if (button) button.disabled = true
+  try {
+    const result = await api('POST', '/api/push/test', {})
+    const sent = Number(result.sent ?? 0)
+    const subscribed = Number(result.subscribed ?? 0)
+    if (subscribed === 0) {
+      toast('Нет подписки на этом аккаунте — включите уведомления')
+    } else if (sent > 0) {
+      toast('Тестовый push отправлен на ' + sent + ' устр. Сверните приложение')
+    } else {
+      toast('Push не принят: ' + (result.error || 'неизвестная ошибка'))
+    }
+  } catch (error) {
+    toast(error && error.message ? error.message : 'Не удалось отправить тестовый push')
+  } finally {
+    if (button) button.disabled = false
+  }
+}
+
 async function disablePush() {
   try {
     const registration = await pushRegistration()
@@ -2401,6 +2422,7 @@ function bind() {
     else void enablePush()
   })
   $('push-install').addEventListener('click', showPushInstallSheet)
+  $('push-test').addEventListener('click', () => void testPushNotification())
   $('reply-cancel').addEventListener('click', clearChatReply)
 
   $('logout-button').addEventListener('click', () => {

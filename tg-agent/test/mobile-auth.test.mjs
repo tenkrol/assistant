@@ -177,6 +177,7 @@ async function createHarness(t, options = {}) {
     mobileUsers,
     pushStore: options.pushStore,
     pushPublicKey: options.pushPublicKey ?? '',
+    pushTest: options.pushTest,
     chatResponder: options.chatResponder,
     agentResponder: options.agentResponder,
     agentStatus: options.agentStatus,
@@ -623,6 +624,7 @@ test('push: конфиг, подписка и отписка', async (t) => {
     accounts: true,
     pushStore,
     pushPublicKey: 'BPublicKeyTest',
+    pushTest: async ({ userId }) => ({ sent: 1, failed: 0, subscribed: 1, userId }),
   })
   const cookies = jar()
   await request(base, '/api/auth/login', {
@@ -656,6 +658,16 @@ test('push: конфиг, подписка и отписка', async (t) => {
   })
   assert.equal(unsub.status, 200)
   assert.equal(pushStore.listForUsers([USER_ID]).length, 0)
+
+  const tested = await request(base, '/api/push/test', {
+    method: 'POST',
+    cookieJar: cookies,
+    headers: { 'X-Mobile-Client': '1' },
+    body: {},
+  })
+  assert.equal(tested.status, 200)
+  assert.equal(tested.json.sent, 1)
+  assert.equal(tested.json.userId, USER_ID)
 })
 
 test('настройки: чтение, смена и проверка значений', async (t) => {
