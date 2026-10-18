@@ -632,7 +632,8 @@ function sameMessages(left, right) {
   if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length) return false
   return left.every((item, index) => item.role === right[index].role
     && item.text === right[index].text
-    && item.author === right[index].author)
+    && item.author === right[index].author
+    && (item.replyTo && item.replyTo.text ? item.replyTo.text : '') === (right[index].replyTo && right[index].replyTo.text ? right[index].replyTo.text : ''))
 }
 
 async function refreshGroupChat() {

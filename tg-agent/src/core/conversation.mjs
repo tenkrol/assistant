@@ -544,7 +544,14 @@ export function createConversation(bot) {
       const historyLine = prepared.summary || prompt
       await bot.history.append(
         chatKey,
-        { role: 'user', content: historyLine, ...(authorName ? { author: authorName } : {}) },
+        {
+          role: 'user',
+          content: historyLine,
+          ...(authorName ? { author: authorName } : {}),
+          ...(message.replyTo && typeof message.replyTo.text === 'string' && message.replyTo.text.trim() !== ''
+            ? { replyTo: { text: message.replyTo.text.trim().slice(0, 600), ...(message.replyTo.author ? { author: String(message.replyTo.author).slice(0, 80) } : {}) } }
+            : {}),
+        },
         { userId: isGroup ? undefined : userId },
       )
       // Кого бот видел — для sendto: Telegram не даёт писать человеку по @нику,

@@ -1988,6 +1988,7 @@ test('веб-сообщение в общий чат пересылается в
     const chat = history.chats['-1001234567890']
     assert.ok(chat, 'история группы записана')
     assert.equal(chat.messages.at(-2).author, 'Вячеслав')
+    assert.equal(chat.messages.at(-2).replyTo.text, 'раньше было лучше')
   } finally {
     await ctx.cleanup()
   }

@@ -1030,6 +1030,14 @@ export function createMiniApp({
         role: message.role === 'assistant' ? 'assistant' : 'user',
         text: safeText(message.content),
         ...(typeof message.author === 'string' && message.author !== '' ? { author: safeText(message.author, 80) } : {}),
+        ...(message.replyTo && typeof message.replyTo.text === 'string' && message.replyTo.text !== ''
+          ? {
+            replyTo: {
+              text: safeText(message.replyTo.text, 600),
+              ...(message.replyTo.author ? { author: safeText(message.replyTo.author, 80) } : {}),
+            },
+          }
+          : {}),
       }))
     sendJson(response, 200, { messages, telegramUrl, chat: target })
   }
