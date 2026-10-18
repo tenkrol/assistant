@@ -243,26 +243,54 @@
       <header class="topbar title-head">
         <div>
           <h1>Агент</h1>
-          <p class="sub">Длинные задачи · «Финляндия»</p>
+          <p class="sub">Задания по шаблону · «Финляндия»</p>
         </div>
-        <span class="status-pill"><span class="dot"></span>в Telegram</span>
+        <span class="status-pill" id="agent-status-pill"><span class="dot"></span>проверяю…</span>
       </header>
-      <div class="scroll screen-scroll">
+      <div class="scroll screen-scroll" id="agent-scroll">
         <div class="card info-card">
-          <b>Длинные задачи запускаются в чате</b>
-          <p>Агент работает в песочнице на отдельном сервере: читает файлы, готовит документы и присылает результат в Telegram. Здесь — вход в тот же чат, чтобы не искать его в списке.</p>
-          <a class="btn btn-primary btn-block" id="agent-telegram" href="https://t.me/Tenkrol_bot" target="_blank" rel="noopener">
-            <svg class="ic"><use href="#i-telegram"/></svg>
-            Открыть чат с ботом
-          </a>
+          <b>Что поручить агенту</b>
+          <p>Выберите блок — откроется шаблон. Заполните поля, проверьте задание и отправьте: агент выполнит его в песочнице, а отчёт придёт в чат.</p>
         </div>
-        <div class="group-head"><span>Как это работает</span></div>
-        <div class="card info-card">
-          <div class="info-row"><span>1</span><b>Опишите задачу в чате</b></div>
-          <div class="info-row"><span>2</span><b>Агент выполняет её в песочнице</b></div>
-          <div class="info-row"><span>3</span><b>Результат приходит в чат и файлом</b></div>
+
+        <div class="tile-grid agent-grid" id="agent-templates">
+          <button class="tile" data-agent-template="document">
+            <span class="tile-ic blue"><svg class="ic"><use href="#i-file"/></svg></span>
+            <b>Документ</b><span>письмо, справка, договор</span>
+          </button>
+          <button class="tile" data-agent-template="table">
+            <span class="tile-ic green"><svg class="ic"><use href="#i-chart"/></svg></span>
+            <b>Таблица</b><span>данные и итоги в XLSX</span>
+          </button>
+          <button class="tile" data-agent-template="report">
+            <span class="tile-ic violet"><svg class="ic"><use href="#i-folder"/></svg></span>
+            <b>Отчёт</b><span>собрать и оформить</span>
+          </button>
+          <button class="tile" data-agent-template="research">
+            <span class="tile-ic amber"><svg class="ic"><use href="#i-search"/></svg></span>
+            <b>Исследование</b><span>найти и проверить</span>
+          </button>
+          <button class="tile" data-agent-template="translate">
+            <span class="tile-ic blue"><svg class="ic"><use href="#i-globe"/></svg></span>
+            <b>Перевод</b><span>текст или страница</span>
+          </button>
+          <button class="tile" data-agent-template="site">
+            <span class="tile-ic green"><svg class="ic"><use href="#i-server"/></svg></span>
+            <b>Проверка</b><span>сайт, код, ошибки</span>
+          </button>
         </div>
-        <p class="hint">Экран агента появится здесь, когда у моста появится API списка задач. Пока задачи — в Telegram.</p>
+
+        <button class="agent-free" data-agent-template="custom">
+          <span class="row-ic"><svg class="ic"><use href="#i-spark"/></svg></span>
+          <span><b>Своя задача</b><span>описать словами, без шаблона</span></span>
+          <svg class="ic"><use href="#i-chevron-right"/></svg>
+        </button>
+
+        <div class="group-head"><span>Последние задачи</span><span class="group-count" id="agent-events-count">0</span></div>
+        <div id="agent-events">
+          <p class="hint">Загружаю активность агента…</p>
+        </div>
+        <p class="hint">Результат приходит в чат; файлы — в Telegram. Задания видны в истории чата.</p>
       </div>
     </section>
 

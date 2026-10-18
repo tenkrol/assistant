@@ -731,6 +731,25 @@ export async function createInstance({ config, logger, instance, shared, platfor
         history,
         mobileUsers,
         chatResponder: (input) => bot.handleWebMessage(input),
+        agentResponder: async ({ task, userId, chatId }) => {
+          if (!bot.agentBridge?.enabled) return { ok: false, error: 'Мост к агенту не настроен' }
+          const text = await bot.agentBridge.execute('ask_agent', { task }, { chatId, botId: bot.botId })
+          if (typeof text !== 'string' || !text.startsWith('Задача')) {
+            return { ok: false, error: text || 'Агент не принял задание' }
+          }
+          // Задание и подтверждение видны в общей истории, как обычный ход бота.
+          await bot.history.append(String(chatId), { role: 'user', content: task }, { userId })
+          await bot.history.append(String(chatId), { role: 'assistant', content: text })
+          return { ok: true, text }
+        },
+        agentStatus: async () => {
+          if (!bot.agentBridge?.enabled) return { enabled: false, agents: [], events: [] }
+          const [agents, events] = await Promise.all([
+            typeof bot.agentBridge.agents === 'function' ? bot.agentBridge.agents().catch(() => []) : [],
+            typeof bot.agentBridge.activity === 'function' ? bot.agentBridge.activity({ limit: 10 }).catch(() => []) : [],
+          ])
+          return { enabled: true, agents, events }
+        },
         mobilePasswordHash: config.miniapp.mobile.passwordHash,
         mobileSessionSecret: config.miniapp.mobile.sessionSecret,
         mobileUserId: config.miniapp.mobile.userId || [...botConfig.access.allowedUserIds][0],

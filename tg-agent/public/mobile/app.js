@@ -330,6 +330,7 @@ function go(name, options = {}) {
   if (name === 'memory') ensureMemory()
   if (name === 'settings') ensureSettings()
   if (name === 'stats') ensureStats()
+  if (name === 'agent') ensureAgent()
   if (name === 'chat') ensureChat()
   const active = screens.get(name)
   if (active) {
@@ -1447,6 +1448,212 @@ async function openUsersSheet() {
   }
 }
 
+/* ============================ Агент ============================ */
+
+const AGENT_TEMPLATES = {
+  document: {
+    title: 'Документ',
+    fields: [
+      { key: 'title', label: 'Название документа', placeholder: 'Письмо клинике' },
+      { key: 'details', label: 'Что должно быть внутри', type: 'textarea', placeholder: 'Кому, о чём, какие реквизиты и сроки указать' },
+      { key: 'format', label: 'Формат файла', type: 'select', options: ['DOCX', 'PDF'] }
+    ],
+    build: (v) => `Подготовь документ «${v.title}» в формате ${v.format}.\nЧто должно быть внутри: ${v.details}\nОформи аккуратно, с заголовками и подписями; пришли готовый файл.`
+  },
+  table: {
+    title: 'Таблица',
+    fields: [
+      { key: 'topic', label: 'Тема таблицы', placeholder: 'Расходы за сентябрь' },
+      { key: 'columns', label: 'Столбцы и данные', type: 'textarea', placeholder: 'Категория, сумма, дата; итоги по категориям' },
+      { key: 'source', label: 'Источник данных', placeholder: 'Файл в чате, ссылка или «собери сам»' }
+    ],
+    build: (v) => `Собери таблицу в формате XLSX по теме «${v.topic}».\nСтолбцы и данные: ${v.columns}\nИсточник данных: ${v.source}\nДобавь итоги и пришли готовый файл.`
+  },
+  report: {
+    title: 'Отчёт',
+    fields: [
+      { key: 'topic', label: 'Тема отчёта', placeholder: 'Отчёт по дому за октябрь' },
+      { key: 'period', label: 'Период', placeholder: 'Октябрь 2026' },
+      { key: 'details', label: 'Что включить', type: 'textarea', placeholder: 'Расходы, ремонт, важные события' },
+      { key: 'format', label: 'Формат файла', type: 'select', options: ['DOCX', 'PDF', 'XLSX'] }
+    ],
+    build: (v) => `Собери отчёт «${v.topic}» за период ${v.period} в формате ${v.format}.\nЧто включить: ${v.details}\nСтруктура: краткое резюме, факты и цифры, выводы. Пришли готовый файл.`
+  },
+  research: {
+    title: 'Исследование',
+    fields: [
+      { key: 'topic', label: 'Тема', placeholder: 'Проверить рынок аренды в Казани' },
+      { key: 'questions', label: 'Какие вопросы закрыть', type: 'textarea', placeholder: 'Цены, спрос, риски, источники' },
+      { key: 'format', label: 'Формат ответа', type: 'select', options: ['Текст в чат', 'PDF'] }
+    ],
+    build: (v) => `Проведи исследование по теме: ${v.topic}.\nВопросы, на которые нужно ответить: ${v.questions}\nНайди подтверждения в источниках, дай ссылки и отдели факты от предположений. Формат: ${v.format}.`
+  },
+  translate: {
+    title: 'Перевод',
+    fields: [
+      { key: 'language', label: 'На какой язык', placeholder: 'английский' },
+      { key: 'source', label: 'Текст или ссылка', type: 'textarea', placeholder: 'Вставьте текст или ссылку на страницу' },
+      { key: 'style', label: 'Стиль', type: 'select', options: ['Обычный', 'Деловой', 'Художественный'] }
+    ],
+    build: (v) => `Переведи на ${v.language} следующий материал:\n${v.source}\nСтиль: ${v.style}. Сохрани смысл, пришли результат текстом.`
+  },
+  site: {
+    title: 'Проверка',
+    fields: [
+      { key: 'target', label: 'Что проверить', placeholder: 'https://tenkrol.ru или репозиторий' },
+      { key: 'checks', label: 'Что именно проверить', type: 'textarea', placeholder: 'Ошибки, доступность, ссылки, безопасность' },
+      { key: 'format', label: 'Формат ответа', type: 'select', options: ['Список проблем', 'PDF'] }
+    ],
+    build: (v) => `Проверь ${v.target}.\nЧто проверить: ${v.checks}\nДай список найденного с приоритетом и конкретными шагами. Формат: ${v.format}.`
+  },
+  custom: {
+    title: 'Своя задача',
+    fields: [
+      { key: 'task', label: 'Задание', type: 'textarea', placeholder: 'Опишите, что должен сделать агент и какой результат нужен' }
+    ],
+    build: (v) => v.task
+  }
+}
+
+function agentFieldInput(def) {
+  let input
+  if (def.type === 'textarea') {
+    input = h('textarea', 'input agent-preview')
+    input.rows = 4
+  } else if (def.type === 'select') {
+    input = h('select', 'input')
+    ;(def.options ?? []).forEach((option) => {
+      const node = document.createElement('option')
+      node.value = option
+      node.textContent = option
+      input.append(node)
+    })
+  } else {
+    input = h('input', 'input')
+  }
+  if (def.placeholder) input.placeholder = def.placeholder
+  return input
+}
+
+function openAgentTemplate(key) {
+  const template = AGENT_TEMPLATES[key]
+  if (!template) return
+  const wrap = h('div')
+  const inputs = {}
+  template.fields.forEach((def) => {
+    const input = agentFieldInput(def)
+    inputs[def.key] = input
+    wrap.append(field(def.label, input))
+  })
+
+  const preview = h('textarea', 'input agent-preview')
+  preview.rows = 6
+  preview.setAttribute('aria-label', 'Задание агенту')
+  wrap.append(field('Задание, которое уйдёт агенту', preview))
+
+  const error = h('div', 'login-error')
+  error.hidden = true
+  wrap.append(error)
+
+  const refresh = () => {
+    const values = {}
+    template.fields.forEach((def) => {
+      values[def.key] = inputs[def.key].value.trim()
+    })
+    preview.value = template.build(values)
+  }
+  Object.values(inputs).forEach((input) => {
+    input.addEventListener('input', refresh)
+    input.addEventListener('change', refresh)
+  })
+  refresh()
+  if (key === 'custom') {
+    const custom = inputs.task
+    custom.addEventListener('input', () => { preview.value = custom.value })
+  }
+
+  const submit = h('button', 'btn btn-primary btn-block', 'Отправить агенту')
+  submit.type = 'button'
+  submit.addEventListener('click', async () => {
+    error.hidden = true
+    const task = preview.value.trim()
+    if (task === '') {
+      error.hidden = false
+      error.textContent = 'Заполните задание'
+      return
+    }
+    const missing = template.fields.some((def) => inputs[def.key].value.trim() === '')
+    if (missing && key !== 'custom') {
+      error.hidden = false
+      error.textContent = 'Заполните все поля шаблона'
+      return
+    }
+    submit.disabled = true
+    try {
+      const result = await api('POST', '/api/agent/task', { task })
+      closeSheet()
+      toast('Задание передано агенту')
+      const card = h('div', 'agent-result', result.text || 'Задание передано агенту. Результат придёт в чат.')
+      const old = document.querySelector('.agent-result')
+      if (old) old.remove()
+      $('agent-scroll').prepend(card)
+      state.loaded.chat = false
+      void loadAgentStatus()
+    } catch (err) {
+      submit.disabled = false
+      error.hidden = false
+      error.textContent = err && err.message ? err.message : 'Не удалось передать задание'
+    }
+  })
+  wrap.append(submit)
+  wrap.append(h('p', 'sheet-note', 'Агент работает в песочнице. Задание и подтверждение появятся в истории чата; файлы придут в Telegram.'))
+  openSheet({ title: template.title, body: wrap })
+}
+
+function renderAgentStatus(data) {
+  const pill = $('agent-status-pill')
+  if (data && data.enabled) {
+    pill.classList.remove('is-off')
+    pill.replaceChildren(h('span', 'dot'), h('span', null, 'на связи'))
+  } else {
+    pill.classList.add('is-off')
+    pill.replaceChildren(h('span', 'dot'), h('span', null, 'недоступен'))
+  }
+  const box = $('agent-events')
+  const events = data && Array.isArray(data.events) ? data.events : []
+  $('agent-events-count').textContent = String(events.length)
+  box.replaceChildren()
+  if (events.length === 0) {
+    box.append(h('p', 'hint', data && data.enabled ? 'Пока нет задач. Выберите блок выше.' : 'Агент не отвечает: мост выключен или недоступен.'))
+    return
+  }
+  events.slice(0, 8).forEach((event) => {
+    const card = h('div', 'agent-event')
+    const ic = h('span', 'plan-ic' + (event.status === 'failed' ? ' event' : ''))
+    ic.append(icon(event.type === 'question' ? 'help' : 'cpu'))
+    const body = h('div', 'agent-event-body')
+    const title = event.title || event.taskId || 'Задача агента'
+    body.append(h('div', 'agent-event-title', String(title)))
+    const meta = [event.agent, event.type, event.status, event.tokens ? event.tokens + ' ток.' : ''].filter(Boolean).join(' · ')
+    body.append(h('div', 'agent-event-meta', meta || 'событие агента'))
+    card.append(ic, body)
+    box.append(card)
+  })
+}
+
+async function loadAgentStatus() {
+  try {
+    const data = await api('GET', '/api/agent/status')
+    renderAgentStatus(data)
+  } catch (error) {
+    if (error.status !== 401) renderAgentStatus({ enabled: false, events: [] })
+  }
+}
+
+async function ensureAgent() {
+  await loadAgentStatus()
+}
+
 /* ============================ Статистика ============================ */
 
 async function ensureStats() {
@@ -1611,6 +1818,10 @@ function bind() {
   })
   $('chat-send').addEventListener('click', () => void sendSiteMessage())
   updateChatSend()
+
+  document.querySelectorAll('[data-agent-template]').forEach((button) => {
+    button.addEventListener('click', () => openAgentTemplate(button.dataset.agentTemplate))
+  })
 
   $('memory-search-toggle').addEventListener('click', () => {
     const row = $('memory-search')

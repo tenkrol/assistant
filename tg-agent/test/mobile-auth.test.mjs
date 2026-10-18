@@ -176,6 +176,8 @@ async function createHarness(t, options = {}) {
     history,
     mobileUsers,
     chatResponder: options.chatResponder,
+    agentResponder: options.agentResponder,
+    agentStatus: options.agentStatus,
     publicDir,
     logger: silentLogger,
     mobilePasswordHash: options.mobilePasswordHash ?? HASH,
@@ -497,6 +499,59 @@ test('чат с сайта: сообщение проходит через respo
     cookieJar: cookies,
     headers: { 'X-Mobile-Client': '1' },
     body: { text: '   ' },
+  })
+  assert.equal(empty.status, 400)
+})
+
+test('агент: статус, задание по шаблону и CSRF', async (t) => {
+  const seen = []
+  const { base } = await createHarness(t, {
+    accounts: true,
+    agentResponder: async (input) => {
+      seen.push(input)
+      return { ok: true, text: 'Задача 42 передана агенту' }
+    },
+    agentStatus: async () => ({
+      enabled: true,
+      agents: [{ id: 'agent-1', status: 'ready' }],
+      events: [{ taskId: '42', agent: 'agent-1', type: 'task', status: 'done' }],
+    }),
+  })
+  const cookies = jar()
+  await request(base, '/api/auth/login', {
+    method: 'POST',
+    body: { username: 'tenkrol', password: PASSWORD },
+    cookieJar: cookies,
+  })
+
+  const status = await request(base, '/api/agent/status', { cookieJar: cookies })
+  assert.equal(status.status, 200)
+  assert.equal(status.json.enabled, true)
+  assert.equal(status.json.events[0].taskId, '42')
+
+  const noCsrf = await request(base, '/api/agent/task', {
+    method: 'POST',
+    cookieJar: cookies,
+    body: { task: 'Сделай отчёт' },
+  })
+  assert.equal(noCsrf.status, 403)
+
+  const sent = await request(base, '/api/agent/task', {
+    method: 'POST',
+    cookieJar: cookies,
+    headers: { 'X-Mobile-Client': '1' },
+    body: { task: 'Сделай отчёт' },
+  })
+  assert.equal(sent.status, 200)
+  assert.match(sent.json.text, /передана/)
+  assert.equal(seen[0].task, 'Сделай отчёт')
+  assert.equal(seen[0].userId, USER_ID)
+
+  const empty = await request(base, '/api/agent/task', {
+    method: 'POST',
+    cookieJar: cookies,
+    headers: { 'X-Mobile-Client': '1' },
+    body: { task: '' },
   })
   assert.equal(empty.status, 400)
 })

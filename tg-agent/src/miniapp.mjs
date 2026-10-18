@@ -377,6 +377,8 @@ export function createMiniApp({
   modelOptions = [],
   telegramUrl = '',
   chatResponder,
+  agentResponder,
+  agentStatus,
   timeZone = '',
   now = () => Date.now(),
 } = {}) {
@@ -780,6 +782,69 @@ export function createMiniApp({
   const safeText = (value, limit = CHAT_MESSAGE_MAX) => String(value ?? '').slice(0, limit)
 
   const chatInFlight = new Set()
+  const agentInFlight = new Set()
+  let agentStatusCache = { at: 0, value: null }
+
+  /** GET /api/agent/status — доступен ли мост и что происходило у агента. */
+  async function getAgentStatus(request, response) {
+    request.resume()
+    if (typeof agentStatus !== 'function') {
+      return sendJson(response, 200, { enabled: false, agents: [], events: [] })
+    }
+    const at = timeNow()
+    if (agentStatusCache.value && at - agentStatusCache.at < 10_000) {
+      return sendJson(response, 200, agentStatusCache.value)
+    }
+    try {
+      const value = await agentStatus()
+      agentStatusCache = { at, value }
+      sendJson(response, 200, value)
+    } catch (error) {
+      logger?.warn?.('agent status failed', { error: error?.message ?? error })
+      sendJson(response, 200, { enabled: false, agents: [], events: [], error: 'Агент не отвечает' })
+    }
+  }
+
+  /** POST /api/agent/task — задание агенту по шаблону с сайта. */
+  async function submitAgentTask(request, response, { userId, chatId, auth }) {
+    if (typeof agentResponder !== 'function') {
+      request.resume()
+      return missingStore(response, 'агент')
+    }
+    if (agentInFlight.has(String(userId))) {
+      request.resume()
+      return sendJson(response, 429, {
+        error: 'Агент уже принимает задачу — дождитесь ответа',
+        code: 'too_many_requests',
+      })
+    }
+    const body = await readJsonBody(request, bodyLimit)
+    if (!body.ok) return sendError(response, body.status, body.code, body.error)
+    const task = typeof body.value?.task === 'string' ? body.value.task.trim() : ''
+    if (task === '') return badRequest(response, 'Опишите задание')
+    if (task.length > CHAT_INPUT_MAX) return badRequest(response, `Задание длиннее ${CHAT_INPUT_MAX} символов`)
+
+    agentInFlight.add(String(userId))
+    try {
+      const result = await agentResponder({
+        task,
+        userId,
+        chatId,
+        name: String(auth.user?.first_name ?? mobileUserName),
+        login: auth.login ?? null,
+      })
+      if (!result || result.ok !== true) {
+        return sendError(response, 502, 'agent_unavailable', String(result?.error ?? 'Агент не принял задание'))
+      }
+      agentStatusCache = { at: 0, value: null }
+      sendJson(response, 200, { ok: true, text: String(result.text ?? 'Задание передано агенту') })
+    } catch (error) {
+      logger?.warn?.('agent task failed', { error: error?.message ?? error, userId })
+      sendError(response, 502, 'agent_unavailable', String(error?.message ?? 'Агент не принял задание'))
+    } finally {
+      agentInFlight.delete(String(userId))
+    }
+  }
 
   /** POST /api/chat/message — сообщение с сайта через тот же конвейер бота. */
   async function sendChatMessage(request, response, { userId, chatId, auth }) {
@@ -1207,6 +1272,8 @@ export function createMiniApp({
     { method: 'DELETE', pattern: /^\/api\/memory\/([^/]+)$/, handler: deleteFact },
     { method: 'GET', pattern: /^\/api\/chat\/history$/, handler: chatHistory },
     { method: 'POST', pattern: /^\/api\/chat\/message$/, handler: sendChatMessage },
+    { method: 'GET', pattern: /^\/api\/agent\/status$/, handler: getAgentStatus },
+    { method: 'POST', pattern: /^\/api\/agent\/task$/, handler: submitAgentTask },
     { method: 'GET', pattern: /^\/api\/settings$/, handler: getSettings },
     { method: 'PATCH', pattern: /^\/api\/settings$/, handler: updateSettings },
     { method: 'GET', pattern: /^\/api\/stats$/, handler: getStats },
