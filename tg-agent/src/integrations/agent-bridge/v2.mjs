@@ -148,6 +148,11 @@ export function createAgentBridgeV2({
     return payload?.usage ?? {}
   }
 
+  /** Ручной review предложений (PLB-030). */
+  async function review() {
+    return call('/v1/review', { method: 'POST', body: {} })
+  }
+
   /** Создать draft-заявку (PLB-017). */
   async function createRequest({ text, title } = {}) {
     const payload = await call('/v1/requests', { body: { text, title } })
@@ -188,6 +193,7 @@ export function createAgentBridgeV2({
     cancelTask,
     getTask,
     createRequest,
+    review,
     agents,
     activity,
     usage,

@@ -190,6 +190,31 @@ export function createCommandRouter(bot) {
         }
         return
       }
+      case 'review': {
+        if (!bot.agentBridge?.enabled || typeof bot.agentBridge.review !== 'function') {
+          await bot.send(chatId, 'Review недоступен: мост к агенту выключен или старый контракт.')
+          return
+        }
+        try {
+          const result = await bot.agentBridge.review()
+          const suggestions = result.suggestions ?? []
+          if (suggestions.length === 0) {
+            await bot.send(chatId, 'Подтверждённых сигналов для review нет.')
+            return
+          }
+          const lines = suggestions.map((item, index) => [
+            `${index + 1}. **${item.title}**`,
+            `   Почему сейчас: ${item.whyNow}`,
+            `   Польза: ${item.benefit} · Стоимость: ${item.cost}`,
+            `   Проверить: ${item.verify}`,
+            `   Источник: ${(item.sources ?? []).map((source) => source.id).join(', ')}`,
+          ].join('\n'))
+          await bot.send(chatId, ['**Review**', ...lines].join('\n\n'))
+        } catch (error) {
+          await bot.send(chatId, `Review не удался: ${String(error?.message ?? error).slice(0, 160)}`)
+        }
+        return
+      }
       case 'request': {
         if (!bot.agentBridge?.enabled || typeof bot.agentBridge.createRequest !== 'function') {
           await bot.send(chatId, 'Заявки недоступны: мост к агенту выключен или старый контракт.')
