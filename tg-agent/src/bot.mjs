@@ -290,6 +290,11 @@ export class Assistant {
 
   /** Шаги 1–2: разбор, доступ, команда или текст — в `core/conversation.mjs`. */
   async handleMessage(message) {
+    // В общем чате второму участнику нужно уведомление, даже если он не на сайте.
+    if (!message?.web && (message?.chat?.type ?? 'private') !== 'private' && message?.from && !message.from.isBot) {
+      const text = String(message.text ?? '').trim()
+      if (text !== '') void this.webPush?.notify?.({ chatId: message.chat.id, text })?.catch?.(() => {})
+    }
     return this.conversation.handleMessage(message)
   }
 
@@ -318,11 +323,39 @@ export class Assistant {
       text: String(text ?? ''),
       attachments: [],
       addressed: true,
+      web: true,
+    }
+    const isGroup = message.chat.type !== 'private'
+    // В общем чате сообщение с сайта должно увидеть и второе живое лицо:
+    // бот пересылает его в Telegram-группу от своего имени с подписью автора.
+    if (isGroup) {
+      await this.platform.sendText({
+        chatId: message.chat.id,
+        markdown: `💬 ${message.from.name} (с сайта):\n${message.text}`,
+      }).catch((error) => this.logger.warn('web group message relay failed', { error }))
     }
     const task = this.delivery.run(delivery, () => this.enqueueUpdate(message))
     await task
     if (delivery.sends.length === 0 && delivery.files.length === 0) {
       delivery.sends.push({ text: 'Не удалось получить ответ. Попробуйте ещё раз.' })
+    }
+    if (isGroup) {
+      for (const send of delivery.sends) {
+        if (String(send.text ?? '').trim() === '') continue
+        await this.platform.sendText({
+          chatId: message.chat.id,
+          markdown: send.text,
+          ...(send.keyboard ? { keyboard: send.keyboard } : {}),
+        }).catch((error) => this.logger.warn('web group reply relay failed', { error }))
+      }
+      for (const file of delivery.files) {
+        await this.platform.sendDocument({
+          chatId: message.chat.id,
+          bytes: file.bytes,
+          fileName: file.fileName,
+          caption: file.caption,
+        }).catch((error) => this.logger.warn('web group file relay failed', { error }))
+      }
     }
     return delivery
   }

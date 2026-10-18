@@ -1964,7 +1964,7 @@ test('an answer to an open agent question is not intercepted as a feature reques
   }
 })
 
-test('веб-сообщение в общий чат сохраняет автора и не уходит в Telegram', async () => {
+test('веб-сообщение в общий чат пересылается в Telegram с автором', async () => {
   const ctx = await setup({ responses: [{ content: 'ответ группе' }] })
   try {
     const result = await ctx.bot.handleWebMessage({
@@ -1976,7 +1976,11 @@ test('веб-сообщение в общий чат сохраняет авто
       name: 'Вячеслав',
     })
     assert.match(result.sends.map((entry) => entry.text).join('\n'), /ответ группе/)
-    assert.equal(ctx.telegramStub.state.sends.length, 0)
+    assert.equal(ctx.telegramStub.state.sends.length, 2)
+    assert.equal(String(ctx.telegramStub.state.sends[0].chat_id), '-1001234567890')
+    assert.match(ctx.telegramStub.state.sends[0].text, /Вячеслав \(с сайта\)/)
+    assert.match(ctx.telegramStub.state.sends[0].text, /привет группе/)
+    assert.match(ctx.telegramStub.state.sends[1].text, /ответ группе/)
     await ctx.history.flush()
     const history = await historyFile(ctx.dir)
     const chat = history.chats['-1001234567890']

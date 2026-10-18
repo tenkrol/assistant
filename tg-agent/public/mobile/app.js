@@ -479,6 +479,7 @@ function showApp(session) {
     loadStats()
   ])
   refreshProfile()
+  startGroupPoll()
   void refreshPushToggle()
 }
 
@@ -609,6 +610,43 @@ function selectChat(chat) {
 
 async function ensureChat() {
   if (!state.loaded.chat && !state.loading.chat) await loadChat()
+}
+
+let groupPollTimer = null
+let groupPollInFlight = false
+
+function sameMessages(left, right) {
+  if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length) return false
+  return left.every((item, index) => item.role === right[index].role
+    && item.text === right[index].text
+    && item.author === right[index].author)
+}
+
+async function refreshGroupChat() {
+  if (groupPollInFlight || document.hidden || currentScreen !== 'chat') return
+  const target = state.chatTarget
+  if (!target || target.type === 'private' || state.loading.chat) return
+  if ($('chat-send').disabled) return
+  groupPollInFlight = true
+  try {
+    const data = await api('GET', '/api/chat/history?limit=60&chatId=' + encodeURIComponent(target.id))
+    if (!state.chatTarget || String(state.chatTarget.id) !== String(target.id)) return
+    if (data.chat) state.chatTarget = { id: String(data.chat.chatId), type: data.chat.type, title: data.chat.title }
+    state.chat = data
+    if (!sameMessages(state.chat && state.chat.messages, data.messages)) {
+      renderChat()
+      chatScrollToBottom()
+    }
+  } catch {
+    /* тихий опрос: сеть моргнула — попробуем в следующий раз */
+  } finally {
+    groupPollInFlight = false
+  }
+}
+
+function startGroupPoll() {
+  if (groupPollTimer) return
+  groupPollTimer = setInterval(() => { void refreshGroupChat() }, 5000)
 }
 
 let chatLoadSeq = 0
