@@ -1990,3 +1990,23 @@ test('веб-сообщение в общий чат пересылается в
     await ctx.cleanup()
   }
 })
+
+test('ответ агента и входящее сообщение группы будят web push', async () => {
+  const ctx = await setup({ responses: [{ content: 'ответ' }], withHistory: true })
+  try {
+    const notified = []
+    ctx.bot.webPush = { notify: async (input) => { notified.push(input) } }
+    await ctx.bot.deliverAgentMessage({ chatId: ALLOWED, text: 'Агент готов' })
+    assert.equal(notified.length, 1)
+    assert.equal(String(notified[0].chatId), String(ALLOWED))
+
+    const groupMessage = {
+      kind: 'message', id: 71, from: { id: 888, name: 'Мария', isBot: false },
+      chat: { id: -1001234567890, type: 'group' }, text: 'привет из группы', attachments: [], addressed: true,
+    }
+    await ctx.bot.handleMessage(groupMessage)
+    assert.ok(notified.some((item) => String(item.chatId) === '-1001234567890'))
+  } finally {
+    await ctx.cleanup()
+  }
+})

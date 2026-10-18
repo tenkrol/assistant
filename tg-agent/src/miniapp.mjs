@@ -419,6 +419,9 @@ export function createMiniApp({
   const groupConfigured = Number.isInteger(groupIdNumber) && groupIdNumber !== 0
   const groupType = groupChatType === 'supergroup' ? 'supergroup' : 'group'
   const groupName = String(groupTitle || 'Общий чат')
+  const displayNameFor = (userId) => (stores.profiles && typeof stores.profiles.displayName === 'function'
+    ? stores.profiles.displayName(userId)
+    : undefined)
 
   if (allowed.size === 0) logger?.warn?.('miniapp: allow-list is empty, every user will get 403')
   if (passwordConfigured && !isSessionSecret(mobileSessionSecret)) {
@@ -914,7 +917,7 @@ export function createMiniApp({
         task,
         userId,
         chatId,
-        name: String(auth.user?.first_name ?? mobileUserName),
+        name: displayNameFor(userId) || String(auth.user?.first_name ?? mobileUserName),
         login: auth.login ?? null,
       })
       if (!result || result.ok !== true) {
@@ -959,7 +962,7 @@ export function createMiniApp({
         chatType: target.type,
         chatTitle: target.title,
         text,
-        name: String(auth.user?.first_name ?? mobileUserName),
+        name: displayNameFor(userId) || String(auth.user?.first_name ?? mobileUserName),
         login: auth.login ?? null,
       })
       const messages = (delivery?.sends ?? [])
