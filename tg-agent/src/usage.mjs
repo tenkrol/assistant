@@ -101,6 +101,38 @@ export class UsageStore {
   }
 
   /**
+   * Counters for the last `days` calendar days, oldest first.
+   *
+   * Missing days are returned as zeros: the chart must have the same number of
+   * bars whether or not the bot was used that day.
+   *
+   * @param {number} [days] - how many days to return, at least 1.
+   * @param {Date} [date] - the last day (today by default).
+   * @param {string} [timeZone] - zone used by `dayKey`.
+   * @returns {Array<{date: string, prompt: number, completion: number, total: number, requests: number}>}
+   */
+  recent(days = 7, date = new Date(), timeZone = '') {
+    const count = Math.max(1, Math.floor(Number(days) || 7))
+    const result = []
+    for (let offset = count - 1; offset >= 0; offset -= 1) {
+      const current = new Date(date)
+      current.setDate(current.getDate() - offset)
+      const key = dayKey(current, timeZone)
+      const day = this.days.get(key)
+      const prompt = Number(day?.prompt) || 0
+      const completion = Number(day?.completion) || 0
+      result.push({
+        date: key,
+        prompt,
+        completion,
+        total: prompt + completion,
+        requests: Number(day?.requests) || 0,
+      })
+    }
+    return result
+  }
+
+  /**
    * Add one model call to the day's counters.
    *
    * @param {object} input - `usage` is the provider payload; the rest is context.

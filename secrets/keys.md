@@ -16,6 +16,8 @@
 `OWNER_NAME` | подпись «От …:» в sendto | не секрет, настраивается в `.env` |
 `ALLOWED_USER_IDS`, `ALLOWED_USER_IDS_VK` | кто имеет доступ | id пользователей |
 `MINIAPP_*` | панель Telegram | настраивается в `.env` |
+`MOBILE_PASSWORD_HASH` | пароль мобильного сайта `/mobile/` (scrypt-хеш) | `node tg-agent/tools/mobile-password.mjs --generate` |
+`MOBILE_SESSION_SECRET` | подпись сессий мобильного сайта | тот же скрипт; 32+ символа |
 
 ## Как добавить ключ
 1. Получить значение у провайдера.

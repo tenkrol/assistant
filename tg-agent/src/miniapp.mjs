@@ -23,6 +23,19 @@ import path from 'node:path'
 import { REPEAT_VALUES, describeRepeat } from './repeats.mjs'
 import { EVENT_REPEATS } from './events.mjs'
 import { MAX_FACT_LENGTH } from './profiles.mjs'
+import { PERSONA_NAMES, MOOD_NAMES } from './personas.mjs'
+import { MODES } from './core/modes.mjs'
+import {
+  SESSION_COOKIE,
+  clearSessionCookie,
+  isPasswordHash,
+  isSessionSecret,
+  parseCookies,
+  sessionCookie,
+  signSession,
+  verifyPassword,
+  verifySession,
+} from './mobile-auth.mjs'
 
 const JSON_TYPE = 'application/json; charset=utf-8'
 const DEFAULT_MAX_BODY = 32_768
@@ -31,6 +44,29 @@ const REMINDER_MAX_TEXT = 500
 const EVENT_MAX_TITLE = 500
 const DEFAULT_EVENT_DAYS = 14
 const MAX_EVENT_DAYS = 365
+/** Парольная сессия мобильного сайта: неделя по умолчанию. */
+const DEFAULT_SESSION_TTL_SEC = 7 * 24 * 60 * 60
+const DEFAULT_LOGIN_MAX_FAILURES = 5
+const DEFAULT_LOGIN_WINDOW_MS = 15 * 60 * 1000
+const DEFAULT_LOGIN_BLOCK_MS = 15 * 60 * 1000
+const MAX_LOGIN_TRACKED_IPS = 10_000
+const CHAT_HISTORY_LIMIT = 60
+const CHAT_MESSAGE_MAX = 4_000
+const MOBILE_CLIENT_HEADER = 'x-mobile-client'
+/** Мобильный клиент — единственная страница, для которой включается CSP. */
+const MOBILE_PATH_PREFIX = '/mobile'
+const MOBILE_CSP = [
+  "default-src 'self'",
+  "img-src 'self' data:",
+  "style-src 'self' 'unsafe-inline'",
+  "script-src 'self'",
+  "connect-src 'self'",
+  "font-src 'self'",
+  "manifest-src 'self'",
+  "base-uri 'none'",
+  "form-action 'self'",
+  "frame-ancestors 'none'",
+].join('; ')
 
 /** Content types the static handler is willing to name. */
 const CONTENT_TYPES = {
@@ -285,6 +321,12 @@ const asCount = (value) => {
   return Number.isFinite(number) && number > 0 ? number : 0
 }
 
+/** Положительное целое из env/опций; иначе значение по умолчанию. */
+const positiveInt = (value, fallback) => {
+  const number = Number(value)
+  return Number.isFinite(number) && number >= 1 ? Math.floor(number) : fallback
+}
+
 /**
  * Create the Mini App HTTP server.
  *
@@ -317,6 +359,21 @@ export function createMiniApp({
   logger,
   maxBodyBytes = DEFAULT_MAX_BODY,
   maxAgeSec = DEFAULT_MAX_AGE_SEC,
+  // Парольный вход мобильного сайта. Если хеш или секрет не заданы, вход выключен:
+  // сайт открывается, но данные требуют Telegram или настроенного пароля.
+  mobilePasswordHash,
+  mobileSessionSecret,
+  mobileUserId,
+  mobileUserName = 'Владелец',
+  sessionTtlSec = DEFAULT_SESSION_TTL_SEC,
+  cookieSecure = true,
+  loginRateLimit = {},
+  history,
+  defaultModel = '',
+  modelOptions = [],
+  telegramUrl = '',
+  timeZone = '',
+  now = () => Date.now(),
 } = {}) {
   const allowed = normalizeAllowedUserIds(allowedUserIds)
   const publicRoot = path.resolve(publicDir ?? defaultPublicDir)
@@ -328,8 +385,30 @@ export function createMiniApp({
   const bodyLimit = Number.isFinite(Number(maxBodyBytes)) && Number(maxBodyBytes) > 0
     ? Math.floor(Number(maxBodyBytes))
     : DEFAULT_MAX_BODY
+  const sessionTtl = positiveInt(sessionTtlSec, DEFAULT_SESSION_TTL_SEC)
+  const passwordUser = mobileUserId === undefined || mobileUserId === null || mobileUserId === ''
+    ? undefined
+    : String(mobileUserId)
+  const passwordUserNumber = Number(passwordUser)
+  const passwordUserValid = Number.isInteger(passwordUserNumber) && passwordUserNumber > 0
+  const passwordConfigured = Boolean(passwordUserValid && isPasswordHash(mobilePasswordHash))
+  const passwordAuthEnabled = passwordConfigured && isSessionSecret(mobileSessionSecret)
+  const loginLimits = {
+    maxFailures: positiveInt(loginRateLimit.maxFailures, DEFAULT_LOGIN_MAX_FAILURES),
+    windowMs: positiveInt(loginRateLimit.windowMs, DEFAULT_LOGIN_WINDOW_MS),
+    blockMs: positiveInt(loginRateLimit.blockMs, DEFAULT_LOGIN_BLOCK_MS),
+  }
+  const loginAttempts = new Map()
+  const clock = typeof now === 'function' ? now : () => Date.now()
+  const models = [...new Set([defaultModel, ...modelOptions].filter((value) => typeof value === 'string' && value.trim() !== ''))]
 
   if (allowed.size === 0) logger?.warn?.('miniapp: allow-list is empty, every user will get 403')
+  if (passwordConfigured && !isSessionSecret(mobileSessionSecret)) {
+    logger?.warn?.('miniapp: пароль задан, но MOBILE_SESSION_SECRET отсутствует или короче 32 символов — вход по паролю выключен')
+  }
+  if (passwordConfigured && passwordUser && !allowed.has(String(passwordUser))) {
+    logger?.warn?.('miniapp: MOBILE_USER_ID отсутствует в allow-list — вход по паролю будет отклонён', { userId: passwordUser })
+  }
 
   const missingStore = (response, what) =>
     sendError(response, 503, ERROR_CODES.unavailable, `Хранилище недоступно: ${what}`)
@@ -338,6 +417,343 @@ export function createMiniApp({
   /** Отказ пространства: viewer и архив не меняют данные. */
   const readOnly = (response) => sendError(response, 403, ERROR_CODES.forbidden, 'Только просмотр: в этом проекте нельзя менять данные')
   const isAccessDenied = (error) => /access denied/.test(String(error?.message ?? ''))
+
+  // ---------------------------------------------------------------------------
+  // Парольная авторизация мобильного сайта
+  // ---------------------------------------------------------------------------
+
+  const timeNow = () => {
+    const value = clock()
+    return Number.isFinite(value) ? value : Date.now()
+  }
+
+  const isLoopback = (address) => address === '127.0.0.1'
+    || address === '::1'
+    || address === '::ffff:127.0.0.1'
+
+  /**
+   * IP для ограничения попыток входа.
+   *
+   * Сервер слушает localhost за nginx, поэтому `x-forwarded-for` принимается только
+   * от loopback-соединения; иначе клиент подделал бы адрес и обошёл лимит.
+   */
+  function clientIp(request) {
+    const remote = String(request.socket?.remoteAddress ?? '')
+    const forwarded = request.headers['x-forwarded-for']
+    const raw = isLoopback(remote) && typeof forwarded === 'string' && forwarded.trim() !== ''
+      ? forwarded.split(',')[0].trim()
+      : remote
+    return (raw === '' ? 'unknown' : raw).slice(0, 64)
+  }
+
+  function pruneLoginAttempts(at) {
+    if (loginAttempts.size < MAX_LOGIN_TRACKED_IPS) return
+    for (const [key, state] of loginAttempts) {
+      if (at >= state.blockedUntil && at - state.last > loginLimits.windowMs) loginAttempts.delete(key)
+    }
+    if (loginAttempts.size >= MAX_LOGIN_TRACKED_IPS) loginAttempts.clear()
+  }
+
+  /** Состояние попыток одного IP: окно и блокировка после серии ошибок. */
+  function loginState(ip, at) {
+    pruneLoginAttempts(at)
+    let state = loginAttempts.get(ip)
+    if (!state) {
+      state = { failures: 0, first: at, last: at, blockedUntil: 0 }
+      loginAttempts.set(ip, state)
+      return state
+    }
+    if (state.blockedUntil > 0 && at >= state.blockedUntil) {
+      state.failures = 0
+      state.first = at
+      state.blockedUntil = 0
+    } else if (at - state.first > loginLimits.windowMs) {
+      state.failures = 0
+      state.first = at
+    }
+    state.last = at
+    return state
+  }
+
+  function recordLoginFailure(ip, at) {
+    const state = loginState(ip, at)
+    state.failures += 1
+    if (state.failures >= loginLimits.maxFailures) state.blockedUntil = at + loginLimits.blockMs
+    return state
+  }
+
+  /** Кто пришёл: Telegram initData или подписанная парольная cookie. */
+  function authenticate(request) {
+    const header = request.headers['x-telegram-init-data']
+    const initData = Array.isArray(header) ? header[0] : header
+    if (typeof initData === 'string' && initData.trim() !== '') {
+      const auth = validateInitData(initData, { botToken, maxAgeSec })
+      if (!auth.ok) return { ok: false, via: 'telegram', reason: auth.reason }
+      return { ok: true, via: 'telegram', userId: auth.user.id, user: auth.user, telegram: auth }
+    }
+    if (passwordAuthEnabled) {
+      const cookies = parseCookies(request.headers.cookie)
+      const token = cookies[SESSION_COOKIE]
+      if (typeof token === 'string' && token !== '') {
+        const session = verifySession(token, mobileSessionSecret, {
+          now: timeNow(),
+          userId: passwordUserNumber,
+        })
+        if (session.ok) {
+          return {
+            ok: true,
+            via: 'password',
+            userId: passwordUserNumber,
+            user: { id: passwordUserNumber, first_name: mobileUserName },
+          }
+        }
+        return { ok: false, via: 'password', reason: session.reason }
+      }
+    }
+    return { ok: false, via: 'none', reason: 'no_auth' }
+  }
+
+  function authError(response, auth) {
+    const expired = auth.reason === 'expired'
+    return sendJson(response, 401, {
+      error: expired ? 'Сессия истекла, войдите заново' : 'Нужен вход на сайт',
+      code: ERROR_CODES.unauthorized,
+      reason: auth.reason,
+    })
+  }
+
+  /** POST /api/auth/login — единственное место, где принимается пароль. */
+  async function login(request, response) {
+    if (!passwordAuthEnabled) {
+      request.resume()
+      return sendError(response, 503, ERROR_CODES.unavailable, 'Вход по паролю не настроен')
+    }
+    const at = timeNow()
+    const ip = clientIp(request)
+    const state = loginState(ip, at)
+    if (state.blockedUntil > at) {
+      request.resume()
+      const retryAfter = Math.max(1, Math.ceil((state.blockedUntil - at) / 1000))
+      return sendJson(response, 429, {
+        error: 'Слишком много попыток входа. Попробуйте позже.',
+        code: 'too_many_requests',
+        retryAfter,
+      }, { 'retry-after': String(retryAfter) })
+    }
+
+    const body = await readJsonBody(request, bodyLimit)
+    if (!body.ok) return sendError(response, body.status, body.code, body.error)
+    const password = body.value?.password
+    if (typeof password !== 'string' || password === '' || password.length > 1024) {
+      return sendError(response, 400, ERROR_CODES.badRequest, 'Введите пароль')
+    }
+
+    if (!verifyPassword(password, mobilePasswordHash)) {
+      const failed = recordLoginFailure(ip, at)
+      logger?.warn?.('mobile login failed', { attempts: failed.failures, blocked: failed.blockedUntil > at })
+      const retryAfter = failed.blockedUntil > at
+        ? Math.max(1, Math.ceil((failed.blockedUntil - at) / 1000))
+        : undefined
+      const headers = retryAfter ? { 'retry-after': String(retryAfter) } : {}
+      return sendJson(response, 401, {
+        error: 'Неверный пароль',
+        code: ERROR_CODES.unauthorized,
+        ...(retryAfter ? { retryAfter } : {}),
+      }, headers)
+    }
+
+    loginAttempts.delete(ip)
+    const token = signSession({
+      userId: passwordUserNumber,
+      ttlSec: sessionTtl,
+      now: at,
+    }, mobileSessionSecret)
+    logger?.info?.('mobile login ok', { userId: passwordUserNumber })
+    return sendJson(response, 200, {
+      ok: true,
+      user: { name: mobileUserName, via: 'password' },
+    }, {
+      'set-cookie': sessionCookie(token, { maxAgeSec: sessionTtl, secure: cookieSecure }),
+    })
+  }
+
+  /** POST /api/auth/logout — стирает cookie, даже если сессия уже истекла. */
+  function logout(request, response) {
+    request.resume()
+    sendJson(response, 200, { ok: true }, {
+      'set-cookie': clearSessionCookie({ secure: cookieSecure }),
+    })
+  }
+
+  /** GET /api/auth/session — кто я и можно ли уже показывать данные. */
+  function sessionInfo(request, response) {
+    request.resume()
+    const auth = authenticate(request)
+    if (!auth.ok) return authError(response, auth)
+    if (!allowed.has(String(auth.userId))) {
+      return sendError(response, 403, ERROR_CODES.forbidden, 'Нет доступа')
+    }
+    sendJson(response, 200, {
+      authenticated: true,
+      user: {
+        name: String(auth.user.first_name ?? mobileUserName),
+        via: auth.via,
+      },
+      telegramUrl,
+    })
+  }
+
+  // ---------------------------------------------------------------------------
+  // Данные, которых не было в старой панели: история чата, настройки, статистика
+  // ---------------------------------------------------------------------------
+
+  const chatIdFor = (userId) => Number(chatIdOf(userId))
+
+  const safeText = (value, limit = CHAT_MESSAGE_MAX) => String(value ?? '').slice(0, limit)
+
+  function chatHistory(request, response, { userId, chatId, url }) {
+    if (!history || typeof history.messages !== 'function') {
+      return missingStore(response, 'история чата')
+    }
+    const rawLimit = Number(url.searchParams.get('limit'))
+    const limit = Number.isInteger(rawLimit) && rawLimit > 0
+      ? Math.min(rawLimit, CHAT_HISTORY_LIMIT)
+      : CHAT_HISTORY_LIMIT
+    const messages = history.messages(chatId, userId)
+      .slice(-limit)
+      .map((message) => ({
+        role: message.role === 'assistant' ? 'assistant' : 'user',
+        text: safeText(message.content),
+        ...(typeof message.author === 'string' && message.author !== '' ? { author: safeText(message.author, 80) } : {}),
+      }))
+    sendJson(response, 200, { messages, telegramUrl })
+  }
+
+  function settingsSnapshot(userId, chatId, auth) {
+    const profiles = pickStore(stores.profiles)
+    const displayName = profiles && typeof profiles.displayName === 'function'
+      ? profiles.displayName(userId)
+      : undefined
+    return {
+      user: {
+        name: String(displayName || auth.user?.first_name || mobileUserName),
+        via: auth.via,
+      },
+      city: profiles && typeof profiles.city === 'function' ? profiles.city(userId) ?? null : null,
+      persona: profiles && typeof profiles.persona === 'function' ? profiles.persona(userId) ?? null : null,
+      mood: profiles && typeof profiles.mood === 'function' ? profiles.mood(userId) ?? null : null,
+      mode: profiles && typeof profiles.mode === 'function' ? profiles.mode(userId) ?? null : null,
+      voice: history && typeof history.voice === 'function' ? history.voice(chatId) === true : false,
+      model: history && typeof history.model === 'function' ? history.model(chatId) ?? null : null,
+      defaults: { model: defaultModel || null },
+      options: {
+        personas: [...PERSONA_NAMES],
+        moods: [...MOOD_NAMES],
+        modes: Object.keys(MODES),
+        models,
+      },
+      telegramUrl,
+    }
+  }
+
+  function getSettings(request, response, { userId, chatId, auth }) {
+    request.resume()
+    sendJson(response, 200, settingsSnapshot(userId, chatId, auth))
+  }
+
+  async function updateSettings(request, response, { userId, chatId, auth }) {
+    const body = await readJsonBody(request, bodyLimit)
+    if (!body.ok) return sendError(response, body.status, body.code, body.error)
+    if (body.value === null || typeof body.value !== 'object' || Array.isArray(body.value)) {
+      return badRequest(response, 'Ожидается объект настроек')
+    }
+    const values = body.value
+    const profiles = pickStore(stores.profiles)
+    const has = (key) => Object.prototype.hasOwnProperty.call(values, key)
+    let changed = false
+
+    if (has('city')) {
+      if (!profiles || typeof profiles.setCity !== 'function' || typeof profiles.clearCity !== 'function') {
+        return missingStore(response, 'память пользователя')
+      }
+      if (typeof values.city !== 'string') return badRequest(response, 'Город должен быть строкой')
+      try {
+        if (values.city.trim() === '') profiles.clearCity(userId)
+        else profiles.setCity(userId, values.city)
+      } catch (error) {
+        return badRequest(response, String(error?.message ?? 'Не удалось изменить город'))
+      }
+      changed = true
+    }
+
+    const simple = [
+      ['persona', 'setPersona', new Set(PERSONA_NAMES), 'характер', 'Недопустимый характер'],
+      ['mood', 'setMood', new Set(MOOD_NAMES), 'настроение', 'Недопустимое настроение'],
+      ['mode', 'setMode', new Set(Object.keys(MODES)), 'режим', 'Недопустимый режим'],
+    ]
+    for (const [key, method, allowedValues, label, message] of simple) {
+      if (!has(key)) continue
+      if (!profiles || typeof profiles[method] !== 'function') {
+        return missingStore(response, `профиль (${label})`)
+      }
+      if (typeof values[key] !== 'string') return badRequest(response, `Поле «${label}» должно быть строкой`)
+      const clean = values[key].trim()
+      if (clean !== '' && !allowedValues.has(clean)) return badRequest(response, message)
+      profiles[method](userId, clean)
+      changed = true
+    }
+
+    if (has('voice')) {
+      if (!history || typeof history.setVoice !== 'function') return missingStore(response, 'история чата')
+      if (typeof values.voice !== 'boolean') return badRequest(response, 'Озвучка должна быть true или false')
+      await history.setVoice(chatId, values.voice)
+      changed = true
+    }
+
+    if (has('model')) {
+      if (!history || typeof history.setModel !== 'function') return missingStore(response, 'история чата')
+      if (typeof values.model !== 'string') return badRequest(response, 'Модель должна быть строкой')
+      const model = values.model.trim()
+      if (model !== '' && !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$/.test(model)) {
+        return badRequest(response, 'Недопустимое имя модели')
+      }
+      await history.setModel(chatId, model === '' ? undefined : model)
+      changed = true
+    }
+
+    if (changed) {
+      await Promise.all([
+        profiles && typeof profiles.flush === 'function' ? profiles.flush() : Promise.resolve(),
+        history && typeof history.flush === 'function' ? history.flush() : Promise.resolve(),
+      ])
+    }
+    sendJson(response, 200, settingsSnapshot(userId, chatId, auth))
+  }
+
+  function getStats(request, response, { url }) {
+    request.resume()
+    const usage = pickStore(stores.usage)
+    if (!usage || typeof usage.total !== 'function') return missingStore(response, 'расход токенов')
+    const rawDays = Number(url.searchParams.get('days'))
+    const days = Number.isInteger(rawDays) && rawDays >= 1 && rawDays <= 30 ? rawDays : 7
+    const todayDate = new Date(timeNow())
+    const today = usage.total(todayDate, timeZone)
+    const prompt = asCount(today?.prompt)
+    const completion = asCount(today?.completion)
+    const historyDays = typeof usage.recent === 'function'
+      ? usage.recent(days, todayDate, timeZone)
+      : []
+    sendJson(response, 200, {
+      today: {
+        prompt,
+        completion,
+        total: prompt + completion,
+        requests: asCount(today?.requests),
+      },
+      days: historyDays,
+      limit: Number(usage.dailyLimit) || 0,
+    })
+  }
 
   const mapReminder = (reminder) => ({
     id: String(reminder.id),
@@ -566,11 +982,32 @@ export function createMiniApp({
     { method: 'GET', pattern: /^\/api\/memory$/, handler: getMemory },
     { method: 'POST', pattern: /^\/api\/memory$/, handler: createFact },
     { method: 'DELETE', pattern: /^\/api\/memory\/([^/]+)$/, handler: deleteFact },
+    { method: 'GET', pattern: /^\/api\/chat\/history$/, handler: chatHistory },
+    { method: 'GET', pattern: /^\/api\/settings$/, handler: getSettings },
+    { method: 'PATCH', pattern: /^\/api\/settings$/, handler: updateSettings },
+    { method: 'GET', pattern: /^\/api\/stats$/, handler: getStats },
   ]
+
+  /** Метод для auth-путей проверяется отдельно: вход не требует уже открытой сессии. */
+  const AUTH_ROUTES = {
+    '/api/auth/login': { method: 'POST', run: login },
+    '/api/auth/logout': { method: 'POST', run: logout },
+    '/api/auth/session': { method: 'GET', run: sessionInfo },
+  }
 
   async function handleApi(request, response, url) {
     const method = (request.method ?? 'GET').toUpperCase()
     const pathname = url.pathname
+
+    const authRoute = AUTH_ROUTES[pathname]
+    if (authRoute) {
+      if (method !== authRoute.method) {
+        request.resume()
+        return sendError(response, 405, ERROR_CODES.methodNotAllowed, 'Метод не поддерживается', { allow: authRoute.method })
+      }
+      return authRoute.run(request, response)
+    }
+
     let match
     const allowedMethods = new Set()
     for (const route of routes) {
@@ -591,24 +1028,48 @@ export function createMiniApp({
       return notFound(response)
     }
 
-    const header = request.headers['x-telegram-init-data']
-    const initData = Array.isArray(header) ? header[0] : header
-    const auth = validateInitData(initData, { botToken, maxAgeSec })
+    const auth = authenticate(request)
     if (!auth.ok) {
       request.resume()
-      const error = auth.reason === 'expired'
-        ? 'Данные Telegram устарели, откройте приложение заново'
-        : 'Откройте через Telegram'
-      return sendJson(response, 401, { error, code: ERROR_CODES.unauthorized, reason: auth.reason })
+      return authError(response, auth)
     }
-    const userId = auth.user.id
-    if (!allowed.has(String(userId))) {
+    if (!allowed.has(String(auth.userId))) {
       request.resume()
       return sendError(response, 403, ERROR_CODES.forbidden, 'Нет доступа')
     }
+    // Cookie-сессию браузер отправляет сам, поэтому изменяющие запросы дополнительно
+    // должны нести заголовок мобильного клиента и совпадать по Origin.
+    if (auth.via === 'password' && method !== 'GET' && method !== 'HEAD') {
+      const clientHeader = request.headers[MOBILE_CLIENT_HEADER]
+      const client = Array.isArray(clientHeader) ? clientHeader[0] : clientHeader
+      if (client !== '1') {
+        request.resume()
+        return sendError(response, 403, ERROR_CODES.forbidden, 'Запрос должен идти с мобильного клиента')
+      }
+      const origin = request.headers.origin
+      if (typeof origin === 'string' && origin !== '') {
+        let originHost
+        try {
+          originHost = new URL(origin).host
+        } catch {
+          originHost = ''
+        }
+        if (originHost !== request.headers.host) {
+          request.resume()
+          return sendError(response, 403, ERROR_CODES.forbidden, 'Запрос с другого сайта отклонён')
+        }
+      }
+    }
 
-    const chatId = Number(chatIdOf(userId))
-    return match.route.handler(request, response, { userId, chatId, params: match.params, url, auth })
+    const chatId = chatIdFor(auth.userId)
+    return match.route.handler(request, response, {
+      userId: auth.userId,
+      chatId,
+      params: match.params,
+      url,
+      auth,
+      via: auth.via,
+    })
   }
 
   async function serveStatic(request, response, url) {
@@ -625,8 +1086,17 @@ export function createMiniApp({
     if (segments.length === 0 || segments.some((segment) => segment === '..' || segment.startsWith('.'))) {
       return notFound(response)
     }
-    const target = path.resolve(publicRoot, ...segments)
+    let target = path.resolve(publicRoot, ...segments)
     if (target !== publicRoot && !target.startsWith(publicRoot + path.sep)) return notFound(response)
+
+    // Каталог отдаёт свой index.html: `/mobile/` — это сайт, а не 404.
+    try {
+      const info = await fs.promises.stat(target)
+      if (info.isDirectory()) target = path.join(target, 'index.html')
+    } catch (error) {
+      if (error?.code === 'ENOENT' || error?.code === 'ENOTDIR') return notFound(response)
+      throw error
+    }
 
     let data
     try {
@@ -635,12 +1105,20 @@ export function createMiniApp({
       if (error?.code === 'ENOENT' || error?.code === 'EISDIR' || error?.code === 'ENOTDIR') return notFound(response)
       throw error
     }
-    const type = CONTENT_TYPES[path.extname(target).toLowerCase()] ?? 'application/octet-stream'
-    response.writeHead(200, {
-      'content-type': type,
+    const mobile = decoded === MOBILE_PATH_PREFIX || decoded.startsWith(MOBILE_PATH_PREFIX + '/')
+    const headers = {
+      'content-type': CONTENT_TYPES[path.extname(target).toLowerCase()] ?? 'application/octet-stream',
       'content-length': data.length,
       'cache-control': 'no-cache',
-    })
+      'x-content-type-options': 'nosniff',
+    }
+    if (mobile) {
+      headers['content-security-policy'] = MOBILE_CSP
+      headers['referrer-policy'] = 'no-referrer'
+      headers['x-frame-options'] = 'DENY'
+      headers['permissions-policy'] = 'camera=(), microphone=(), geolocation=()'
+    }
+    response.writeHead(200, headers)
     if (method === 'HEAD') response.end()
     else response.end(data)
   }
@@ -662,6 +1140,11 @@ export function createMiniApp({
       return response.end(method === 'HEAD' ? undefined : 'ok')
     }
     if (url.pathname === '/api' || url.pathname.startsWith('/api/')) return handleApi(request, response, url)
+    // Без завершающей косой относительные ссылки внутри сайта уехали бы в корень.
+    if (url.pathname === MOBILE_PATH_PREFIX) {
+      response.writeHead(302, { location: MOBILE_PATH_PREFIX + '/', 'cache-control': 'no-store' })
+      return response.end()
+    }
     return serveStatic(request, response, url)
   }
 

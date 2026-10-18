@@ -98,6 +98,15 @@ const DEFAULTS = {
   MINIAPP_PORT: '8787',
   MINIAPP_HOST: '127.0.0.1',
   MINIAPP_URL: '',
+  // Мобильный сайт: вход по паролю. Пароль хранится только scrypt-хешем,
+  // сессии подписываются отдельным секретом; без обоих вход выключен.
+  MOBILE_PASSWORD_HASH: '',
+  MOBILE_SESSION_SECRET: '',
+  MOBILE_USER_ID: '',
+  MOBILE_USER_NAME: 'Владелец',
+  MOBILE_SESSION_TTL_SEC: '604800',
+  MOBILE_COOKIE_SECURE: 'true',
+  MOBILE_TELEGRAM_URL: 'https://t.me/Tenkrol_bot',
   // Имя владельца для подписи «От ...:» — в родительном падеже.
   OWNER_NAME: 'владельца',
   OUTBOX: 'true',
@@ -556,6 +565,16 @@ export function loadConfig(env = process.env) {
       port: Number(read(env, 'MINIAPP_PORT')) || 8787,
       host: read(env, 'MINIAPP_HOST') || '127.0.0.1',
       url: read(env, 'MINIAPP_URL').trim(),
+      // Мобильный сайт `/mobile/`: парольный вход для браузера и второго человека.
+      mobile: {
+        passwordHash: read(env, 'MOBILE_PASSWORD_HASH').trim(),
+        sessionSecret: read(env, 'MOBILE_SESSION_SECRET').trim(),
+        userId: read(env, 'MOBILE_USER_ID').trim(),
+        userName: read(env, 'MOBILE_USER_NAME').trim() || 'Владелец',
+        sessionTtlSec: readInt(env, 'MOBILE_SESSION_TTL_SEC', { min: 60, max: 365 * 24 * 60 * 60 }),
+        cookieSecure: readBool(env, 'MOBILE_COOKIE_SECURE'),
+        telegramUrl: read(env, 'MOBILE_TELEGRAM_URL').trim(),
+      },
     },
     // Точка приёма сообщений от агента: только localhost, только с токеном.
     owner: { name: read(env, 'OWNER_NAME') },

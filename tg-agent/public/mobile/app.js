@@ -1,0 +1,1378 @@
+/**
+ * Мобильный сайт ассистента: парольный вход, реальные данные бота и настройки.
+ *
+ * Дизайн — из макета PLB-026. Здесь нет демо-данных: всё читается и пишется через
+ * `/api/*` мини-приложения. Cookie сессии HttpOnly, клиент её не видит; каждый
+ * изменяющий запрос несёт `X-Mobile-Client: 1` — сервер отклоняет чужие Origin.
+ */
+const $ = (id) => document.getElementById(id)
+
+const h = (tag, className, text) => {
+  const node = document.createElement(tag)
+  if (className) node.className = className
+  if (text !== undefined && text !== null) node.textContent = String(text)
+  return node
+}
+
+const NS = 'http://www.w3.org/2000/svg'
+
+const icon = (name) => {
+  const svg = document.createElementNS(NS, 'svg')
+  svg.setAttribute('class', 'ic')
+  const use = document.createElementNS(NS, 'use')
+  use.setAttribute('href', '#i-' + name)
+  svg.append(use)
+  return svg
+}
+
+const capitalize = (value) => (typeof value === 'string' && value !== ''
+  ? value.charAt(0).toUpperCase() + value.slice(1)
+  : value)
+
+const plural = (n, forms) => {
+  const tail = n % 100
+  const last = n % 10
+  if (last === 1 && tail !== 11) return forms[0]
+  if (last >= 2 && last <= 4 && (tail < 10 || tail >= 20)) return forms[1]
+  return forms[2]
+}
+
+const store = {
+  get(key) {
+    try {
+      return window.localStorage.getItem(key)
+    } catch {
+      return null
+    }
+  },
+  set(key, value) {
+    try {
+      window.localStorage.setItem(key, value)
+    } catch {
+      /* сайт работает и без сохранения настроек интерфейса */
+    }
+  }
+}
+
+const TELEGRAM = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null
+const INIT_DATA = TELEGRAM && typeof TELEGRAM.initData === 'string' ? TELEGRAM.initData : ''
+const THEME_KEY = 'plb026.mobile.theme'
+const LARGE_TEXT_KEY = 'plb026.mobile.large-text'
+const TODAY = new Date()
+const MONTHS = [
+  'Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь',
+  'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'
+]
+const MONTHS_GEN = [
+  'января', 'февраля', 'марта', 'апреля', 'мая', 'июня',
+  'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'
+]
+const WEEKDAYS_FULL = [
+  'воскресенье', 'понедельник', 'вторник', 'среда',
+  'четверг', 'пятница', 'суббота'
+]
+const WEEKDAYS_SHORT = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс']
+
+const REPEAT_CHOICES = [
+  ['none', 'Без повтора'],
+  ['daily', 'Каждый день'],
+  ['weekdays', 'По будням'],
+  ['weekly', 'Каждую неделю'],
+  ['weekly:1', 'Каждый понедельник'],
+  ['weekly:2', 'Каждый вторник'],
+  ['weekly:3', 'Каждую среду'],
+  ['weekly:4', 'Каждый четверг'],
+  ['weekly:5', 'Каждую пятницу'],
+  ['weekly:6', 'Каждую субботу'],
+  ['weekly:7', 'Каждое воскресенье'],
+  ['monthly:1', '1-го числа'],
+  ['monthly:15', '15-го числа'],
+  ['monthly:31', '31-го числа'],
+  ['every:15', 'Каждые 15 минут'],
+  ['every:30', 'Каждые 30 минут'],
+  ['every:60', 'Каждые 60 минут'],
+  ['every:120', 'Каждые 2 часа']
+]
+
+const state = {
+  session: null,
+  settings: null,
+  reminders: [],
+  events: [],
+  memory: { facts: [], city: null },
+  stats: null,
+  chat: null,
+  factQuery: '',
+  plansView: 'reminders',
+  calendar: { year: TODAY.getFullYear(), month: TODAY.getMonth(), selected: TODAY.getDate() },
+  loaded: { plans: false, memory: false, settings: false, stats: false, chat: false },
+  loading: { plans: false, memory: false, settings: false, stats: false, chat: false }
+}
+
+/* ============================ Тема ============================ */
+
+let themeMode = store.get(THEME_KEY) || 'dark'
+
+function applyTheme() {
+  const systemDark = window.matchMedia('(prefers-color-scheme: dark)').matches
+  const effective = themeMode === 'auto' ? (systemDark ? 'dark' : 'light') : themeMode
+  document.documentElement.setAttribute('data-theme', effective)
+  const meta = document.querySelector('meta[name="theme-color"]')
+  if (meta) meta.setAttribute('content', effective === 'dark' ? '#101923' : '#f3f6fa')
+  document.querySelectorAll('[data-theme-mode]').forEach((button) => {
+    button.classList.toggle('is-active', button.dataset.themeMode === themeMode)
+  })
+}
+
+function setThemeMode(mode) {
+  themeMode = mode
+  store.set(THEME_KEY, mode)
+  applyTheme()
+}
+
+function applyLargeText(on) {
+  document.documentElement.classList.toggle('large-text', on)
+  $('set-large-text').classList.toggle('is-on', on)
+}
+
+/* ============================ Тост ============================ */
+
+let toastTimer = null
+
+function toast(message) {
+  const node = $('toast')
+  node.textContent = message
+  node.classList.add('is-open')
+  if (toastTimer) clearTimeout(toastTimer)
+  toastTimer = setTimeout(() => node.classList.remove('is-open'), 3000)
+}
+
+/* ============================ API ============================ */
+
+class ApiError extends Error {
+  constructor(message, status, code) {
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
+    this.code = code
+  }
+}
+
+async function api(method, path, body) {
+  const headers = { 'X-Mobile-Client': '1' }
+  if (INIT_DATA) headers['X-Telegram-Init-Data'] = INIT_DATA
+  if (body !== undefined) headers['Content-Type'] = 'application/json'
+  let response
+  try {
+    response = await fetch(path, {
+      method,
+      headers,
+      credentials: 'same-origin',
+      cache: 'no-store',
+      body: body === undefined ? undefined : JSON.stringify(body)
+    })
+  } catch {
+    throw new ApiError('Нет связи с сервером. Проверьте интернет.', 0, 'network')
+  }
+  const text = await response.text()
+  let data = null
+  try {
+    data = text === '' ? null : JSON.parse(text)
+  } catch {
+    data = null
+  }
+  if (!response.ok) {
+    const message = data && typeof data.error === 'string'
+      ? data.error
+      : 'Ошибка ' + response.status
+    throw new ApiError(message, response.status, data && data.code)
+  }
+  return data
+}
+
+function handleError(error, fallback = 'Не получилось. Попробуйте ещё раз.') {
+  if (error instanceof ApiError && error.status === 401) {
+    showLogin('Сессия истекла — войдите заново.')
+    return
+  }
+  toast(error && error.message ? error.message : fallback)
+}
+
+/* ============================ Шторка ============================ */
+
+const sheet = $('sheet')
+const sheetBackdrop = $('sheet-backdrop')
+const sheetTitle = $('sheet-title')
+const sheetBody = $('sheet-body')
+let sheetOpen = false
+let sheetTimer = null
+
+function openSheet({ title, body, mount }) {
+  if (sheetTimer) clearTimeout(sheetTimer)
+  sheetTitle.textContent = title
+  sheetBody.replaceChildren()
+  if (typeof body === 'string') sheetBody.innerHTML = body
+  else if (body) sheetBody.append(body)
+  sheet.hidden = false
+  sheetBackdrop.hidden = false
+  sheetOpen = true
+  requestAnimationFrame(() => {
+    sheet.classList.add('is-open')
+    sheetBackdrop.classList.add('is-open')
+  })
+  if (typeof mount === 'function') mount(sheetBody)
+}
+
+function closeSheet() {
+  if (!sheetOpen) return
+  sheetOpen = false
+  sheet.classList.remove('is-open')
+  sheetBackdrop.classList.remove('is-open')
+  sheetTimer = setTimeout(() => {
+    if (sheetOpen) return
+    sheet.hidden = true
+    sheetBackdrop.hidden = true
+    sheetBody.replaceChildren()
+  }, 280)
+}
+
+sheetBackdrop.addEventListener('click', closeSheet)
+$('sheet-close').addEventListener('click', closeSheet)
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape') closeSheet()
+})
+
+function openPicker(title, options, selectedValue, onPick) {
+  const wrap = h('div')
+  options.forEach((option) => {
+    const row = h('button', 'picker-row' + (option.value === selectedValue ? ' is-active' : ''))
+    row.type = 'button'
+    row.append(h('b', null, option.label))
+    const check = icon('check')
+    check.classList.add('check')
+    row.append(check)
+    row.addEventListener('click', () => {
+      onPick(option.value, option.label)
+      closeSheet()
+    })
+    wrap.append(row)
+  })
+  openSheet({ title, body: wrap })
+}
+
+function confirmSheet(title, message, confirmLabel, onConfirm) {
+  const wrap = h('div')
+  wrap.append(h('p', 'sheet-note', message))
+  const buttons = h('div')
+  buttons.style.display = 'flex'
+  buttons.style.gap = '8px'
+  buttons.style.marginTop = '16px'
+  const cancel = h('button', 'btn btn-ghost', 'Отмена')
+  cancel.type = 'button'
+  cancel.style.flex = '1'
+  cancel.addEventListener('click', closeSheet)
+  const confirm = h('button', 'btn btn-danger-ghost', confirmLabel)
+  confirm.type = 'button'
+  confirm.style.flex = '1'
+  confirm.addEventListener('click', () => {
+    closeSheet()
+    onConfirm()
+  })
+  buttons.append(cancel, confirm)
+  wrap.append(buttons)
+  openSheet({ title, body: wrap })
+}
+
+function field(label, control) {
+  const wrap = h('label', 'field')
+  wrap.append(h('span', null, label), control)
+  return wrap
+}
+
+/* ============================ Навигация ============================ */
+
+const screens = new Map()
+document.querySelectorAll('.screen').forEach((node) => screens.set(node.dataset.screen, node))
+
+const TAB_OF = {
+  chat: 'chat',
+  plans: 'plans',
+  memory: 'memory',
+  agent: 'agent',
+  more: 'more',
+  settings: 'more',
+  stats: 'more'
+}
+
+let currentScreen = 'chat'
+
+function go(name, options = {}) {
+  if (!screens.has(name)) return
+  currentScreen = name
+  screens.forEach((node, key) => {
+    const active = key === name
+    node.hidden = !active
+    node.classList.toggle('is-active', active)
+  })
+  document.body.dataset.screen = name
+  document.querySelectorAll('.tab').forEach((tab) => {
+    tab.classList.toggle('is-active', tab.dataset.go === TAB_OF[name])
+  })
+  closeSheet()
+  if (options.push !== false) {
+    try {
+      history.pushState({ screen: name }, '', '#' + name)
+    } catch {
+      location.hash = name
+    }
+  }
+  if (name === 'plans') ensurePlans()
+  if (name === 'memory') ensureMemory()
+  if (name === 'settings') ensureSettings()
+  if (name === 'stats') ensureStats()
+  if (name === 'chat') ensureChat()
+  const active = screens.get(name)
+  if (active) {
+    const scroller = active.querySelector('.screen-scroll, .chat-scroll')
+    if (scroller) scroller.scrollTop = scroller.scrollTop
+  }
+}
+
+document.addEventListener('click', (event) => {
+  const goNode = event.target.closest('[data-go]')
+  if (goNode) {
+    go(goNode.dataset.go)
+    return
+  }
+  const backNode = event.target.closest('[data-back]')
+  if (backNode) go(backNode.dataset.back)
+})
+
+window.addEventListener('popstate', (event) => {
+  const name = (event.state && event.state.screen) || (location.hash ? location.hash.slice(1) : 'chat')
+  if (screens.has(name) && state.session) go(name, { push: false })
+})
+
+/* ============================ Форматирование ============================ */
+
+const dateTimeFormat = new Intl.DateTimeFormat('ru-RU', {
+  day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit'
+})
+const timeFormat = new Intl.DateTimeFormat('ru-RU', { hour: '2-digit', minute: '2-digit' })
+const dateFormat = new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long' })
+
+function formatDateTime(iso) {
+  const date = new Date(iso)
+  return Number.isNaN(date.getTime()) ? String(iso ?? '') : dateTimeFormat.format(date)
+}
+
+function formatTime(iso) {
+  const date = new Date(iso)
+  return Number.isNaN(date.getTime()) ? '' : timeFormat.format(date)
+}
+
+function localInputValue(date) {
+  const pad = (n) => String(n).padStart(2, '0')
+  return date.getFullYear() + '-' + pad(date.getMonth() + 1) + '-' + pad(date.getDate())
+    + 'T' + pad(date.getHours()) + ':' + pad(date.getMinutes())
+}
+
+function dayKey(date) {
+  const pad = (n) => String(n).padStart(2, '0')
+  return date.getFullYear() + '-' + pad(date.getMonth() + 1) + '-' + pad(date.getDate())
+}
+
+function startOfDay(date) {
+  const copy = new Date(date)
+  copy.setHours(0, 0, 0, 0)
+  return copy
+}
+
+function reminderGroup(iso) {
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return 'later'
+  const today = startOfDay(new Date())
+  const tomorrow = new Date(today)
+  tomorrow.setDate(tomorrow.getDate() + 1)
+  const afterTomorrow = new Date(tomorrow)
+  afterTomorrow.setDate(afterTomorrow.getDate() + 1)
+  if (date < tomorrow) return 'today'
+  if (date < afterTomorrow) return 'tomorrow'
+  return 'later'
+}
+
+/* ============================ Авторизация ============================ */
+
+function showLogin(message) {
+  state.session = null
+  $('boot').hidden = true
+  screens.forEach((node) => { node.hidden = node.dataset.screen !== 'auth' })
+  document.body.dataset.screen = 'auth'
+  $('login-error').hidden = !message
+  $('login-error').textContent = message || ''
+  $('login-password').value = ''
+  $('login-submit').disabled = false
+  $('login-label').textContent = 'Войти'
+  setTimeout(() => $('login-password').focus(), 50)
+}
+
+function showApp(session) {
+  state.session = session
+  $('boot').hidden = true
+  applyLargeText(store.get(LARGE_TEXT_KEY) === '1')
+  go('chat', { push: false })
+  const telegramUrl = session.telegramUrl || 'https://t.me/Tenkrol_bot'
+  ;['open-telegram', 'agent-telegram'].forEach((id) => {
+    const link = $(id)
+    if (link) link.href = telegramUrl
+  })
+  void Promise.allSettled([
+    loadChat(),
+    loadPlans(),
+    loadMemory(),
+    loadSettings(),
+    loadStats()
+  ])
+  refreshProfile()
+}
+
+async function login(event) {
+  if (event) event.preventDefault()
+  const input = $('login-password')
+  const password = input.value
+  if (password === '') {
+    $('login-error').hidden = false
+    $('login-error').textContent = 'Введите пароль'
+    input.focus()
+    return
+  }
+  const button = $('login-submit')
+  button.disabled = true
+  $('login-error').hidden = true
+  $('login-label').textContent = 'Проверяю…'
+  try {
+    await api('POST', '/api/auth/login', { password })
+    const session = await api('GET', '/api/auth/session')
+    showApp(session)
+    toast('Вход выполнен')
+  } catch (error) {
+    $('login-error').hidden = false
+    $('login-error').textContent = error.message || 'Не удалось войти'
+    button.disabled = false
+    $('login-label').textContent = 'Войти'
+    input.select()
+  }
+}
+
+async function logout() {
+  try {
+    await api('POST', '/api/auth/logout')
+  } catch {
+    /* cookie всё равно будет удалена после ответа; показываем вход */
+  }
+  showLogin()
+}
+
+async function boot() {
+  applyTheme()
+  applyLargeText(store.get(LARGE_TEXT_KEY) === '1')
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+    if (themeMode === 'auto') applyTheme()
+  })
+  if (TELEGRAM) {
+    try {
+      TELEGRAM.ready && TELEGRAM.ready()
+      TELEGRAM.expand && TELEGRAM.expand()
+    } catch {
+      /* окружение Telegram может не поддерживать вызов */
+    }
+  }
+  try {
+    const session = await api('GET', '/api/auth/session')
+    showApp(session)
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 401) {
+      showLogin()
+      return
+    }
+    $('boot').replaceChildren()
+    $('boot').append(
+      h('b', null, 'Не удалось подключиться'),
+      h('span', null, error.message || 'Сервер не отвечает'),
+    )
+    const retry = h('button', 'btn btn-ghost btn-sm', 'Повторить')
+    retry.type = 'button'
+    retry.addEventListener('click', () => location.reload())
+    $('boot').append(retry)
+  }
+}
+
+/* ============================ Чат ============================ */
+
+async function ensureChat() {
+  if (!state.loaded.chat && !state.loading.chat) await loadChat()
+}
+
+async function loadChat() {
+  if (state.loading.chat) return
+  state.loading.chat = true
+  try {
+    const data = await api('GET', '/api/chat/history?limit=60')
+    state.chat = data
+    state.loaded.chat = true
+    renderChat()
+    const telegramUrl = data.telegramUrl || (state.session && state.session.telegramUrl)
+    if (telegramUrl) {
+      $('open-telegram').href = telegramUrl
+      $('agent-telegram').href = telegramUrl
+    }
+  } catch (error) {
+    if (error.status !== 401) {
+      $('chat-messages').replaceChildren(renderError('Не удалось загрузить историю', () => {
+        state.loaded.chat = false
+        void loadChat()
+      }))
+    }
+  } finally {
+    state.loading.chat = false
+  }
+}
+
+function renderChat() {
+  const box = $('chat-messages')
+  box.replaceChildren()
+  const messages = state.chat && Array.isArray(state.chat.messages) ? state.chat.messages : []
+  if (messages.length === 0) {
+    const empty = h('div', 'chat-empty')
+    const iconBox = h('div', 'chat-empty-icon')
+    iconBox.append(icon('chat'))
+    empty.append(iconBox, h('b', null, 'Здесь появится переписка'), h('span', null, 'Напишите боту в Telegram — история подтянется сюда. Отправка сообщений с сайта появится в следующем шаге.'))
+    box.append(empty)
+    return
+  }
+  const day = h('div', 'day-chip', 'История переписки')
+  box.append(day)
+  const intro = h('p', 'hint', 'Только чтение: продолжать диалог — в Telegram.')
+  intro.style.textAlign = 'center'
+  intro.style.paddingTop = '0'
+  intro.style.paddingBottom = '10px'
+  box.append(intro)
+  messages.forEach((message) => {
+    const article = h('article', 'msg ' + (message.role === 'assistant' ? 'msg-bot' : 'msg-user'))
+    if (message.role === 'assistant') {
+      const avatar = h('div', 'msg-avatar')
+      avatar.append(icon('spark'))
+      const stack = h('div', 'msg-stack')
+      const bubble = h('div', 'bubble bubble-bot', message.text)
+      stack.append(bubble)
+      article.append(avatar, stack)
+    } else {
+      const bubble = h('div', 'bubble bubble-user', message.text)
+      if (message.author) {
+        bubble.prepend(h('div', 'row-meta', message.author))
+      }
+      article.append(bubble)
+    }
+    box.append(article)
+  })
+}
+
+/* ============================ Планы ============================ */
+
+async function ensurePlans() {
+  if (!state.loaded.plans && !state.loading.plans) await loadPlans()
+}
+
+async function loadPlans() {
+  if (state.loading.plans) return
+  state.loading.plans = true
+  try {
+    const [reminders, events] = await Promise.all([
+      api('GET', '/api/reminders'),
+      api('GET', '/api/events?days=365')
+    ])
+    state.reminders = Array.isArray(reminders) ? reminders : []
+    state.events = Array.isArray(events) ? events : []
+    state.loaded.plans = true
+    renderPlans()
+    renderCalendar()
+  } catch (error) {
+    if (error.status !== 401) {
+      $('plans-reminders').replaceChildren(renderError('Не удалось загрузить планы', () => {
+        state.loaded.plans = false
+        void loadPlans()
+      }))
+    }
+  } finally {
+    state.loading.plans = false
+  }
+}
+
+function planItemCard({ title, meta, kind, onDelete }) {
+  const card = h('article', 'plan-card')
+  const iconBox = h('span', 'plan-ic' + (kind === 'event' ? ' event' : ''))
+  iconBox.append(icon(kind === 'event' ? 'calendar' : 'bell'))
+  const body = h('div', 'plan-body')
+  body.append(h('div', 'plan-title', title))
+  const metaRow = h('div', 'plan-meta')
+  meta.forEach((part, index) => {
+    if (index > 0) metaRow.append(h('span', 'dot-sep'))
+    metaRow.append(h('span', null, part))
+  })
+  body.append(metaRow)
+  card.append(iconBox, body)
+  if (onDelete) {
+    const remove = h('button', 'icon-btn sm')
+    remove.type = 'button'
+    remove.setAttribute('aria-label', 'Удалить')
+    remove.append(icon('trash'))
+    remove.addEventListener('click', (event) => {
+      event.stopPropagation()
+      onDelete()
+    })
+    card.append(remove)
+  }
+  return card
+}
+
+function renderPlans() {
+  const box = $('plans-reminders')
+  box.replaceChildren()
+  const groups = { today: [], tomorrow: [], later: [] }
+  state.reminders.forEach((reminder) => groups[reminderGroup(reminder.dueAt)].push(reminder))
+
+  const groupDefs = [
+    ['today', 'Сегодня'],
+    ['tomorrow', 'Завтра'],
+    ['later', 'Позже']
+  ]
+  let visible = 0
+  groupDefs.forEach(([key, label]) => {
+    const items = groups[key]
+    if (items.length === 0) return
+    visible += items.length
+    const head = h('div', 'group-head')
+    head.append(h('span', null, label), h('span', 'group-count', String(items.length)))
+    box.append(head)
+    items.forEach((reminder) => {
+      box.append(planItemCard({
+        title: reminder.text,
+        meta: [formatDateTime(reminder.dueAt), reminder.repeatText],
+        kind: 'reminder',
+        onDelete: () => {
+          confirmSheet('Удалить напоминание?', '«' + reminder.text + '» больше не придёт.', 'Удалить', async () => {
+            try {
+              await api('DELETE', '/api/reminders/' + encodeURIComponent(reminder.id))
+              toast('Напоминание удалено')
+              state.loaded.plans = false
+              await loadPlans()
+            } catch (error) {
+              handleError(error)
+            }
+          })
+        }
+      }))
+    })
+  })
+
+  if (state.events.length > 0) {
+    const head = h('div', 'group-head')
+    head.append(h('span', null, 'События'), h('span', 'group-count', String(state.events.length)))
+    box.append(head)
+    state.events.forEach((event) => {
+      box.append(planItemCard({
+        title: event.title,
+        meta: [formatDateTime(event.at), event.repeat === 'yearly' ? 'каждый год' : 'событие'],
+        kind: 'event',
+        onDelete: () => {
+          confirmSheet('Удалить событие?', '«' + event.title + '» исчезнет из календаря.', 'Удалить', async () => {
+            try {
+              await api('DELETE', '/api/events/' + encodeURIComponent(event.id))
+              toast('Событие удалено')
+              state.loaded.plans = false
+              await loadPlans()
+            } catch (error) {
+              handleError(error)
+            }
+          })
+        }
+      }))
+    })
+  }
+
+  if (visible === 0 && state.events.length === 0) {
+    box.append(renderEmpty('Пока нет планов', 'Добавьте первое напоминание — бот пришлёт его в срок.'))
+  }
+
+  const remindersCount = state.reminders.length
+  const eventsCount = state.events.length
+  $('plans-sub').textContent = remindersCount + ' ' + plural(remindersCount, ['напоминание', 'напоминания', 'напоминаний'])
+    + ' · ' + eventsCount + ' ' + plural(eventsCount, ['событие', 'события', 'событий'])
+}
+
+function setPlansView(view) {
+  state.plansView = view
+  document.querySelectorAll('[data-plans-view]').forEach((button) => {
+    const active = button.dataset.plansView === view
+    button.classList.toggle('is-active', active)
+    button.setAttribute('aria-selected', active ? 'true' : 'false')
+  })
+  document.querySelectorAll('[data-plans-panel]').forEach((panel) => {
+    panel.hidden = panel.dataset.plansPanel !== view
+  })
+  $('fab-add').setAttribute('aria-label', view === 'calendar' ? 'Добавить событие' : 'Добавить напоминание')
+  if (view === 'calendar') renderCalendar()
+}
+
+function openReminderSheet() {
+  const wrap = h('div')
+  const input = h('input', 'input')
+  input.placeholder = 'Например, позвонить в клинику'
+  wrap.append(field('Что напомнить', input))
+
+  const defaultDate = new Date()
+  defaultDate.setDate(defaultDate.getDate() + 1)
+  defaultDate.setHours(9, 0, 0, 0)
+  const when = h('input', 'input')
+  when.type = 'datetime-local'
+  when.value = localInputValue(defaultDate)
+  wrap.append(field('Когда', when))
+
+  const repeat = h('select', 'input')
+  REPEAT_CHOICES.forEach(([value, label]) => {
+    const option = document.createElement('option')
+    option.value = value
+    option.textContent = label
+    repeat.append(option)
+  })
+  wrap.append(field('Повтор', repeat))
+
+  const submit = h('button', 'btn btn-primary btn-block', 'Добавить напоминание')
+  submit.type = 'button'
+  submit.addEventListener('click', async () => {
+    const text = input.value.trim()
+    if (!text) {
+      toast('Введите текст напоминания')
+      input.focus()
+      return
+    }
+    const date = new Date(when.value)
+    if (Number.isNaN(date.getTime())) {
+      toast('Укажите дату и время')
+      return
+    }
+    if (date.getTime() <= Date.now()) {
+      toast('Дата должна быть в будущем')
+      return
+    }
+    submit.disabled = true
+    try {
+      await api('POST', '/api/reminders', {
+        text,
+        dueAt: date.toISOString(),
+        repeat: repeat.value
+      })
+      closeSheet()
+      toast('Напоминание добавлено')
+      state.loaded.plans = false
+      await loadPlans()
+    } catch (error) {
+      handleError(error)
+      submit.disabled = false
+    }
+  })
+  wrap.append(submit)
+  openSheet({ title: 'Новое напоминание', body: wrap })
+}
+
+function openEventSheet() {
+  const wrap = h('div')
+  const input = h('input', 'input')
+  input.placeholder = 'Например, день рождения Маши'
+  wrap.append(field('Название события', input))
+
+  const defaultDate = new Date()
+  defaultDate.setDate(defaultDate.getDate() + 1)
+  defaultDate.setHours(12, 0, 0, 0)
+  const when = h('input', 'input')
+  when.type = 'datetime-local'
+  when.value = localInputValue(defaultDate)
+  wrap.append(field('Дата и время', when))
+
+  const yearlyRow = h('label', 'switch-row')
+  const yearlyText = h('div')
+  yearlyText.append(h('b', null, 'Каждый год'), h('span', null, 'повторять ежегодно'))
+  const yearly = h('button', 'switch')
+  yearly.type = 'button'
+  yearly.setAttribute('aria-label', 'Каждый год')
+  let yearlyOn = false
+  yearly.addEventListener('click', () => {
+    yearlyOn = !yearlyOn
+    yearly.classList.toggle('is-on', yearlyOn)
+  })
+  yearlyRow.append(yearlyText, yearly)
+  wrap.append(yearlyRow)
+
+  const submit = h('button', 'btn btn-primary btn-block', 'Добавить событие')
+  submit.type = 'button'
+  submit.addEventListener('click', async () => {
+    const title = input.value.trim()
+    if (!title) {
+      toast('Введите название события')
+      input.focus()
+      return
+    }
+    const date = new Date(when.value)
+    if (Number.isNaN(date.getTime())) {
+      toast('Укажите дату и время')
+      return
+    }
+    if (date.getTime() <= Date.now()) {
+      toast('Дата должна быть в будущем')
+      return
+    }
+    submit.disabled = true
+    try {
+      await api('POST', '/api/events', {
+        title,
+        at: date.toISOString(),
+        repeat: yearlyOn ? 'yearly' : 'none'
+      })
+      closeSheet()
+      toast('Событие добавлено в календарь')
+      state.loaded.plans = false
+      await loadPlans()
+    } catch (error) {
+      handleError(error)
+      submit.disabled = false
+    }
+  })
+  wrap.append(submit)
+  openSheet({ title: 'Новое событие', body: wrap })
+}
+
+function addItemToCalendar(map, dateKeyValue, item) {
+  if (!map.has(dateKeyValue)) map.set(dateKeyValue, [])
+  map.get(dateKeyValue).push(item)
+}
+
+function renderCalendar() {
+  const grid = $('cal-grid')
+  if (!grid) return
+  grid.replaceChildren()
+  const { year, month, selected } = state.calendar
+  const first = new Date(year, month, 1)
+  const startOffset = (first.getDay() + 6) % 7
+  const daysInMonth = new Date(year, month + 1, 0).getDate()
+  const prevDays = new Date(year, month, 0).getDate()
+
+  const itemsByDay = new Map()
+  state.reminders.forEach((reminder) => {
+    const date = new Date(reminder.dueAt)
+    if (Number.isNaN(date.getTime())) return
+    addItemToCalendar(itemsByDay, dayKey(date), { kind: 'reminder', title: reminder.text, time: formatTime(reminder.dueAt) })
+  })
+  state.events.forEach((event) => {
+    const date = new Date(event.at)
+    if (Number.isNaN(date.getTime())) return
+    addItemToCalendar(itemsByDay, dayKey(date), { kind: 'event', title: event.title, time: formatTime(event.at) })
+  })
+
+  for (let index = 0; index < 42; index += 1) {
+    const dayNumber = index - startOffset + 1
+    let cellYear = year
+    let cellMonth = month
+    let day = dayNumber
+    let out = false
+    if (dayNumber < 1) {
+      out = true
+      cellMonth -= 1
+      if (cellMonth < 0) {
+        cellMonth = 11
+        cellYear -= 1
+      }
+      day = prevDays + dayNumber
+    } else if (dayNumber > daysInMonth) {
+      out = true
+      cellMonth += 1
+      if (cellMonth > 11) {
+        cellMonth = 0
+        cellYear += 1
+      }
+      day = dayNumber - daysInMonth
+    }
+
+    const cell = h('button', 'cal-day' + (out ? ' out' : ''))
+    cell.type = 'button'
+    cell.textContent = String(day)
+    cell.setAttribute('aria-label', day + ' ' + MONTHS_GEN[cellMonth])
+    const key = dayKey(new Date(cellYear, cellMonth, day))
+    const items = itemsByDay.get(key) || []
+    if (items.length > 0) {
+      const dots = h('span', 'cal-dots')
+      const kinds = new Set(items.map((item) => item.kind))
+      kinds.forEach((kind) => dots.append(h('i', kind === 'event' ? 'event' : '')))
+      cell.append(dots)
+    }
+    const today = new Date()
+    if (!out && cellYear === today.getFullYear() && cellMonth === today.getMonth() && day === today.getDate()) {
+      cell.classList.add('today')
+    }
+    if (!out && cellYear === year && cellMonth === month && day === selected) {
+      cell.classList.add('is-selected')
+    }
+    cell.addEventListener('click', () => {
+      state.calendar.year = cellYear
+      state.calendar.month = cellMonth
+      state.calendar.selected = day
+      renderCalendar()
+    })
+    grid.append(cell)
+  }
+
+  $('cal-month').textContent = MONTHS[month] + ' ' + year
+  const selectedDate = new Date(year, month, selected)
+  $('cal-selected-label').textContent = selected + ' ' + MONTHS_GEN[month] + ', ' + WEEKDAYS_FULL[selectedDate.getDay()]
+  $('cal-day-title').textContent = selected + ' ' + MONTHS_GEN[month]
+  const selectedItems = itemsByDay.get(dayKey(selectedDate)) || []
+  $('cal-day-count').textContent = String(selectedItems.length)
+  const dayList = $('cal-day-list')
+  dayList.replaceChildren()
+  if (selectedItems.length === 0) {
+    dayList.append(h('p', 'empty-day', 'На этот день ничего нет.'))
+  } else {
+    selectedItems.forEach((item) => {
+      dayList.append(planItemCard({
+        title: item.title,
+        meta: [item.time || 'весь день'],
+        kind: item.kind
+      }))
+    })
+  }
+}
+
+/* ============================ Память ============================ */
+
+async function ensureMemory() {
+  if (!state.loaded.memory && !state.loading.memory) await loadMemory()
+}
+
+async function loadMemory() {
+  if (state.loading.memory) return
+  state.loading.memory = true
+  try {
+    const data = await api('GET', '/api/memory')
+    state.memory = {
+      facts: data && Array.isArray(data.facts) ? data.facts : [],
+      city: data ? data.city : null
+    }
+    state.loaded.memory = true
+    renderMemory()
+  } catch (error) {
+    if (error.status !== 401) {
+      $('facts-list').replaceChildren(renderError('Не удалось загрузить память', () => {
+        state.loaded.memory = false
+        void loadMemory()
+      }))
+    }
+  } finally {
+    state.loading.memory = false
+  }
+}
+
+function renderMemory() {
+  const box = $('facts-list')
+  box.replaceChildren()
+  const query = state.factQuery.trim().toLowerCase()
+  const facts = state.memory.facts.filter((fact) => !query || String(fact.text).toLowerCase().includes(query))
+  if (facts.length === 0) {
+    box.append(renderEmpty(query ? 'Ничего не нашлось' : 'Пока пусто', query ? 'Попробуйте другой запрос.' : 'Добавьте первый факт — бот учтёт его в личных ответах.'))
+  }
+  facts.forEach((fact) => {
+    const card = h('article', 'fact-card')
+    const body = h('div', 'fact-body')
+    body.append(h('div', 'fact-text', fact.text))
+    const meta = h('div', 'fact-meta')
+    meta.append(icon('book'), h('span', null, 'личный факт'))
+    body.append(meta)
+    const remove = h('button', 'icon-btn sm')
+    remove.type = 'button'
+    remove.setAttribute('aria-label', 'Удалить факт')
+    remove.append(icon('trash'))
+    remove.addEventListener('click', () => {
+      confirmSheet('Удалить факт?', '«' + fact.text + '» больше не будет использоваться.', 'Удалить', async () => {
+        try {
+          await api('DELETE', '/api/memory/' + encodeURIComponent(fact.id))
+          toast('Факт удалён')
+          state.loaded.memory = false
+          await loadMemory()
+        } catch (error) {
+          handleError(error)
+        }
+      })
+    })
+    card.append(body, remove)
+    box.append(card)
+  })
+  $('facts-count').textContent = String(state.memory.facts.length)
+  $('memory-city').textContent = state.memory.city || 'Город не задан'
+  const count = state.memory.facts.length
+  $('memory-sub').textContent = count + ' ' + plural(count, ['факт', 'факта', 'фактов'])
+    + (state.memory.city ? ' · ' + state.memory.city : '')
+}
+
+async function addFact() {
+  const input = $('fact-input')
+  const text = input.value.trim()
+  if (!text) {
+    input.focus()
+    return
+  }
+  try {
+    await api('POST', '/api/memory', { text })
+    input.value = ''
+    toast('Запомнил')
+    state.loaded.memory = false
+    state.factQuery = ''
+    await loadMemory()
+    $('memory-scroll').scrollTop = 0
+  } catch (error) {
+    handleError(error)
+  }
+}
+
+function openCitySheet() {
+  const wrap = h('div')
+  const input = h('input', 'input')
+  input.placeholder = 'Например, Москва'
+  input.value = state.memory.city || ''
+  wrap.append(field('Город', input))
+  const submit = h('button', 'btn btn-primary btn-block', 'Сохранить город')
+  submit.type = 'button'
+  submit.addEventListener('click', async () => {
+    const city = input.value.trim()
+    if (!city) {
+      toast('Введите город')
+      input.focus()
+      return
+    }
+    submit.disabled = true
+    try {
+      await api('PATCH', '/api/settings', { city })
+      closeSheet()
+      toast('Город сохранён')
+      state.loaded.memory = false
+      state.settings = null
+      state.loaded.settings = false
+      await loadMemory()
+      await loadSettings()
+      refreshProfile()
+    } catch (error) {
+      handleError(error)
+      submit.disabled = false
+    }
+  })
+  wrap.append(submit)
+  openSheet({ title: 'Город', body: wrap })
+}
+
+/* ============================ Настройки ============================ */
+
+async function ensureSettings() {
+  if (!state.loaded.settings && !state.loading.settings) await loadSettings()
+}
+
+async function loadSettings() {
+  if (state.loading.settings) return
+  state.loading.settings = true
+  try {
+    const settings = await api('GET', '/api/settings')
+    state.settings = settings
+    state.loaded.settings = true
+    renderSettings()
+    refreshProfile()
+  } catch (error) {
+    if (error.status !== 401) {
+      toast(error.message || 'Не удалось загрузить настройки')
+    }
+  } finally {
+    state.loading.settings = false
+  }
+}
+
+function renderSettings() {
+  const settings = state.settings
+  if (!settings) return
+  $('set-persona').textContent = settings.persona ? capitalize(settings.persona) : 'Обычный'
+  $('set-mood').textContent = settings.mood ? capitalize(settings.mood) : 'Авто'
+  $('set-mode').textContent = settings.mode ? capitalize(settings.mode) : 'Обычный'
+  $('set-model').textContent = settings.model || (settings.defaults && settings.defaults.model) || '—'
+  $('set-city').textContent = settings.city || 'Не задан'
+  $('set-voice').classList.toggle('is-on', settings.voice === true)
+}
+
+async function patchSettings(patch, successMessage) {
+  try {
+    const settings = await api('PATCH', '/api/settings', patch)
+    state.settings = settings
+    state.loaded.settings = true
+    renderSettings()
+    refreshProfile()
+    if (state.loaded.memory) {
+      state.loaded.memory = false
+      void loadMemory()
+    }
+    if (successMessage) toast(successMessage)
+  } catch (error) {
+    handleError(error)
+  }
+}
+
+function openSettingsPicker(kind) {
+  const settings = state.settings
+  if (!settings) return
+  const options = (settings.options && settings.options[kind === 'persona' ? 'personas' : kind === 'mood' ? 'moods' : kind === 'mode' ? 'modes' : 'models']) || []
+  const current = kind === 'persona' ? settings.persona
+    : kind === 'mood' ? settings.mood
+      : kind === 'mode' ? settings.mode
+        : settings.model
+  const labels = {
+    persona: 'Характер',
+    mood: 'Настроение',
+    mode: 'Режим ответов',
+    model: 'Модель'
+  }
+  const values = options.map((value) => ({ value, label: capitalize(value) }))
+  if (kind !== 'model') values.unshift({ value: '', label: 'Сбросить' })
+  else values.unshift({ value: '', label: 'Как в конфигурации' })
+  const selected = current || ''
+  openPicker(labels[kind], values, selected, (value) => {
+    void patchSettings({ [kind]: value }, labels[kind] + ' сохранён')
+  })
+}
+
+function refreshProfile() {
+  const settings = state.settings
+  const name = (settings && settings.user && settings.user.name)
+    || (state.session && state.session.user && state.session.user.name)
+    || 'Владелец'
+  $('profile-name').textContent = name
+  $('profile-letter').textContent = name.trim().charAt(0).toUpperCase() || 'В'
+  const via = (settings && settings.user && settings.user.via) || (state.session && state.session.user && state.session.user.via)
+  $('profile-via').textContent = via === 'password' ? 'Вход по паролю' : 'Telegram'
+}
+
+/* ============================ Статистика ============================ */
+
+async function ensureStats() {
+  if (!state.loaded.stats && !state.loading.stats) await loadStats()
+}
+
+async function loadStats() {
+  if (state.loading.stats) return
+  state.loading.stats = true
+  try {
+    const data = await api('GET', '/api/stats?days=7')
+    state.stats = data
+    state.loaded.stats = true
+    renderStats()
+  } catch (error) {
+    if (error.status !== 401) {
+      $('stats-scroll').replaceChildren(renderError('Не удалось загрузить статистику', () => {
+        state.loaded.stats = false
+        void loadStats()
+      }))
+    }
+  } finally {
+    state.loading.stats = false
+  }
+}
+
+function renderStats() {
+  const box = $('stats-scroll')
+  const stats = state.stats
+  if (!stats) return
+  box.replaceChildren()
+  const today = stats.today || { prompt: 0, completion: 0, total: 0, requests: 0 }
+  const hero = h('div', 'stat-hero')
+  hero.append(h('span', 'stat-label', 'Токенов за сегодня'))
+  hero.append(h('div', 'stat-value', String(today.total || 0)))
+  const delta = h('div', 'stat-delta')
+  delta.append(icon('chart'), h('span', null, 'запросов: ' + (today.requests || 0)))
+  hero.append(delta)
+  const split = h('div', 'stat-split')
+  split.append(
+    statCell(today.prompt, 'токенов запроса'),
+    statCell(today.completion, 'токенов ответа'),
+    statCell(today.requests, 'запросов')
+  )
+  hero.append(split)
+  box.append(hero)
+
+  const chartCard = h('div', 'card chart-card')
+  const chartHead = h('div', 'card-head')
+  chartHead.append(h('b', null, 'За 7 дней'), h('span', null, 'токены'))
+  chartCard.append(chartHead)
+  const chart = h('div', 'chart')
+  const labels = h('div', 'chart-labels')
+  const days = Array.isArray(stats.days) ? stats.days : []
+  const max = Math.max(1, ...days.map((day) => day.total || 0))
+  days.forEach((day, index) => {
+    const wrap = h('div', 'bar-wrap')
+    const bar = h('div', 'bar' + (index === days.length - 1 ? ' today' : ''))
+    bar.style.height = Math.max(4, Math.round(((day.total || 0) / max) * 100)) + '%'
+    bar.title = day.total + ' токенов'
+    wrap.append(bar)
+    chart.append(wrap)
+    const date = new Date(day.date + 'T12:00:00')
+    const label = Number.isNaN(date.getTime()) ? '' : WEEKDAYS_SHORT[(date.getDay() + 6) % 7]
+    labels.append(h('span', index === days.length - 1 ? 'today' : '', label))
+  })
+  chartCard.append(chart, labels)
+  box.append(chartCard)
+
+  const limit = Number(stats.limit) || 0
+  if (limit > 0) {
+    const limitCard = h('div', 'card limit-card')
+    const head = h('div', 'card-head')
+    head.append(h('b', null, 'Дневной лимит'))
+    head.append(h('span', null, today.total + ' из ' + limit))
+    const progress = h('div', 'progress')
+    const bar = h('span')
+    bar.style.width = Math.min(100, Math.round((today.total / limit) * 100)) + '%'
+    progress.append(bar)
+    limitCard.append(head, progress)
+    box.append(limitCard)
+  } else {
+    const note = h('p', 'hint', 'Дневной лимит не задан — бот не ограничивает расход.')
+    note.style.paddingTop = '14px'
+    box.append(note)
+  }
+  const updated = h('p', 'hint center', 'Данные обновляются при открытии раздела.')
+  box.append(updated)
+}
+
+function statCell(value, label) {
+  const cell = h('div')
+  cell.append(h('b', null, String(value || 0)), h('span', null, label))
+  return cell
+}
+
+/* ============================ Общие состояния ============================ */
+
+function renderEmpty(title, text) {
+  const wrap = h('div', 'empty-day')
+  wrap.append(h('b', null, title), h('div', null, text))
+  return wrap
+}
+
+function renderError(text, retry) {
+  const wrap = h('div', 'empty-day')
+  wrap.append(h('div', null, text))
+  const button = h('button', 'btn btn-ghost btn-sm', 'Повторить')
+  button.type = 'button'
+  button.style.marginTop = '12px'
+  button.addEventListener('click', retry)
+  wrap.append(button)
+  return wrap
+}
+
+/* ============================ Связывание ============================ */
+
+function bind() {
+  $('login-form').addEventListener('submit', login)
+
+  document.querySelectorAll('[data-plans-view]').forEach((button) => {
+    button.addEventListener('click', () => setPlansView(button.dataset.plansView))
+  })
+  $('plans-add').addEventListener('click', () => {
+    if (state.plansView === 'calendar') openEventSheet()
+    else openReminderSheet()
+  })
+  $('fab-add').addEventListener('click', () => {
+    if (state.plansView === 'calendar') openEventSheet()
+    else openReminderSheet()
+  })
+  $('cal-prev').addEventListener('click', () => {
+    state.calendar.month -= 1
+    if (state.calendar.month < 0) {
+      state.calendar.month = 11
+      state.calendar.year -= 1
+    }
+    state.calendar.selected = 1
+    renderCalendar()
+  })
+  $('cal-next').addEventListener('click', () => {
+    state.calendar.month += 1
+    if (state.calendar.month > 11) {
+      state.calendar.month = 0
+      state.calendar.year += 1
+    }
+    state.calendar.selected = 1
+    renderCalendar()
+  })
+
+  $('chat-refresh').addEventListener('click', () => {
+    state.loaded.chat = false
+    void loadChat()
+  })
+
+  $('memory-search-toggle').addEventListener('click', () => {
+    const row = $('memory-search')
+    row.hidden = !row.hidden
+    if (!row.hidden) $('memory-search-input').focus()
+  })
+  $('memory-search-input').addEventListener('input', (event) => {
+    state.factQuery = event.target.value
+    renderMemory()
+  })
+  $('fact-add').addEventListener('click', () => void addFact())
+  $('fact-input').addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault()
+      void addFact()
+    }
+  })
+  $('city-card').addEventListener('click', openCitySheet)
+
+  document.querySelectorAll('[data-picker]').forEach((button) => {
+    button.addEventListener('click', () => {
+      if (button.dataset.picker === 'city') openCitySheet()
+      else openSettingsPicker(button.dataset.picker)
+    })
+  })
+  $('set-voice').addEventListener('click', () => {
+    const next = !$('set-voice').classList.contains('is-on')
+    $('set-voice').classList.toggle('is-on', next)
+    void patchSettings({ voice: next }, next ? 'Голосовые ответы включены' : 'Голосовые ответы выключены')
+  })
+
+  document.querySelectorAll('[data-theme-mode]').forEach((button) => {
+    button.addEventListener('click', () => setThemeMode(button.dataset.themeMode))
+  })
+  const largeTextSwitch = $('set-large-text')
+  const largeTextOn = store.get(LARGE_TEXT_KEY) === '1'
+  largeTextSwitch.classList.toggle('is-on', largeTextOn)
+  largeTextSwitch.addEventListener('click', () => {
+    const next = !largeTextSwitch.classList.contains('is-on')
+    store.set(LARGE_TEXT_KEY, next ? '1' : '0')
+    applyLargeText(next)
+  })
+
+  $('logout-button').addEventListener('click', () => {
+    confirmSheet('Выйти из аккаунта?', 'На этом устройстве придётся ввести пароль заново.', 'Выйти', () => void logout())
+  })
+  $('logout-row').addEventListener('click', () => {
+    confirmSheet('Выйти из аккаунта?', 'На этом устройстве придётся ввести пароль заново.', 'Выйти', () => void logout())
+  })
+
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+    if (themeMode === 'auto') applyTheme()
+  })
+}
+
+/* ============================ Старт ============================ */
+
+applyTheme()
+bind()
+void boot()

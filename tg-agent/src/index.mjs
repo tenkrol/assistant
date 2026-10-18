@@ -702,6 +702,17 @@ export async function createInstance({ config, logger, instance, shared, platfor
           profiles: profiles?.store,
           usage,
         },
+        history,
+        mobilePasswordHash: config.miniapp.mobile.passwordHash,
+        mobileSessionSecret: config.miniapp.mobile.sessionSecret,
+        mobileUserId: config.miniapp.mobile.userId || [...botConfig.access.allowedUserIds][0],
+        mobileUserName: config.miniapp.mobile.userName,
+        sessionTtlSec: config.miniapp.mobile.sessionTtlSec,
+        cookieSecure: config.miniapp.mobile.cookieSecure,
+        defaultModel: config.model.name,
+        modelOptions: [config.model.name, 'deepseek-flash', 'deepseek-chat', 'deepseek-v4-pro'],
+        telegramUrl: config.miniapp.mobile.telegramUrl,
+        timeZone: config.time?.timeZone ?? '',
         logger,
       })
       const miniPort = await miniApp.start()

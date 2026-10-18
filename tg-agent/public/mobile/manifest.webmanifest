@@ -1,0 +1,17 @@
+{
+  "name": "Ассистент TenKrol",
+  "short_name": "Ассистент",
+  "description": "Мобильный пульт домашнего ассистента: планы, память, история чата и статистика.",
+  "lang": "ru",
+  "start_url": "/mobile/",
+  "scope": "/mobile/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#101923",
+  "theme_color": "#101923",
+  "icons": [
+    { "src": "/mobile/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/mobile/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/mobile/icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
