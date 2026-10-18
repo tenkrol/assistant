@@ -31,11 +31,11 @@
       "runner": "manual",
       "status": "blocked",
       "checkedAt": "2026-10-18",
-      "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+      "sha": "6bea6bb38259037c76b9fd08df0a7d1056156b06",
       "blockedReason": "поручения из чата не реализованы: в коде нет WorkItem/TaskView, живой сценарий выполнить нельзя",
       "lastRun": {
-        "at": "2026-10-18T18:38:58.726Z",
-        "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+        "at": "2026-10-18T18:40:08.422Z",
+        "sha": "6bea6bb38259037c76b9fd08df0a7d1056156b06",
         "report": "docs/acceptance/report.json",
         "result": "blocked",
         "reason": "поручения из чата не реализованы: в коде нет WorkItem/TaskView, живой сценарий выполнить нельзя"
@@ -56,11 +56,11 @@
       "runner": "manual",
       "status": "blocked",
       "checkedAt": "2026-10-18",
-      "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+      "sha": "6bea6bb38259037c76b9fd08df0a7d1056156b06",
       "blockedReason": "зависит от реализации поручений (BP-01); без неё дубль события не проверить",
       "lastRun": {
-        "at": "2026-10-18T18:38:58.726Z",
-        "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+        "at": "2026-10-18T18:40:08.422Z",
+        "sha": "6bea6bb38259037c76b9fd08df0a7d1056156b06",
         "report": "docs/acceptance/report.json",
         "result": "blocked",
         "reason": "зависит от реализации поручений (BP-01); без неё дубль события не проверить"
@@ -83,11 +83,11 @@
       "runner": "manual",
       "status": "blocked",
       "checkedAt": "2026-10-18",
-      "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+      "sha": "6bea6bb38259037c76b9fd08df0a7d1056156b06",
       "blockedReason": "карточки выполнения (TaskView) нет в коде; живой прогон невозможен",
       "lastRun": {
-        "at": "2026-10-18T18:38:58.726Z",
-        "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+        "at": "2026-10-18T18:40:08.422Z",
+        "sha": "6bea6bb38259037c76b9fd08df0a7d1056156b06",
         "report": "docs/acceptance/report.json",
         "result": "blocked",
         "reason": "карточки выполнения (TaskView) нет в коде; живой прогон невозможен"
@@ -109,10 +109,10 @@
       "runner": "test/reminders.test.mjs",
       "status": "passed",
       "checkedAt": "2026-10-18",
-      "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+      "sha": "6bea6bb38259037c76b9fd08df0a7d1056156b06",
       "lastRun": {
-        "at": "2026-10-18T18:38:58.726Z",
-        "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+        "at": "2026-10-18T18:40:08.422Z",
+        "sha": "6bea6bb38259037c76b9fd08df0a7d1056156b06",
         "report": "docs/acceptance/report.json",
         "result": "passed",
         "reason": null,
@@ -142,10 +142,10 @@
       "runner": "test/reminders.test.mjs::flush + load round-trips",
       "status": "passed",
       "checkedAt": "2026-10-18",
-      "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+      "sha": "6bea6bb38259037c76b9fd08df0a7d1056156b06",
       "lastRun": {
-        "at": "2026-10-18T18:38:58.726Z",
-        "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+        "at": "2026-10-18T18:40:08.422Z",
+        "sha": "6bea6bb38259037c76b9fd08df0a7d1056156b06",
         "report": "docs/acceptance/report.json",
         "result": "passed",
         "reason": null,
@@ -156,7 +156,7 @@
           "fail": 0,
           "skipped": 0
         },
-        "durationMs": 109
+        "durationMs": 108
       }
     },
     {
@@ -174,10 +174,10 @@
       "runner": "test/events.test.mjs",
       "status": "passed",
       "checkedAt": "2026-10-18",
-      "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+      "sha": "6bea6bb38259037c76b9fd08df0a7d1056156b06",
       "lastRun": {
-        "at": "2026-10-18T18:38:58.726Z",
-        "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+        "at": "2026-10-18T18:40:08.422Z",
+        "sha": "6bea6bb38259037c76b9fd08df0a7d1056156b06",
         "report": "docs/acceptance/report.json",
         "result": "passed",
         "reason": null,
@@ -188,7 +188,7 @@
           "fail": 0,
           "skipped": 0
         },
-        "durationMs": 162
+        "durationMs": 165
       }
     },
     {
@@ -207,10 +207,10 @@
       "runner": "test/miniapp-i18n.test.mjs",
       "status": "passed",
       "checkedAt": "2026-10-18",
-      "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+      "sha": "6bea6bb38259037c76b9fd08df0a7d1056156b06",
       "lastRun": {
-        "at": "2026-10-18T18:38:58.726Z",
-        "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+        "at": "2026-10-18T18:40:08.422Z",
+        "sha": "6bea6bb38259037c76b9fd08df0a7d1056156b06",
         "report": "docs/acceptance/report.json",
         "result": "passed",
         "reason": null,
@@ -221,7 +221,7 @@
           "fail": 0,
           "skipped": 0
         },
-        "durationMs": 160
+        "durationMs": 166
       }
     },
     {
@@ -239,10 +239,10 @@
       "runner": "test/miniapp.test.mjs",
       "status": "passed",
       "checkedAt": "2026-10-18",
-      "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+      "sha": "6bea6bb38259037c76b9fd08df0a7d1056156b06",
       "lastRun": {
-        "at": "2026-10-18T18:38:58.726Z",
-        "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+        "at": "2026-10-18T18:40:08.422Z",
+        "sha": "6bea6bb38259037c76b9fd08df0a7d1056156b06",
         "report": "docs/acceptance/report.json",
         "result": "passed",
         "reason": null,
@@ -253,7 +253,7 @@
           "fail": 0,
           "skipped": 0
         },
-        "durationMs": 280
+        "durationMs": 295
       }
     },
     {
@@ -271,10 +271,10 @@
       "runner": "test/platform-vk-voice.test.mjs",
       "status": "passed",
       "checkedAt": "2026-10-18",
-      "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+      "sha": "6bea6bb38259037c76b9fd08df0a7d1056156b06",
       "lastRun": {
-        "at": "2026-10-18T18:38:58.726Z",
-        "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+        "at": "2026-10-18T18:40:08.422Z",
+        "sha": "6bea6bb38259037c76b9fd08df0a7d1056156b06",
         "report": "docs/acceptance/report.json",
         "result": "passed",
         "reason": null,
@@ -285,7 +285,7 @@
           "fail": 0,
           "skipped": 0
         },
-        "durationMs": 246
+        "durationMs": 222
       }
     },
     {
@@ -303,10 +303,10 @@
       "runner": "test/stt.test.mjs",
       "status": "passed",
       "checkedAt": "2026-10-18",
-      "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+      "sha": "6bea6bb38259037c76b9fd08df0a7d1056156b06",
       "lastRun": {
-        "at": "2026-10-18T18:38:58.726Z",
-        "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+        "at": "2026-10-18T18:40:08.422Z",
+        "sha": "6bea6bb38259037c76b9fd08df0a7d1056156b06",
         "report": "docs/acceptance/report.json",
         "result": "passed",
         "reason": null,
@@ -317,7 +317,7 @@
           "fail": 0,
           "skipped": 0
         },
-        "durationMs": 105
+        "durationMs": 106
       }
     },
     {
@@ -335,10 +335,10 @@
       "runner": "test/tts.test.mjs",
       "status": "passed",
       "checkedAt": "2026-10-18",
-      "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+      "sha": "6bea6bb38259037c76b9fd08df0a7d1056156b06",
       "lastRun": {
-        "at": "2026-10-18T18:38:58.726Z",
-        "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+        "at": "2026-10-18T18:40:08.422Z",
+        "sha": "6bea6bb38259037c76b9fd08df0a7d1056156b06",
         "report": "docs/acceptance/report.json",
         "result": "passed",
         "reason": null,
@@ -349,7 +349,7 @@
           "fail": 0,
           "skipped": 0
         },
-        "durationMs": 6100
+        "durationMs": 6101
       }
     },
     {
@@ -367,10 +367,10 @@
       "runner": "test/sendto-tool.test.mjs",
       "status": "passed",
       "checkedAt": "2026-10-18",
-      "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+      "sha": "6bea6bb38259037c76b9fd08df0a7d1056156b06",
       "lastRun": {
-        "at": "2026-10-18T18:38:58.726Z",
-        "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+        "at": "2026-10-18T18:40:08.422Z",
+        "sha": "6bea6bb38259037c76b9fd08df0a7d1056156b06",
         "report": "docs/acceptance/report.json",
         "result": "passed",
         "reason": null,
@@ -381,7 +381,7 @@
           "fail": 0,
           "skipped": 0
         },
-        "durationMs": 102
+        "durationMs": 99
       }
     },
     {
@@ -399,10 +399,10 @@
       "runner": "test/platform-vk-document.test.mjs",
       "status": "passed",
       "checkedAt": "2026-10-18",
-      "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+      "sha": "6bea6bb38259037c76b9fd08df0a7d1056156b06",
       "lastRun": {
-        "at": "2026-10-18T18:38:58.726Z",
-        "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+        "at": "2026-10-18T18:40:08.422Z",
+        "sha": "6bea6bb38259037c76b9fd08df0a7d1056156b06",
         "report": "docs/acceptance/report.json",
         "result": "passed",
         "reason": null,
@@ -413,7 +413,7 @@
           "fail": 0,
           "skipped": 0
         },
-        "durationMs": 159
+        "durationMs": 165
       }
     },
     {
@@ -431,10 +431,10 @@
       "runner": "test/platform-vk.test.mjs",
       "status": "passed",
       "checkedAt": "2026-10-18",
-      "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+      "sha": "6bea6bb38259037c76b9fd08df0a7d1056156b06",
       "lastRun": {
-        "at": "2026-10-18T18:38:58.726Z",
-        "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+        "at": "2026-10-18T18:40:08.422Z",
+        "sha": "6bea6bb38259037c76b9fd08df0a7d1056156b06",
         "report": "docs/acceptance/report.json",
         "result": "passed",
         "reason": null,
@@ -445,7 +445,7 @@
           "fail": 0,
           "skipped": 0
         },
-        "durationMs": 217
+        "durationMs": 225
       }
     },
     {
@@ -463,10 +463,10 @@
       "runner": "test/export-pdf.test.mjs",
       "status": "passed",
       "checkedAt": "2026-10-18",
-      "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+      "sha": "6bea6bb38259037c76b9fd08df0a7d1056156b06",
       "lastRun": {
-        "at": "2026-10-18T18:38:58.726Z",
-        "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+        "at": "2026-10-18T18:40:08.422Z",
+        "sha": "6bea6bb38259037c76b9fd08df0a7d1056156b06",
         "report": "docs/acceptance/report.json",
         "result": "passed",
         "reason": null,
@@ -494,10 +494,10 @@
       "runner": "test/pdf.test.mjs",
       "status": "passed",
       "checkedAt": "2026-10-18",
-      "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+      "sha": "6bea6bb38259037c76b9fd08df0a7d1056156b06",
       "lastRun": {
-        "at": "2026-10-18T18:38:58.726Z",
-        "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+        "at": "2026-10-18T18:40:08.422Z",
+        "sha": "6bea6bb38259037c76b9fd08df0a7d1056156b06",
         "report": "docs/acceptance/report.json",
         "result": "passed",
         "reason": null,
@@ -508,7 +508,7 @@
           "fail": 0,
           "skipped": 0
         },
-        "durationMs": 291
+        "durationMs": 292
       }
     },
     {
@@ -526,11 +526,11 @@
       "runner": "manual",
       "status": "blocked",
       "checkedAt": "2026-10-18",
-      "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+      "sha": "6bea6bb38259037c76b9fd08df0a7d1056156b06",
       "blockedReason": "нужен реальный бот и агент; автотесты моста не заменяют живой диалог",
       "lastRun": {
-        "at": "2026-10-18T18:38:58.726Z",
-        "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+        "at": "2026-10-18T18:40:08.422Z",
+        "sha": "6bea6bb38259037c76b9fd08df0a7d1056156b06",
         "report": "docs/acceptance/report.json",
         "result": "blocked",
         "reason": "нужен реальный бот и агент; автотесты моста не заменяют живой диалог"
@@ -552,10 +552,10 @@
       "runner": "test/memory.test.mjs::исправление заменяет факт",
       "status": "passed",
       "checkedAt": "2026-10-18",
-      "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+      "sha": "6bea6bb38259037c76b9fd08df0a7d1056156b06",
       "lastRun": {
-        "at": "2026-10-18T18:38:58.726Z",
-        "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+        "at": "2026-10-18T18:40:08.422Z",
+        "sha": "6bea6bb38259037c76b9fd08df0a7d1056156b06",
         "report": "docs/acceptance/report.json",
         "result": "passed",
         "reason": null,
@@ -585,10 +585,10 @@
       "runner": "test/memory.test.mjs::удалённое не возвращается",
       "status": "passed",
       "checkedAt": "2026-10-18",
-      "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+      "sha": "6bea6bb38259037c76b9fd08df0a7d1056156b06",
       "lastRun": {
-        "at": "2026-10-18T18:38:58.726Z",
-        "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+        "at": "2026-10-18T18:40:08.422Z",
+        "sha": "6bea6bb38259037c76b9fd08df0a7d1056156b06",
         "report": "docs/acceptance/report.json",
         "result": "passed",
         "reason": null,
@@ -599,7 +599,7 @@
           "fail": 0,
           "skipped": 0
         },
-        "durationMs": 128
+        "durationMs": 111
       }
     },
     {
@@ -616,10 +616,10 @@
       "runner": "test/memory.test.mjs::why объясняет источник",
       "status": "passed",
       "checkedAt": "2026-10-18",
-      "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+      "sha": "6bea6bb38259037c76b9fd08df0a7d1056156b06",
       "lastRun": {
-        "at": "2026-10-18T18:38:58.726Z",
-        "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+        "at": "2026-10-18T18:40:08.422Z",
+        "sha": "6bea6bb38259037c76b9fd08df0a7d1056156b06",
         "report": "docs/acceptance/report.json",
         "result": "passed",
         "reason": null,
@@ -648,10 +648,10 @@
       "runner": "test/memory.test.mjs::память проекта не попадает",
       "status": "passed",
       "checkedAt": "2026-10-18",
-      "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+      "sha": "6bea6bb38259037c76b9fd08df0a7d1056156b06",
       "lastRun": {
-        "at": "2026-10-18T18:38:58.726Z",
-        "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+        "at": "2026-10-18T18:40:08.422Z",
+        "sha": "6bea6bb38259037c76b9fd08df0a7d1056156b06",
         "report": "docs/acceptance/report.json",
         "result": "passed",
         "reason": null,
@@ -662,7 +662,7 @@
           "fail": 0,
           "skipped": 0
         },
-        "durationMs": 113
+        "durationMs": 112
       }
     },
     {
@@ -681,10 +681,10 @@
       "runner": "test/scopes.test.mjs::участник видит общий проект",
       "status": "passed",
       "checkedAt": "2026-10-18",
-      "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+      "sha": "6bea6bb38259037c76b9fd08df0a7d1056156b06",
       "lastRun": {
-        "at": "2026-10-18T18:38:58.726Z",
-        "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+        "at": "2026-10-18T18:40:08.422Z",
+        "sha": "6bea6bb38259037c76b9fd08df0a7d1056156b06",
         "report": "docs/acceptance/report.json",
         "result": "passed",
         "reason": null,
@@ -714,10 +714,10 @@
       "runner": "test/plb024-invitations.test.mjs",
       "status": "passed",
       "checkedAt": "2026-10-18",
-      "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+      "sha": "6bea6bb38259037c76b9fd08df0a7d1056156b06",
       "lastRun": {
-        "at": "2026-10-18T18:38:58.726Z",
-        "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+        "at": "2026-10-18T18:40:08.422Z",
+        "sha": "6bea6bb38259037c76b9fd08df0a7d1056156b06",
         "report": "docs/acceptance/report.json",
         "result": "passed",
         "reason": null,
@@ -728,7 +728,7 @@
           "fail": 0,
           "skipped": 0
         },
-        "durationMs": 337
+        "durationMs": 344
       }
     },
     {
@@ -747,10 +747,10 @@
       "runner": "test/proactive.test.mjs",
       "status": "passed",
       "checkedAt": "2026-10-18",
-      "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+      "sha": "6bea6bb38259037c76b9fd08df0a7d1056156b06",
       "lastRun": {
-        "at": "2026-10-18T18:38:58.726Z",
-        "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+        "at": "2026-10-18T18:40:08.422Z",
+        "sha": "6bea6bb38259037c76b9fd08df0a7d1056156b06",
         "report": "docs/acceptance/report.json",
         "result": "passed",
         "reason": null,
@@ -761,7 +761,7 @@
           "fail": 0,
           "skipped": 0
         },
-        "durationMs": 808
+        "durationMs": 815
       }
     },
     {
@@ -779,10 +779,10 @@
       "runner": "test/proactive.test.mjs::дневной предел",
       "status": "passed",
       "checkedAt": "2026-10-18",
-      "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+      "sha": "6bea6bb38259037c76b9fd08df0a7d1056156b06",
       "lastRun": {
-        "at": "2026-10-18T18:38:58.726Z",
-        "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+        "at": "2026-10-18T18:40:08.422Z",
+        "sha": "6bea6bb38259037c76b9fd08df0a7d1056156b06",
         "report": "docs/acceptance/report.json",
         "result": "passed",
         "reason": null,
@@ -793,7 +793,7 @@
           "fail": 0,
           "skipped": 0
         },
-        "durationMs": 170
+        "durationMs": 168
       }
     },
     {
@@ -811,10 +811,10 @@
       "runner": "test/proactive.test.mjs::одинаковые события объединяются",
       "status": "passed",
       "checkedAt": "2026-10-18",
-      "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+      "sha": "6bea6bb38259037c76b9fd08df0a7d1056156b06",
       "lastRun": {
-        "at": "2026-10-18T18:38:58.726Z",
-        "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+        "at": "2026-10-18T18:40:08.422Z",
+        "sha": "6bea6bb38259037c76b9fd08df0a7d1056156b06",
         "report": "docs/acceptance/report.json",
         "result": "passed",
         "reason": null,
@@ -825,7 +825,7 @@
           "fail": 0,
           "skipped": 0
         },
-        "durationMs": 125
+        "durationMs": 128
       }
     },
     {
@@ -843,10 +843,10 @@
       "runner": "test/documents.test.mjs::приём набора, top-5",
       "status": "passed",
       "checkedAt": "2026-10-18",
-      "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+      "sha": "6bea6bb38259037c76b9fd08df0a7d1056156b06",
       "lastRun": {
-        "at": "2026-10-18T18:38:58.726Z",
-        "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+        "at": "2026-10-18T18:40:08.422Z",
+        "sha": "6bea6bb38259037c76b9fd08df0a7d1056156b06",
         "report": "docs/acceptance/report.json",
         "result": "passed",
         "reason": null,
@@ -875,10 +875,10 @@
       "runner": "test/documents.test.mjs::ACL: чужой документ",
       "status": "passed",
       "checkedAt": "2026-10-18",
-      "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+      "sha": "6bea6bb38259037c76b9fd08df0a7d1056156b06",
       "lastRun": {
-        "at": "2026-10-18T18:38:58.726Z",
-        "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+        "at": "2026-10-18T18:40:08.422Z",
+        "sha": "6bea6bb38259037c76b9fd08df0a7d1056156b06",
         "report": "docs/acceptance/report.json",
         "result": "passed",
         "reason": null,
@@ -889,7 +889,7 @@
           "fail": 0,
           "skipped": 0
         },
-        "durationMs": 144
+        "durationMs": 147
       }
     },
     {
@@ -908,10 +908,10 @@
       "runner": "test/documents.test.mjs",
       "status": "passed",
       "checkedAt": "2026-10-18",
-      "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+      "sha": "6bea6bb38259037c76b9fd08df0a7d1056156b06",
       "lastRun": {
-        "at": "2026-10-18T18:38:58.726Z",
-        "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+        "at": "2026-10-18T18:40:08.422Z",
+        "sha": "6bea6bb38259037c76b9fd08df0a7d1056156b06",
         "report": "docs/acceptance/report.json",
         "result": "passed",
         "reason": null,
@@ -922,7 +922,7 @@
           "fail": 0,
           "skipped": 0
         },
-        "durationMs": 774
+        "durationMs": 766
       }
     },
     {
@@ -941,10 +941,10 @@
       "runner": "test/acceptance.test.mjs",
       "status": "passed",
       "checkedAt": "2026-10-18",
-      "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+      "sha": "6bea6bb38259037c76b9fd08df0a7d1056156b06",
       "lastRun": {
-        "at": "2026-10-18T18:38:58.726Z",
-        "sha": "be3181b5248767216bd509a0eeebe2d67d9b84b5",
+        "at": "2026-10-18T18:40:08.422Z",
+        "sha": "6bea6bb38259037c76b9fd08df0a7d1056156b06",
         "report": "docs/acceptance/report.json",
         "result": "passed",
         "reason": null,
@@ -955,9 +955,9 @@
           "fail": 0,
           "skipped": 0
         },
-        "durationMs": 648
+        "durationMs": 650
       }
     }
   ],
-  "lastRunAt": "2026-10-18T18:38:58.726Z"
+  "lastRunAt": "2026-10-18T18:40:08.422Z"
 }
