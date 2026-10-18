@@ -190,12 +190,14 @@ export function createCommandRouter(bot) {
         }
         try {
           const usage = await bot.agentBridge.usage()
-          const today = usage.today ?? {}
+          const today = usage.today
           const total = usage.total ?? {}
+          const todayTokens = typeof today === 'number' ? today : Number(today?.prompt ?? 0) + Number(today?.completion ?? 0)
+          const todayRequests = typeof today === 'object' ? (today?.requests ?? 0) : (total.requests ?? 0)
           const lines = [
             '**Расходы агента**',
-            `Сегодня: ${Number(today.prompt ?? 0) + Number(today.completion ?? 0)} ток. (${today.requests ?? 0} зап.)`,
-            `Всего за день учёта: ${Number(total.prompt ?? 0) + Number(total.completion ?? 0)} ток. (${total.requests ?? 0} зап.)`,
+            `Сегодня: ${todayTokens} ток. (${todayRequests} зап.)`,
+            `Всего: ${Number(total.prompt ?? 0) + Number(total.completion ?? 0)} ток. (${total.requests ?? 0} зап.)`,
           ]
           await bot.send(chatId, lines.join('\n'))
         } catch (error) {
