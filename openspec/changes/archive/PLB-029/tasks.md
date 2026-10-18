@@ -2,4 +2,4 @@
 - [x] 1. домен work-items
 - [x] 2. хранилище с историей/scope
 - [x] 3. тесты
-- [ ] 4. commit/push
+- [x] 4. commit/push
