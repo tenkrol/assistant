@@ -3246,3 +3246,30 @@ html.large-text .setting-row span {
     display: none;
   }
 }
+
+
+/* Переключатель личного и общего чата */
+.chat-switch {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 7px;
+  padding: 0 14px 8px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.chat-switch::-webkit-scrollbar {
+  display: none;
+}
+
+.chat-switch .chip {
+  min-height: 34px;
+  font-size: 12.5px;
+}
+
+/* Автор чужого сообщения в общем чате: буква вместо искры ассистента */
+.msg-initial {
+  font-size: 13px;
+  font-weight: 700;
+  color: #dce8ff;
+}

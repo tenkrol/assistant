@@ -108,6 +108,14 @@ const DEFAULTS = {
   MOBILE_SESSION_TTL_SEC: '604800',
   MOBILE_COOKIE_SECURE: 'true',
   MOBILE_TELEGRAM_URL: 'https://t.me/Tenkrol_bot',
+  // Общий чат с Машей: id и подпись из Telegram. Пусто — веб работает только с личным.
+  MOBILE_GROUP_CHAT_ID: '',
+  MOBILE_GROUP_TITLE: 'Общий чат',
+  MOBILE_GROUP_CHAT_TYPE: 'group',
+  // Web Push для iPhone PWA: ключи VAPID; пусто — уведомления выключены.
+  MOBILE_VAPID_PUBLIC_KEY: '',
+  MOBILE_VAPID_PRIVATE_KEY: '',
+  MOBILE_VAPID_SUBJECT: 'https://tenkrol.ru',
   // Имя владельца для подписи «От ...:» — в родительном падеже.
   OWNER_NAME: 'владельца',
   OUTBOX: 'true',
@@ -576,6 +584,12 @@ export function loadConfig(env = process.env) {
         sessionTtlSec: readInt(env, 'MOBILE_SESSION_TTL_SEC', { min: 60, max: 365 * 24 * 60 * 60 }),
         cookieSecure: readBool(env, 'MOBILE_COOKIE_SECURE'),
         telegramUrl: read(env, 'MOBILE_TELEGRAM_URL').trim(),
+        groupChatId: read(env, 'MOBILE_GROUP_CHAT_ID').trim(),
+        groupTitle: read(env, 'MOBILE_GROUP_TITLE').trim() || 'Общий чат',
+        groupChatType: read(env, 'MOBILE_GROUP_CHAT_TYPE').trim() === 'supergroup' ? 'supergroup' : 'group',
+        vapidPublicKey: read(env, 'MOBILE_VAPID_PUBLIC_KEY').trim(),
+        vapidPrivateKey: read(env, 'MOBILE_VAPID_PRIVATE_KEY').trim(),
+        vapidSubject: read(env, 'MOBILE_VAPID_SUBJECT').trim() || 'https://tenkrol.ru',
       },
     },
     // Точка приёма сообщений от агента: только localhost, только с токеном.

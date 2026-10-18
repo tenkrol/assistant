@@ -79,6 +79,8 @@ export class Assistant {
     this.contacts = createContactStore({ file: this.config.dataDir ? `${this.config.dataDir}/contacts.json` : undefined, logger, access })
     // Ядро общается только с одним адаптером; см. src/platforms/port.mjs.
     this.platform = platform
+    /** Необязательный web push: { notify({chatId, text}) }. */
+    this.webPush = null
     // Контекст веб-запроса: ответы, файлы и стриминг складываются сюда, а не
     // уходят в Telegram. AsyncLocalStorage не смешивает параллельные запросы.
     this.delivery = new AsyncLocalStorage()
@@ -302,13 +304,17 @@ export class Assistant {
    * @param {object} input - `userId`, `chatId`, `text`, `name`.
    * @returns {Promise<{sends: object[], files: object[]}>} ответы для сайта.
    */
-  async handleWebMessage({ userId, chatId, text, name } = {}) {
+  async handleWebMessage({ userId, chatId, text, name, chatType = 'private', chatTitle } = {}) {
     const delivery = { sends: [], files: [], chatId: Number(chatId ?? userId) }
     const message = {
       kind: 'message',
       id: `web-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       from: { id: Number(userId), name: String(name || 'Пользователь'), isBot: false },
-      chat: { id: Number(chatId ?? userId), type: 'private' },
+      chat: {
+        id: Number(chatId ?? userId),
+        type: chatType === 'supergroup' ? 'supergroup' : chatType === 'group' ? 'group' : 'private',
+        ...(chatTitle ? { title: String(chatTitle) } : {}),
+      },
       text: String(text ?? ''),
       attachments: [],
       addressed: true,
@@ -599,7 +605,9 @@ export class Assistant {
     // несколько человек со своими напоминаниями.
     const isGroup = reminder.userId !== undefined && reminder.chatId !== reminder.userId
     const owner = isGroup ? this.domain.profiles.displayName(reminder.userId) : undefined
-    await this.send(reminder.chatId, this.domain.reminders.deliveryText(reminder, { lateNotice, owner }))
+    const text = this.domain.reminders.deliveryText(reminder, { lateNotice, owner })
+    await this.send(reminder.chatId, text)
+    void this.webPush?.notify?.({ chatId: reminder.chatId, text })?.catch?.(() => {})
   }
 
   /**
@@ -618,6 +626,7 @@ export class Assistant {
     if (!owner) throw new Error('некому доставить сообщение агента')
     const result = await this.send(owner, body)
     await this.history?.append?.(String(owner), { role: 'assistant', content: body })
+    void this.webPush?.notify?.({ chatId: owner, text: body })?.catch?.(() => {})
     return { chatId: owner, messageId: result?.messageId }
   }
 
@@ -637,6 +646,7 @@ export class Assistant {
     if (!this.digest) return
     const text = await this.digest.build(chatId, userId)
     await this.send(chatId, text)
+    void this.webPush?.notify?.({ chatId, text })?.catch?.(() => {})
   }
 
   /**

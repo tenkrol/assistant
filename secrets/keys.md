@@ -18,6 +18,8 @@
 `MINIAPP_*` | панель Telegram | настраивается в `.env` |
 `MOBILE_PASSWORD_HASH` | пароль мобильного сайта `/mobile/` (scrypt-хеш) | `node tg-agent/tools/mobile-password.mjs --generate` |
 `MOBILE_SESSION_SECRET` | подпись сессий мобильного сайта | тот же скрипт; 32+ символа |
+`MOBILE_VAPID_PUBLIC_KEY` | публичный ключ Web Push | `node tg-agent/tools/mobile-push-keys.mjs` |
+`MOBILE_VAPID_PRIVATE_KEY` | приватный ключ Web Push (не публиковать) | тот же скрипт |
 
 ## Как добавить ключ
 1. Получить значение у провайдера.

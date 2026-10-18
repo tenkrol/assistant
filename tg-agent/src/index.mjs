@@ -30,6 +30,7 @@ import { createServerTool } from './server-tool.mjs'
 import { createEventTool } from './event-tool.mjs'
 import { createMiniApp } from './miniapp.mjs'
 import { MobileUserStore } from './mobile-users.mjs'
+import { MobilePushStore, createVapidConfig, sendPush } from './mobile-push.mjs'
 import { createOutbox } from './outbox.mjs'
 import { createAgentEventsStore } from './storage/agent-events.mjs'
 import { createAgentLink } from './agent-link/index.mjs'
@@ -717,6 +718,50 @@ export async function createInstance({ config, logger, instance, shared, platfor
           mobileUsers = undefined
         }
       }
+      let mobilePush
+      const pushVapid = createVapidConfig({
+        publicKey: config.miniapp.mobile.vapidPublicKey,
+        privateKey: config.miniapp.mobile.vapidPrivateKey,
+        subject: config.miniapp.mobile.vapidSubject,
+      })
+      if (pushVapid) {
+        try {
+          mobilePush = new MobilePushStore({
+            file: stateFile(botConfig.dataDir, 'mobile-push', instance.namespace),
+            logger,
+          })
+          await mobilePush.load()
+          const groupChatId = config.miniapp.mobile.groupChatId
+          bot.webPush = {
+            async notify({ chatId } = {}) {
+              if (!mobilePush || !pushVapid) return
+              let userIds
+              if (groupChatId && String(chatId) === String(groupChatId)) {
+                userIds = mobileUsers ? mobileUsers.list().map((user) => user.userId) : [...botConfig.access.allowedUserIds]
+              } else {
+                userIds = [Number(chatId)]
+              }
+              const subscriptions = mobilePush.listForUsers(userIds)
+              if (subscriptions.length === 0) return
+              const results = await Promise.all(subscriptions.map(async (item) => ({
+                item,
+                result: await sendPush({
+                  endpoint: item.endpoint,
+                  keys: item.keys,
+                }, { vapid: pushVapid }),
+              })))
+              const expired = results.filter(({ result }) => result.expired)
+              for (const { item } of expired) await mobilePush.removeSubscription({ endpoint: item.endpoint }).catch(() => {})
+              if (expired.length > 0) await mobilePush.flush().catch(() => {})
+              const failed = results.filter(({ result }) => !result.ok && !result.expired)
+              if (failed.length > 0) logger.warn('web push failed', { count: failed.length })
+            },
+          }
+        } catch (error) {
+          logger.warn('mobile push failed to load', { error: error?.message ?? error })
+          mobilePush = undefined
+        }
+      }
       const miniApp = createMiniApp({
         port: config.miniapp.port,
         host: config.miniapp.host,
@@ -730,6 +775,8 @@ export async function createInstance({ config, logger, instance, shared, platfor
         },
         history,
         mobileUsers,
+        pushStore: mobilePush,
+        pushPublicKey: pushVapid ? pushVapid.publicKey : '',
         chatResponder: (input) => bot.handleWebMessage(input),
         agentResponder: async ({ task, userId, chatId }) => {
           if (!bot.agentBridge?.enabled) return { ok: false, error: 'Мост к агенту не настроен' }
@@ -760,6 +807,9 @@ export async function createInstance({ config, logger, instance, shared, platfor
         defaultModel: config.model.name,
         modelOptions: [config.model.name, 'deepseek-flash', 'deepseek-chat', 'deepseek-v4-pro'],
         telegramUrl: config.miniapp.mobile.telegramUrl,
+        groupChatId: config.miniapp.mobile.groupChatId,
+        groupTitle: config.miniapp.mobile.groupTitle,
+        groupChatType: config.miniapp.mobile.groupChatType,
         timeZone: config.time?.timeZone ?? '',
         logger,
       })

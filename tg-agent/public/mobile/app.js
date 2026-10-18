@@ -143,6 +143,8 @@ const state = {
   memory: { facts: [], city: null },
   stats: null,
   chat: null,
+  chats: [],
+  chatTarget: null,
   factQuery: '',
   plansView: 'reminders',
   calendar: { year: TODAY.getFullYear(), month: TODAY.getMonth(), selected: TODAY.getDate() },
@@ -469,6 +471,7 @@ function showApp(session) {
     if (link) link.href = telegramUrl
   })
   void Promise.allSettled([
+    loadChats(),
     loadChat(),
     loadPlans(),
     loadMemory(),
@@ -476,6 +479,7 @@ function showApp(session) {
     loadStats()
   ])
   refreshProfile()
+  void refreshPushToggle()
 }
 
 async function login(event) {
@@ -553,16 +557,80 @@ async function boot() {
 
 /* ============================ Чат ============================ */
 
+async function loadChats() {
+  try {
+    const data = await api('GET', '/api/chats')
+    state.chats = Array.isArray(data.chats) ? data.chats : []
+    if (!state.chatTarget) {
+      state.chatTarget = state.chats[0] || { id: null, type: 'private', title: 'Личный чат' }
+    }
+    renderChatSwitch()
+    updateChatHeader()
+  } catch (error) {
+    if (error.status !== 401) $('chat-switch').hidden = true
+  }
+}
+
+function renderChatSwitch() {
+  const box = $('chat-switch')
+  if (state.chats.length <= 1) {
+    box.hidden = true
+    return
+  }
+  box.hidden = false
+  box.replaceChildren()
+  state.chats.forEach((chat) => {
+    const button = h('button', 'chip' + (String(chat.id) === String(state.chatTarget && state.chatTarget.id) ? ' is-active' : ''), chat.title)
+    button.type = 'button'
+    button.addEventListener('click', () => selectChat(chat))
+    box.append(button)
+  })
+}
+
+function updateChatHeader() {
+  const group = state.chatTarget && state.chatTarget.type !== 'private'
+  $('chat-input').placeholder = group ? 'Написать в общий чат…' : 'Написать ассистенту…'
+}
+
+function selectChat(chat) {
+  if (String(chat.id) === String(state.chatTarget && state.chatTarget.id)) return
+  state.chatTarget = chat
+  state.chat = null
+  state.loaded.chat = false
+  hideChatTyping()
+  renderChatSwitch()
+  updateChatHeader()
+  $('chat-messages').replaceChildren()
+  const loading = h('div', 'loading-inline')
+  loading.append(h('span', 'spinner'), h('span', null, 'Загружаю историю…'))
+  $('chat-messages').append(loading)
+  void loadChat()
+}
+
 async function ensureChat() {
   if (!state.loaded.chat && !state.loading.chat) await loadChat()
 }
 
+let chatLoadSeq = 0
+
 async function loadChat() {
-  if (state.loading.chat) return
+  const seq = ++chatLoadSeq
   state.loading.chat = true
   try {
-    const data = await api('GET', '/api/chat/history?limit=60')
+    const target = state.chatTarget
+    const targetId = target && target.id !== null && target.id !== undefined ? String(target.id) : ''
+    const chatQuery = targetId ? '&chatId=' + encodeURIComponent(targetId) : ''
+    const data = await api('GET', '/api/chat/history?limit=60' + chatQuery)
+    // Пока грузилась история, могли переключить личный/общий чат.
+    if (seq !== chatLoadSeq) return
     state.chat = data
+    if (data.chat) {
+      state.chatTarget = {
+        id: String(data.chat.chatId),
+        type: data.chat.type,
+        title: data.chat.title
+      }
+    }
     state.loaded.chat = true
     renderChat()
     const telegramUrl = data.telegramUrl || (state.session && state.session.telegramUrl)
@@ -571,14 +639,14 @@ async function loadChat() {
       if (link) link.href = telegramUrl
     }
   } catch (error) {
-    if (error.status !== 401) {
+    if (seq === chatLoadSeq && error.status !== 401) {
       $('chat-messages').replaceChildren(renderError('Не удалось загрузить историю', () => {
         state.loaded.chat = false
         void loadChat()
       }))
     }
   } finally {
-    state.loading.chat = false
+    if (seq === chatLoadSeq) state.loading.chat = false
   }
 }
 
@@ -590,23 +658,29 @@ function renderChat() {
     const empty = h('div', 'chat-empty')
     const iconBox = h('div', 'chat-empty-icon')
     iconBox.append(icon('chat'))
-    empty.append(iconBox, h('b', null, 'Напишите ассистенту'), h('span', null, 'Сообщение уйдёт в тот же диалог, что и в Telegram. Ответ появится здесь.'))
+    const group = state.chatTarget && state.chatTarget.type !== 'private'
+    empty.append(iconBox, h('b', null, group ? 'Напишите в общий чат' : 'Напишите ассистенту'), h('span', null, group ? 'Сообщение увидят участники группы, ответ появится здесь.' : 'Сообщение уйдёт в тот же диалог, что и в Telegram. Ответ появится здесь.'))
     box.append(empty)
     return
   }
-  const day = h('div', 'day-chip', 'Диалог с ассистентом')
+  const day = h('div', 'day-chip', state.chatTarget && state.chatTarget.type !== 'private' ? state.chatTarget.title : 'Диалог с ассистентом')
   box.append(day)
   messages.forEach((message) => box.append(chatMessageNode(message.role, message.text, message.author)))
   chatScrollToBottom()
 }
 
 function chatMessageNode(role, text, author) {
-  const article = h('article', 'msg ' + (role === 'assistant' ? 'msg-bot' : 'msg-user'))
-  if (role === 'assistant') {
+  const ownName = state.session && state.session.user ? state.session.user.telegramName : ''
+  const otherAuthor = role === 'user' && author && ownName && author !== ownName
+  const article = h('article', 'msg ' + (role === 'assistant' || otherAuthor ? 'msg-bot' : 'msg-user'))
+  if (role === 'assistant' || otherAuthor) {
     const avatar = h('div', 'msg-avatar')
-    avatar.append(icon('spark'))
+    if (otherAuthor) avatar.append(h('span', 'msg-initial', String(author).slice(0, 1).toUpperCase()))
+    else avatar.append(icon('spark'))
     const stack = h('div', 'msg-stack')
-    stack.append(h('div', 'bubble bubble-bot', text))
+    const bubble = h('div', 'bubble bubble-bot', text)
+    if (otherAuthor) bubble.prepend(h('div', 'row-meta', author))
+    stack.append(bubble)
     article.append(avatar, stack)
     return article
   }
@@ -704,13 +778,19 @@ async function sendSiteMessage() {
   const button = $('chat-send')
   const text = input.value.trim()
   if (text === '' || button.disabled) return
-  appendChatMessage('user', text)
+  const group = state.chatTarget && state.chatTarget.type !== 'private'
+  appendChatMessage('user', text, group ? ((state.session && state.session.user && state.session.user.telegramName) || 'Вы') : undefined)
   input.value = ''
   updateChatSend()
   button.disabled = true
   showChatTyping()
   try {
-    const data = await api('POST', '/api/chat/message', { text })
+    const data = await api('POST', '/api/chat/message', {
+      text,
+      ...(state.chatTarget && state.chatTarget.id !== null && state.chatTarget.id !== undefined
+        ? { chatId: state.chatTarget.id }
+        : {})
+    })
     hideChatTyping()
     const messages = Array.isArray(data.messages) ? data.messages : []
     if (messages.length === 0) {
@@ -1307,6 +1387,130 @@ function openSettingsPicker(kind) {
   openPicker(labels[kind], values, selected, (value) => {
     void patchSettings({ [kind]: value }, labels[kind] + ' сохранён')
   })
+}
+
+/* ============================ Уведомления (PWA) ============================ */
+
+const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent)
+let pushConfigCache = null
+
+const isStandalone = () => window.navigator.standalone === true
+  || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches)
+
+const pushSupported = () => 'serviceWorker' in navigator
+  && 'PushManager' in window
+  && 'Notification' in window
+
+function urlBase64ToUint8Array(value) {
+  const padding = '='.repeat((4 - (value.length % 4)) % 4)
+  const base64 = (value + padding).replace(/-/g, '+').replace(/_/g, '/')
+  const raw = window.atob(base64)
+  const output = new Uint8Array(raw.length)
+  for (let index = 0; index < raw.length; index += 1) output[index] = raw.charCodeAt(index)
+  return output
+}
+
+async function getPushConfig() {
+  if (pushConfigCache) return pushConfigCache
+  pushConfigCache = await api('GET', '/api/push/config')
+  return pushConfigCache
+}
+
+async function pushRegistration() {
+  if (!('serviceWorker' in navigator)) return null
+  const registrations = await navigator.serviceWorker.getRegistrations()
+  return registrations.find((item) => String(item.scope).includes('/mobile/')) || null
+}
+
+async function refreshPushToggle() {
+  const toggle = $('push-toggle')
+  if (!toggle) return
+  if (!pushSupported()) {
+    toggle.classList.remove('is-on')
+    return
+  }
+  try {
+    const registration = await pushRegistration()
+    const subscription = registration ? await registration.pushManager.getSubscription() : null
+    toggle.classList.toggle('is-on', Boolean(subscription))
+  } catch {
+    toggle.classList.remove('is-on')
+  }
+}
+
+function showPushInstallSheet() {
+  const wrap = h('div')
+  const steps = IS_IOS
+    ? [
+        'Откройте сайт в Safari (не в Яндекс.Браузере и не во встроенном браузере Telegram).',
+        'Нажмите «Поделиться» → «На экран Домой».',
+        'Запустите приложение с иконки на рабочем столе.',
+        'Вернитесь в «Настройки → Уведомления» и включите переключатель.'
+      ]
+    : [
+        'Откройте сайт в Chrome.',
+        'Меню браузера → «Установить приложение» или «Добавить на главный экран».',
+        'Запустите приложение с иконки.',
+        'Вернитесь в «Настройки → Уведомления» и включите переключатель.'
+      ]
+  steps.forEach((step, index) => {
+    wrap.append(h('p', 'sheet-note', (index + 1) + '. ' + step))
+  })
+  wrap.append(h('p', 'sheet-note', 'На iPhone push-уведомления работают только в приложении, добавленном на экран «Домой» (iOS 16.4+).'))
+  openSheet({ title: 'Установка на телефон', body: wrap })
+}
+
+async function enablePush() {
+  if (!pushSupported()) {
+    showPushInstallSheet()
+    return
+  }
+  if (IS_IOS && !isStandalone()) {
+    showPushInstallSheet()
+    return
+  }
+  try {
+    const config = await getPushConfig()
+    if (!config.enabled || !config.publicKey) {
+      toast('Уведомления не настроены на сервере')
+      return
+    }
+    const permission = await Notification.requestPermission()
+    if (permission !== 'granted') {
+      toast('Разрешение на уведомления не выдано')
+      return
+    }
+    const registration = await navigator.serviceWorker.register('/mobile/sw.js', { scope: '/mobile/' })
+    await navigator.serviceWorker.ready
+    let subscription = await registration.pushManager.getSubscription()
+    if (!subscription) {
+      subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(config.publicKey)
+      })
+    }
+    await api('POST', '/api/push/subscribe', subscription.toJSON())
+    $('push-toggle').classList.add('is-on')
+    toast('Уведомления включены')
+  } catch (error) {
+    $('push-toggle').classList.remove('is-on')
+    toast(error && error.message ? error.message : 'Не удалось включить уведомления')
+  }
+}
+
+async function disablePush() {
+  try {
+    const registration = await pushRegistration()
+    const subscription = registration ? await registration.pushManager.getSubscription() : null
+    if (subscription) {
+      await api('POST', '/api/push/unsubscribe', { endpoint: subscription.endpoint }).catch(() => {})
+      await subscription.unsubscribe().catch(() => {})
+    }
+    $('push-toggle').classList.remove('is-on')
+    toast('Уведомления выключены')
+  } catch (error) {
+    toast(error && error.message ? error.message : 'Не удалось выключить уведомления')
+  }
 }
 
 function refreshProfile() {
@@ -1907,6 +2111,12 @@ function bind() {
     store.set(LARGE_TEXT_KEY, next ? '1' : '0')
     applyLargeText(next)
   })
+
+  $('push-toggle').addEventListener('click', () => {
+    if ($('push-toggle').classList.contains('is-on')) void disablePush()
+    else void enablePush()
+  })
+  $('push-install').addEventListener('click', showPushInstallSheet)
 
   $('logout-button').addEventListener('click', () => {
     confirmSheet('Выйти из аккаунта?', 'На этом устройстве придётся ввести пароль заново.', 'Выйти', () => void logout())

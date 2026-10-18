@@ -134,6 +134,7 @@
           <svg class="ic"><use href="#i-refresh"/></svg>
         </button>
       </header>
+      <div class="chat-switch" id="chat-switch" hidden></div>
       <div class="scroll chat-scroll" id="chat-scroll">
         <div id="chat-messages">
           <div class="loading-inline"><span class="spinner"></span>Загружаю историю…</div>
@@ -433,6 +434,21 @@
             <span><b>Пользователи</b><span id="account-users-hint">владелец и второй человек</span></span>
             <svg class="ic"><use href="#i-chevron-right"/></svg>
           </button>
+        </div>
+
+        <div class="settings-group">
+          <div class="group-head"><span>Уведомления</span></div>
+          <div class="setting-row">
+            <span class="row-ic"><svg class="ic"><use href="#i-bell"/></svg></span>
+            <span><b>Push-уведомления</b><span>напоминания и ответы агента</span></span>
+            <button class="switch" id="push-toggle" aria-label="Push-уведомления"></button>
+          </div>
+          <button class="setting-row" id="push-install">
+            <span class="row-ic"><svg class="ic"><use href="#i-device"/></svg></span>
+            <span><b>Добавить на экран «Домой»</b><span>так уведомления работают на iPhone</span></span>
+            <svg class="ic"><use href="#i-chevron-right"/></svg>
+          </button>
+          <p class="hint">На iPhone откройте сайт в Safari → «Поделиться» → «На экран Домой», запустите с иконки и включите уведомления здесь.</p>
         </div>
 
         <div class="settings-group">

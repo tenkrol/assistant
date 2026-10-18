@@ -1963,3 +1963,26 @@ test('an answer to an open agent question is not intercepted as a feature reques
     await ctx.cleanup()
   }
 })
+
+test('веб-сообщение в общий чат сохраняет автора и не уходит в Telegram', async () => {
+  const ctx = await setup({ responses: [{ content: 'ответ группе' }] })
+  try {
+    const result = await ctx.bot.handleWebMessage({
+      userId: ALLOWED,
+      chatId: -1001234567890,
+      chatType: 'group',
+      chatTitle: 'TenKrol и Машулечка',
+      text: 'привет группе',
+      name: 'Вячеслав',
+    })
+    assert.match(result.sends.map((entry) => entry.text).join('\n'), /ответ группе/)
+    assert.equal(ctx.telegramStub.state.sends.length, 0)
+    await ctx.history.flush()
+    const history = await historyFile(ctx.dir)
+    const chat = history.chats['-1001234567890']
+    assert.ok(chat, 'история группы записана')
+    assert.equal(chat.messages.at(-2).author, 'Вячеслав')
+  } finally {
+    await ctx.cleanup()
+  }
+})

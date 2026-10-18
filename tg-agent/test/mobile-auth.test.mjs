@@ -175,6 +175,8 @@ async function createHarness(t, options = {}) {
     stores: { reminders, events, profiles, usage },
     history,
     mobileUsers,
+    pushStore: options.pushStore,
+    pushPublicKey: options.pushPublicKey ?? '',
     chatResponder: options.chatResponder,
     agentResponder: options.agentResponder,
     agentStatus: options.agentStatus,
@@ -191,6 +193,9 @@ async function createHarness(t, options = {}) {
     defaultModel: 'deepseek-flash',
     modelOptions: ['deepseek-flash', 'deepseek-v4-pro'],
     telegramUrl: 'https://t.me/test_bot',
+    groupChatId: options.groupChatId,
+    groupTitle: options.groupTitle ?? 'Общий чат',
+    groupChatType: options.groupChatType ?? 'group',
     now: options.now,
     timeZone: 'Europe/Moscow',
   })
@@ -554,6 +559,97 @@ test('агент: статус, задание по шаблону и CSRF', asy
     body: { task: '' },
   })
   assert.equal(empty.status, 400)
+})
+
+test('общий чат: список, история и отправка с chatId группы', async (t) => {
+  const seen = []
+  const GROUP_ID = -1001234567890
+  const { base } = await createHarness(t, {
+    accounts: true,
+    groupChatId: GROUP_ID,
+    groupTitle: 'TenKrol и Машулечка',
+    chatResponder: async (input) => {
+      seen.push(input)
+      return { sends: [{ text: 'ответ в группу' }], files: [] }
+    },
+  })
+  const cookies = jar()
+  await request(base, '/api/auth/login', {
+    method: 'POST',
+    body: { username: 'tenkrol', password: PASSWORD },
+    cookieJar: cookies,
+  })
+
+  const chats = await request(base, '/api/chats', { cookieJar: cookies })
+  assert.equal(chats.status, 200)
+  assert.equal(chats.json.chats.length, 2)
+  assert.equal(chats.json.chats[1].id, String(GROUP_ID))
+  assert.equal(chats.json.chats[1].title, 'TenKrol и Машулечка')
+
+  const history = await request(base, `/api/chat/history?chatId=${GROUP_ID}`, { cookieJar: cookies })
+  assert.equal(history.status, 200)
+  assert.equal(history.json.chat.chatId, GROUP_ID)
+
+  const sent = await request(base, '/api/chat/message', {
+    method: 'POST',
+    cookieJar: cookies,
+    headers: { 'X-Mobile-Client': '1' },
+    body: { text: 'привет из веба', chatId: String(GROUP_ID) },
+  })
+  assert.equal(sent.status, 200)
+  assert.equal(sent.json.messages[0].text, 'ответ в группу')
+  assert.equal(seen[0].chatId, GROUP_ID)
+  assert.equal(seen[0].chatType, 'group')
+  assert.equal(seen[0].chatTitle, 'TenKrol и Машулечка')
+
+  const foreign = await request(base, '/api/chat/history?chatId=-100999', { cookieJar: cookies })
+  assert.equal(foreign.status, 403)
+})
+
+test('push: конфиг, подписка и отписка', async (t) => {
+  const { MobilePushStore } = await import('../src/mobile-push.mjs')
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'tg-push-api-'))
+  const pushStore = new MobilePushStore({ file: path.join(dir, 'push.json'), logger: silentLogger })
+  await pushStore.load()
+  t.after(async () => { await fs.rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }) })
+
+  const { base } = await createHarness(t, {
+    accounts: true,
+    pushStore,
+    pushPublicKey: 'BPublicKeyTest',
+  })
+  const cookies = jar()
+  await request(base, '/api/auth/login', {
+    method: 'POST',
+    body: { username: 'tenkrol', password: PASSWORD },
+    cookieJar: cookies,
+  })
+  const config = await request(base, '/api/push/config', { cookieJar: cookies })
+  assert.equal(config.status, 200)
+  assert.equal(config.json.enabled, true)
+  assert.equal(config.json.publicKey, 'BPublicKeyTest')
+
+  const subscription = {
+    endpoint: 'https://push.example.test/abc',
+    keys: { p256dh: '0123456789abcdef', auth: '0123456789abcdef' },
+  }
+  const sub = await request(base, '/api/push/subscribe', {
+    method: 'POST',
+    cookieJar: cookies,
+    headers: { 'X-Mobile-Client': '1' },
+    body: subscription,
+  })
+  assert.equal(sub.status, 200)
+  assert.equal(pushStore.listForUsers([USER_ID]).length, 1)
+
+  const unsub = await request(base, '/api/push/unsubscribe', {
+    method: 'POST',
+    cookieJar: cookies,
+    headers: { 'X-Mobile-Client': '1' },
+    body: { endpoint: subscription.endpoint },
+  })
+  assert.equal(unsub.status, 200)
+  assert.equal(pushStore.listForUsers([USER_ID]).length, 0)
 })
 
 test('настройки: чтение, смена и проверка значений', async (t) => {

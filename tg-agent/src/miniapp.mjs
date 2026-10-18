@@ -376,6 +376,11 @@ export function createMiniApp({
   defaultModel = '',
   modelOptions = [],
   telegramUrl = '',
+  groupChatId = '',
+  groupTitle = 'Общий чат',
+  groupChatType = 'group',
+  pushStore,
+  pushPublicKey = '',
   chatResponder,
   agentResponder,
   agentStatus,
@@ -410,6 +415,10 @@ export function createMiniApp({
   const loginAttempts = new Map()
   const clock = typeof now === 'function' ? now : () => Date.now()
   const models = [...new Set([defaultModel, ...modelOptions].filter((value) => typeof value === 'string' && value.trim() !== ''))]
+  const groupIdNumber = Number(groupChatId)
+  const groupConfigured = Number.isInteger(groupIdNumber) && groupIdNumber !== 0
+  const groupType = groupChatType === 'supergroup' ? 'supergroup' : 'group'
+  const groupName = String(groupTitle || 'Общий чат')
 
   if (allowed.size === 0) logger?.warn?.('miniapp: allow-list is empty, every user will get 403')
   if (passwordConfigured && !isSessionSecret(mobileSessionSecret)) {
@@ -644,10 +653,14 @@ export function createMiniApp({
     if (!allowed.has(String(auth.userId))) {
       return sendError(response, 403, ERROR_CODES.forbidden, 'Нет доступа')
     }
+    const telegramName = stores.profiles && typeof stores.profiles.displayName === 'function'
+      ? stores.profiles.displayName(auth.userId)
+      : String(auth.user.first_name ?? mobileUserName)
     sendJson(response, 200, {
       authenticated: true,
       user: {
         name: String(auth.user.first_name ?? mobileUserName),
+        telegramName: telegramName || String(auth.user.first_name ?? mobileUserName),
         via: auth.via,
         login: auth.login ?? null,
         role: auth.role ?? null,
@@ -781,9 +794,80 @@ export function createMiniApp({
 
   const safeText = (value, limit = CHAT_MESSAGE_MAX) => String(value ?? '').slice(0, limit)
 
+  /** Личный чат или настроенный общий чат; чужие id не принимаются. */
+  function resolveChat(requested, auth) {
+    if (requested === undefined || requested === null || requested === '' || String(requested) === String(auth.userId)) {
+      return { chatId: Number(auth.userId), type: 'private', title: 'Личный чат' }
+    }
+    if (groupConfigured && String(requested) === String(groupIdNumber)) {
+      return { chatId: groupIdNumber, type: groupType, title: groupName }
+    }
+    return null
+  }
+
+  function listChats(request, response, { auth }) {
+    request.resume()
+    const chats = [{
+      id: String(auth.userId),
+      type: 'private',
+      title: 'Личный чат',
+      subtitle: 'только вы и ассистент',
+    }]
+    if (groupConfigured) {
+      chats.push({
+        id: String(groupIdNumber),
+        type: groupType,
+        title: groupName,
+        subtitle: 'общий чат с Машей',
+      })
+    }
+    sendJson(response, 200, { chats })
+  }
+
   const chatInFlight = new Set()
   const agentInFlight = new Set()
   let agentStatusCache = { at: 0, value: null }
+
+  /** GET /api/push/config — можно ли включить уведомления и публичный VAPID-ключ. */
+  function getPushConfig(request, response) {
+    request.resume()
+    const enabled = Boolean(pushStore && typeof pushStore.add === 'function' && pushPublicKey)
+    sendJson(response, 200, { enabled, publicKey: enabled ? pushPublicKey : '' })
+  }
+
+  /** POST /api/push/subscribe — сохранить подписку браузера. */
+  async function subscribePush(request, response, { userId }) {
+    if (!pushStore || typeof pushStore.add !== 'function') {
+      request.resume()
+      return missingStore(response, 'уведомления')
+    }
+    const body = await readJsonBody(request, bodyLimit)
+    if (!body.ok) return sendError(response, body.status, body.code, body.error)
+    try {
+      await pushStore.add({ userId, subscription: body.value })
+      return sendJson(response, 200, { ok: true })
+    } catch (error) {
+      const conflict = error?.code === 'conflict'
+      return sendJson(response, conflict ? 409 : 400, {
+        error: String(error?.message ?? 'Не удалось сохранить подписку'),
+        code: conflict ? 'conflict' : ERROR_CODES.badRequest,
+      })
+    }
+  }
+
+  /** POST /api/push/unsubscribe — удалить подписку текущего браузера. */
+  async function unsubscribePush(request, response) {
+    if (!pushStore || typeof pushStore.remove !== 'function') {
+      request.resume()
+      return missingStore(response, 'уведомления')
+    }
+    const body = await readJsonBody(request, bodyLimit)
+    if (!body.ok) return sendError(response, body.status, body.code, body.error)
+    const endpoint = typeof body.value?.endpoint === 'string' ? body.value.endpoint : ''
+    if (endpoint === '') return badRequest(response, 'Нет endpoint подписки')
+    await pushStore.remove(endpoint)
+    sendJson(response, 200, { ok: true })
+  }
 
   /** GET /api/agent/status — доступен ли мост и что происходило у агента. */
   async function getAgentStatus(request, response) {
@@ -852,24 +936,28 @@ export function createMiniApp({
       request.resume()
       return missingStore(response, 'чат')
     }
-    if (chatInFlight.has(String(userId))) {
+    const body = await readJsonBody(request, bodyLimit)
+    if (!body.ok) return sendError(response, body.status, body.code, body.error)
+    const target = resolveChat(body.value?.chatId, auth)
+    if (!target) return sendError(response, 403, ERROR_CODES.forbidden, 'Чужой чат')
+    if (chatInFlight.has(String(userId) + ':' + String(target.chatId))) {
       request.resume()
       return sendJson(response, 429, {
         error: 'Ассистент ещё отвечает на предыдущее сообщение',
         code: 'too_many_requests',
       })
     }
-    const body = await readJsonBody(request, bodyLimit)
-    if (!body.ok) return sendError(response, body.status, body.code, body.error)
     const text = typeof body.value?.text === 'string' ? body.value.text.trim() : ''
     if (text === '') return badRequest(response, 'Введите сообщение')
     if (text.length > CHAT_INPUT_MAX) return badRequest(response, `Сообщение длиннее ${CHAT_INPUT_MAX} символов`)
 
-    chatInFlight.add(String(userId))
+    chatInFlight.add(String(userId) + ':' + String(target.chatId))
     try {
       const delivery = await chatResponder({
         userId,
-        chatId,
+        chatId: target.chatId,
+        chatType: target.type,
+        chatTitle: target.title,
         text,
         name: String(auth.user?.first_name ?? mobileUserName),
         login: auth.login ?? null,
@@ -893,26 +981,28 @@ export function createMiniApp({
       logger?.warn?.('web chat failed', { error: error?.message ?? error, userId })
       sendError(response, 500, ERROR_CODES.internal, 'Не удалось получить ответ от ассистента')
     } finally {
-      chatInFlight.delete(String(userId))
+      chatInFlight.delete(String(userId) + ':' + String(target.chatId))
     }
   }
 
-  function chatHistory(request, response, { userId, chatId, url }) {
+  function chatHistory(request, response, { userId, chatId, auth, url }) {
     if (!history || typeof history.messages !== 'function') {
       return missingStore(response, 'история чата')
     }
+    const target = resolveChat(url.searchParams.get('chatId'), auth)
+    if (!target) return sendError(response, 403, ERROR_CODES.forbidden, 'Чужой чат')
     const rawLimit = Number(url.searchParams.get('limit'))
     const limit = Number.isInteger(rawLimit) && rawLimit > 0
       ? Math.min(rawLimit, CHAT_HISTORY_LIMIT)
       : CHAT_HISTORY_LIMIT
-    const messages = history.messages(chatId, userId)
+    const messages = history.messages(target.chatId, target.type === 'private' ? userId : undefined)
       .slice(-limit)
       .map((message) => ({
         role: message.role === 'assistant' ? 'assistant' : 'user',
         text: safeText(message.content),
         ...(typeof message.author === 'string' && message.author !== '' ? { author: safeText(message.author, 80) } : {}),
       }))
-    sendJson(response, 200, { messages, telegramUrl })
+    sendJson(response, 200, { messages, telegramUrl, chat: target })
   }
 
   function settingsSnapshot(userId, chatId, auth) {
@@ -1270,8 +1360,12 @@ export function createMiniApp({
     { method: 'GET', pattern: /^\/api\/memory$/, handler: getMemory },
     { method: 'POST', pattern: /^\/api\/memory$/, handler: createFact },
     { method: 'DELETE', pattern: /^\/api\/memory\/([^/]+)$/, handler: deleteFact },
+    { method: 'GET', pattern: /^\/api\/chats$/, handler: listChats },
     { method: 'GET', pattern: /^\/api\/chat\/history$/, handler: chatHistory },
     { method: 'POST', pattern: /^\/api\/chat\/message$/, handler: sendChatMessage },
+    { method: 'GET', pattern: /^\/api\/push\/config$/, handler: getPushConfig },
+    { method: 'POST', pattern: /^\/api\/push\/subscribe$/, handler: subscribePush },
+    { method: 'POST', pattern: /^\/api\/push\/unsubscribe$/, handler: unsubscribePush },
     { method: 'GET', pattern: /^\/api\/agent\/status$/, handler: getAgentStatus },
     { method: 'POST', pattern: /^\/api\/agent\/task$/, handler: submitAgentTask },
     { method: 'GET', pattern: /^\/api\/settings$/, handler: getSettings },
