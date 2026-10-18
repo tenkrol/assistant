@@ -704,9 +704,25 @@ test('настройки: чтение, смена и проверка знач�
   assert.equal(invalid.status, 400)
 })
 
+test('история сохраняет цитату ответа', async (t) => {
+  const { base, history } = await createHarness(t)
+  await history.append(USER_ID, {
+    role: 'user',
+    content: 'это ответ',
+    replyTo: { text: 'на что отвечаю', author: 'Ассистент' },
+  }, { userId: USER_ID })
+  await history.flush()
+  const cookies = jar()
+  await request(base, '/api/auth/login', { method: 'POST', body: { password: PASSWORD }, cookieJar: cookies })
+  const chat = await request(base, '/api/chat/history', { cookieJar: cookies })
+  assert.equal(chat.status, 200)
+  assert.equal(chat.json.messages[0].replyTo.text, 'на что отвечаю')
+  assert.equal(chat.json.messages[0].replyTo.author, 'Ассистент')
+})
+
 test('статистика: сегодня и семь дней с нулями', async (t) => {
   const { base, usage } = await createHarness(t)
-  usage.record({ usage: { prompt_tokens: 10, completion_tokens: 5 }, userId: USER_ID, chatId: USER_ID })
+  usage.record({ usage: { prompt_tokens: 10, completion_tokens: 5 }, userId: USER_ID, chatId: USER_ID, timeZone: 'Europe/Moscow' })
   const cookies = jar()
   await request(base, '/api/auth/login', { method: 'POST', body: { password: PASSWORD }, cookieJar: cookies })
   const stats = await request(base, '/api/stats?days=7', { cookieJar: cookies })

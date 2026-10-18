@@ -114,7 +114,12 @@ function childEnv() {
 function gitInfo() {
   const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' })
   const status = spawnSync('git', ['status', '--porcelain'], { cwd: root, encoding: 'utf8' })
-  if (head.status !== 0 || !head.stdout.trim()) return { sha: null, shortSha: null, dirty: null }
+  if (head.status !== 0 || !head.stdout.trim()) {
+    // В release-артефакте нет .git: SHA приходит от упаковщика, а не угадывается.
+    const packed = process.env.BUILD_SHA || (fs.existsSync(path.join(root, 'RELEASE_SHA')) ? fs.readFileSync(path.join(root, 'RELEASE_SHA'), 'utf8').trim() : '')
+    if (/^[0-9a-f]{40}$/i.test(packed)) return { sha: packed, shortSha: packed.slice(0, 7), dirty: false }
+    return { sha: null, shortSha: null, dirty: null }
+  }
   const sha = head.stdout.trim()
   return {
     sha,
