@@ -190,6 +190,31 @@ export function createCommandRouter(bot) {
         }
         return
       }
+      case 'request': {
+        if (!bot.agentBridge?.enabled || typeof bot.agentBridge.createRequest !== 'function') {
+          await bot.send(chatId, 'Заявки недоступны: мост к агенту выключен или старый контракт.')
+          return
+        }
+        const text = String(args ?? '').trim()
+        if (text === '') {
+          await bot.send(chatId, 'Что доработать? Например: `/request добавь показ версии агента`.')
+          return
+        }
+        try {
+          const request = await bot.agentBridge.createRequest({ text })
+          const components = (request.analysis?.components ?? []).map((item) => `• ${item.repository} (${item.changePrefix})`).join('\n')
+          await bot.send(chatId, [
+            `**Заявка ${request.requestId ?? 'создана'}**`,
+            components ? `Компоненты:\n${components}` : '',
+            request.question ? `❓ ${request.question}` : '',
+            request.compareUrl ? `Сравнение: ${request.compareUrl}` : '',
+            request.question ? '' : '_Draft: спецификация компонентов будет дополнена._',
+          ].filter(Boolean).join('\n'))
+        } catch (error) {
+          await bot.send(chatId, `Не удалось создать заявку: ${String(error?.message ?? error).slice(0, 160)}`)
+        }
+        return
+      }
       case 'agentusage': {
         if (!bot.agentBridge?.enabled || typeof bot.agentBridge.usage !== 'function') {
           await bot.send(chatId, 'Расходы агента недоступны: мост выключен или старый контракт.')
