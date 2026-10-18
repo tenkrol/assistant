@@ -2106,47 +2106,34 @@ function openAgentTemplate(key) {
   openSheet({ title: template.title, body: wrap })
 }
 
-const AGENT_CAPABILITY_LABELS = {
-  code: 'Код',
-  files: 'Файлы',
-  documents: 'Документы',
-  office: 'Office',
-  'long-task': 'Долгие задачи',
-  'verification-repair': 'Проверка и починка',
-  monitor: 'Мониторинг',
-  host: 'Серверы',
-  alerts: 'Алерты',
-  personal: 'Личные дела',
-  memory: 'Память',
-  reminders: 'Напоминания',
-  preferences: 'Настройки',
-  tasks: 'Планирование',
-  lifecycle: 'Этапы',
-  budget: 'Бюджет',
-  quick: 'Быстро'
-}
+const AGENT_CAPABILITY_GROUPS = [
+  { label: 'Код', caps: ['code'] },
+  { label: 'Файлы и офис', caps: ['files', 'documents', 'office'] },
+  { label: 'Долгие задачи', caps: ['long-task', 'verification-repair'] },
+  { label: 'Мониторинг', caps: ['monitor', 'host', 'alerts'] },
+  { label: 'Память и напоминания', caps: ['personal', 'memory', 'reminders', 'preferences'] },
+  { label: 'Планирование', caps: ['tasks', 'lifecycle', 'budget'] },
+  { label: 'Быстро', caps: ['quick'] }
+]
 
 function renderAgentCapabilities(data) {
   const box = $('agent-capabilities')
   if (!box) return
-  const capabilities = []
+  const capabilities = new Set()
   ;(data && Array.isArray(data.agents) ? data.agents : []).forEach((agent) => {
-    ;(agent.capabilities ?? []).forEach((capability) => {
-      if (!capabilities.includes(capability)) capabilities.push(capability)
-    })
+    ;(agent.capabilities ?? []).forEach((capability) => capabilities.add(capability))
   })
-  const ordered = Object.keys(AGENT_CAPABILITY_LABELS).filter((key) => capabilities.includes(key))
-  const extra = capabilities.filter((key) => !AGENT_CAPABILITY_LABELS[key])
-  const chips = [...ordered, ...extra]
+  const groups = AGENT_CAPABILITY_GROUPS.filter((group) => group.caps.some((cap) => capabilities.has(cap)))
   box.replaceChildren()
-  if (chips.length === 0) {
+  if (groups.length === 0) {
     box.hidden = true
     return
   }
   box.hidden = false
-  chips.forEach((capability) => {
+  groups.forEach((group) => {
     const chip = h('span', 'agent-cap')
-    chip.append(icon('check'), h('span', null, AGENT_CAPABILITY_LABELS[capability] || capability))
+    chip.title = group.caps.join(', ')
+    chip.append(icon('check'), h('span', null, group.label))
     box.append(chip)
   })
 }
