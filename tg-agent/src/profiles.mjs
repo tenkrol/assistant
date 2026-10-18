@@ -340,17 +340,31 @@ export class ProfileStore {
     // создания профиля, поэтому отклонённый текст не оставляет следов.
     if (detectSecretKind(clean)) throw new MemorySecretError()
     const profile = this.get(userId)
+    // Область и субъект записи фиксируются до поиска дубля: личный факт и факт
+    // проекта с тем же текстом — разные записи, а не одна.
+    const scopeId = options.scopeId ?? profile.scope_id ?? `personal-${userId}`
+    const scopeOf = (fact) => String(fact?.scopeId ?? fact?.scope_id ?? profile.scope_id ?? `personal-${userId}`)
+    const inSameArea = (fact) => scopeOf(fact) === String(scopeId)
+      && String(fact?.subjectId ?? userId) === String(userId)
     const active = profile.facts.filter(isActiveRecord)
-    const existing = active.find((fact) => String(fact.value ?? fact.text).toLowerCase() === clean.toLowerCase())
+    const existing = active.find((fact) => inSameArea(fact)
+      && String(fact.value ?? fact.text).toLowerCase() === clean.toLowerCase())
     if (existing) return { fact: { ...existing }, duplicate: true }
     const now = this.now()
     const kind = options.kind ?? inferMemoryKind(clean)
-    const scopeId = options.scopeId ?? profile.scope_id ?? `personal-${userId}`
     let superseded
+    let supersedesId
     if (options.supersedesId !== undefined && options.supersedesId !== null && options.supersedesId !== '') {
-      superseded = profile.facts.find((fact) => String(fact.id) === String(options.supersedesId))
+      // Явная замена разрешена только внутри той же области и субъекта: иначе
+      // одна область помечала бы заменённой запись другой.
+      const target = profile.facts.find((fact) => String(fact.id) === String(options.supersedesId))
+      if (target && inSameArea(target)) {
+        superseded = target
+        supersedesId = target.id
+      }
     } else if (REPLACEABLE_KINDS.includes(kind)) {
-      superseded = active.find((fact) => (fact.kind ?? inferMemoryKind(fact.value ?? fact.text)) === kind)
+      superseded = active.find((fact) => inSameArea(fact)
+        && (fact.kind ?? inferMemoryKind(fact.value ?? fact.text)) === kind)
     }
     // Замена освобождает слот: иначе исправление последнего факта упиралось бы
     // в предел и не сохранялось.
@@ -366,7 +380,7 @@ export class ProfileStore {
       confirmationStatus: options.confirmationStatus ?? 'confirmed',
       validFrom: options.validFrom,
       expiresAt: options.expiresAt,
-      supersedesId: options.supersedesId,
+      supersedesId,
       now,
     })
     if (superseded && isActiveRecord(superseded)) {

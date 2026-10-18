@@ -57,6 +57,12 @@ export class MemorySecretError extends Error {
 /** Объяснение для человека: что произошло и почему секрет не сохранён. */
 export const SECRET_MEMORY_TEXT = 'Не сохранил: в тексте похоже на секрет — токен, пароль или ключ. Память не хранит секреты; сохраните их в менеджере паролей.'
 
+/** Отказ записи: область доступна только для чтения (viewer или архив). */
+export const MEMORY_WRITE_FORBIDDEN_TEXT = 'В этой области память доступна только для чтения.'
+
+/** Отказ переноса: `correct` исправляет запись только в её области. */
+export const MEMORY_SCOPE_TRANSFER_TEXT = 'Перенести факт в другую область нельзя: исправление меняет запись только там, где она создана.'
+
 /** Приводит текст записи к одному пробелу между словами. */
 export function cleanMemoryValue(text) {
   return String(text ?? '').replace(/\s+/g, ' ').trim()
@@ -333,14 +339,15 @@ export function describeSource(record) {
   return `источник: ${ref}`
 }
 
-/** Оценка владения областью для истории исправлений. */
+/** Оценка владения областью для истории исправлений: владелец читает и архив. */
 function isMemoryScopeOwner(access, userId, record) {
   if (!access) return String(record?.subjectId) === String(userId)
   const scoped = { ...record, scope_id: record.scopeId, userId: record.subjectId }
   const scope = access.scopeOfRecord?.(scoped)
   if (!scope) return String(record?.subjectId) === String(userId)
-  if (scope.kind === 'personal') return String(scope.ownerId) === String(userId)
-  return String(scope.ownerId) === String(userId) && access.canManageScope?.(userId, scope) !== false
+  // Архив запрещает изменение, но не чтение истории: поэтому здесь только
+  // владение, без `canManageScope`.
+  return String(scope.ownerId) === String(userId)
 }
 
 /**
@@ -366,12 +373,47 @@ export function createMemory({ store, access, logger, now = () => new Date() } =
       && (scopeId === undefined || record.scopeId === undefined || String(record.scopeId) === String(scopeId)))
   }
 
+  /** Запись в форме, которую понимает единая проверка доступа. */
+  function scopedRecord(record, userId) {
+    return {
+      ...record,
+      scope_id: record?.scopeId ?? record?.scope_id,
+      userId: record?.subjectId ?? record?.userId ?? userId,
+    }
+  }
+
+  /**
+   * Можно ли прочитать запись. Проверка общая для list/select/export/history:
+   * отдельные команды и путь через домен не должны решать это сами.
+   */
+  function canRead(userId, record) {
+    if (!access) return true
+    if (!record || userId === undefined || userId === null) return false
+    if (typeof access.canRead === 'function') return access.canRead(userId, scopedRecord(record, userId))
+    if (typeof access.canReadScope === 'function') {
+      return access.canReadScope(userId, record.scopeId ?? record.scope_id)
+    }
+    return false
+  }
+
   /** Можно ли менять запись в её области. */
   function canWrite(userId, record) {
     if (!access) return String(record.subjectId ?? userId) === String(userId)
-    const scoped = { ...record, scope_id: record.scopeId, userId: record.subjectId ?? userId }
-    if (typeof access.canWrite === 'function') return access.canWrite(userId, scoped)
-    return access.canWriteScope?.(userId, record.scopeId) !== false
+    if (!record || userId === undefined || userId === null) return false
+    if (typeof access.canWrite === 'function') return access.canWrite(userId, scopedRecord(record, userId))
+    return access.canWriteScope?.(userId, record.scopeId ?? record.scope_id) === true
+  }
+
+  /** Можно ли писать в область до создания записи: viewer и архив запрещают. */
+  function canWriteScope(userId, scopeId) {
+    if (!access) return true
+    if (scopeId === undefined || scopeId === null || scopeId === '' || userId === undefined || userId === null) return false
+    if (typeof access.canWrite === 'function') {
+      // Личное пространство может ещё не быть в файле: scopeOfRecord восстановит
+      // его по предсказуемому id, поэтому проверка не зависит от flush.
+      return access.canWrite(userId, { scope_id: String(scopeId), userId, subjectId: userId })
+    }
+    return access.canWriteScope?.(userId, String(scopeId)) === true
   }
 
   /** Область новой записи: явная, активный проект чата или личная. */
@@ -394,6 +436,7 @@ export function createMemory({ store, access, logger, now = () => new Date() } =
      */
     list(userId, { scopeId, page = 1, pageSize = MEMORY_PAGE_SIZE, includeReplaced = false } = {}) {
       const records = (includeReplaced ? allRecords(userId) : activeRecords(userId, { scopeId }))
+        .filter((record) => canRead(userId, record))
         .filter((record) => scopeId === undefined || record.scopeId === undefined || String(record.scopeId) === String(scopeId))
       const total = records.length
       const pages = Math.max(1, Math.ceil(total / pageSize))
@@ -411,6 +454,11 @@ export function createMemory({ store, access, logger, now = () => new Date() } =
     remember(userId, value, options = {}) {
       if (detectSecretKind(value)) return { ok: false, secret: true, text: SECRET_MEMORY_TEXT }
       const scopeId = scopeFor(userId, options)
+      // Права проверяются до создания записи: отказ не оставляет ни факта, ни
+      // пустого профиля, а путь инструмента `remember` получает тот же ответ.
+      if (!canWriteScope(userId, scopeId)) {
+        return { ok: false, reason: 'forbidden', text: MEMORY_WRITE_FORBIDDEN_TEXT }
+      }
       const result = store.addFact(userId, value, {
         ...options,
         scopeId,
@@ -432,9 +480,15 @@ export function createMemory({ store, access, logger, now = () => new Date() } =
       const record = activeRecords(userId).find((item) => String(item.id) === String(id))
       if (!record) return { ok: false, reason: 'not-found' }
       if (!canWrite(userId, record)) return { ok: false, reason: 'forbidden' }
+      // Исправление не переносит запись: смена области — отдельная операция,
+      // которой в этом изменении нет.
+      if (options.scopeId !== undefined && options.scopeId !== null && options.scopeId !== ''
+        && String(options.scopeId) !== String(record.scopeId)) {
+        return { ok: false, reason: 'scope-mismatch', text: MEMORY_SCOPE_TRANSFER_TEXT }
+      }
       const result = store.addFact(userId, value, {
         ...options,
-        scopeId: options.scopeId ?? record.scopeId,
+        scopeId: record.scopeId,
         kind: options.kind ?? record.kind,
         supersedesId: record.id,
         sourceRef: options.sourceRef ?? (options.chatId !== undefined ? `telegram:chat:${options.chatId}` : 'user'),
@@ -469,6 +523,9 @@ export function createMemory({ store, access, logger, now = () => new Date() } =
     history(userId, id, { requesterId = userId } = {}) {
       const target = allRecords(userId).find((record) => String(record.id) === String(id))
       if (!target) return { ok: false, reason: 'not-found' }
+      // Сначала общий ACL, затем прежнее правило владельца области: отозванный
+      // участник не читает даже цепочку замен.
+      if (!canRead(requesterId, target)) return { ok: false, reason: 'forbidden' }
       if (!isMemoryScopeOwner(access, requesterId, target)) return { ok: false, reason: 'forbidden' }
       const chain = []
       // Поднимаемся от записи к тому, что она заменила.
@@ -491,25 +548,27 @@ export function createMemory({ store, access, logger, now = () => new Date() } =
 
     /** Выгрузка действующих записей в чистом виде — без tombstone и служебных полей. */
     export(userId, { scopeId } = {}) {
-      return activeRecords(userId, { scopeId }).map((record) => ({
-        id: String(record.id),
-        subjectId: String(record.subjectId ?? userId),
-        scopeId: record.scopeId,
-        kind: record.kind ?? inferMemoryKind(record.value ?? record.text),
-        value: record.value ?? record.text,
-        sourceRef: record.sourceRef ?? 'unknown',
-        confirmationStatus: record.confirmationStatus ?? 'imported',
-        validFrom: record.validFrom ?? record.createdAt,
-        expiresAt: record.expiresAt ?? null,
-        supersedesId: record.supersedesId ?? null,
-        version: record.version ?? MEMORY_RECORD_VERSION,
-      }))
+      return activeRecords(userId, { scopeId })
+        .filter((record) => canRead(userId, record))
+        .map((record) => ({
+          id: String(record.id),
+          subjectId: String(record.subjectId ?? userId),
+          scopeId: record.scopeId,
+          kind: record.kind ?? inferMemoryKind(record.value ?? record.text),
+          value: record.value ?? record.text,
+          sourceRef: record.sourceRef ?? 'unknown',
+          confirmationStatus: record.confirmationStatus ?? 'imported',
+          validFrom: record.validFrom ?? record.createdAt,
+          expiresAt: record.expiresAt ?? null,
+          supersedesId: record.supersedesId ?? null,
+          version: record.version ?? MEMORY_RECORD_VERSION,
+        }))
     },
 
     /** Записи для контекста модели: только разрешённая область и действующие. */
     select(userId, { scopeId, chatId, at = clock() } = {}) {
       const scope = scopeFor(userId, { scopeId, chatId })
-      return selectUsableRecords(allRecords(userId), { scopeId: scope, now: at })
+      return selectUsableRecords(allRecords(userId).filter((record) => canRead(userId, record)), { scopeId: scope, now: at })
         .map((record) => ({ ...record }))
     },
 

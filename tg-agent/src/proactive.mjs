@@ -294,6 +294,53 @@ export function taskChangeOf(task = {}) {
   return undefined
 }
 
+/** Причины отказа по задаче для журнала решений. */
+export const TASK_ACCESS_DENIED_REASON = 'задача отфильтрована по доступу'
+export const TASK_OWNER_UNKNOWN_REASON = 'у задачи нет проверенного владельца'
+
+/**
+ * Владелец и область задачи из проверенного источника.
+ *
+ * Мост агента и старые записи называют одни и те же поля по-разному. Никакой
+ * идентичности из текста задачи не выводим: неизвестный владелец остаётся
+ * неизвестным и не считается общедоступным.
+ *
+ * @param {object} task - поручение из источника.
+ * @returns {{userId?: string|number, scopeId?: string}} principal.
+ */
+export function taskPrincipal(task = {}) {
+  const userId = task?.userId ?? task?.ownerId
+  const scopeId = task?.scope_id ?? task?.scopeId
+  return {
+    ...(userId === undefined || userId === null || userId === '' ? {} : { userId }),
+    ...(scopeId === undefined || scopeId === null || scopeId === '' ? {} : { scopeId: String(scopeId) }),
+  }
+}
+
+/** Запись для единой проверки доступа: владелец и область задачи. */
+export function taskAccessRecord(task = {}) {
+  const principal = taskPrincipal(task)
+  return {
+    ...(principal.userId === undefined ? {} : { userId: principal.userId }),
+    ...(principal.scopeId === undefined ? {} : { scope_id: principal.scopeId }),
+  }
+}
+
+/**
+ * Видна ли задача этому получателю.
+ *
+ * Без `access` сохраняется прежнее поведение одного пользователя: проверять
+ * нечем. С `access` задача без проверенного владельца не показывается никому.
+ */
+export function canReadTask(userId, task, access) {
+  if (!access) return true
+  if (userId === undefined || userId === null) return false
+  const principal = taskPrincipal(task)
+  if (principal.userId === undefined) return false
+  if (typeof access.canRead !== 'function') return false
+  return access.canRead(userId, taskAccessRecord(task))
+}
+
 /** Существенная ли разница между прежним состоянием и новым кандидатом. */
 export function isSignificantChange(previous, candidate) {
   if (!previous) return true
@@ -338,10 +385,10 @@ export function proactiveKeyboard(key) {
  * доставляет прежний планировщик, и второй раз о нём не сообщаем.
  *
  * @param {object} options - `now`, `reminders`, `events`, `tasks`, `previous`,
- *   `userId`, `chatId`, `settings`, `access`.
+ *   `userId`, `chatId`, `settings`, `access`, `onDenied`.
  * @returns {Array<object>} кандидаты без дублей, по убыванию приоритета.
  */
-export function collectCandidates({ now = new Date(), reminders = [], events = [], tasks = [], previous = [], userId, chatId, settings = {}, access } = {}) {
+export function collectCandidates({ now = new Date(), reminders = [], events = [], tasks = [], previous = [], userId, chatId, settings = {}, access, onDenied } = {}) {
   const at = asDate(now)
   const config = normalizeSettings(settings)
   const day = dayKeyInZone(at, config.tz)
@@ -443,10 +490,23 @@ export function collectCandidates({ now = new Date(), reminders = [], events = [
   for (const task of tasks ?? []) {
     const id = task?.taskId ?? task?.id
     if (id === undefined || id === null || id === '') continue
+    const key = candidateKey('task', id)
+    const principal = taskPrincipal(task)
+    // ACL задачи — до кандидатов и обзора. Отказ пишется в журнал решений без
+    // текста задачи: причина видна, чужих данных в журнале нет.
+    if (access && !canReadTask(userId, task, access)) {
+      onDenied?.({
+        kind: 'filtered',
+        key,
+        type: 'task',
+        reason: principal.userId === undefined ? TASK_OWNER_UNKNOWN_REASON : TASK_ACCESS_DENIED_REASON,
+        source: `поручение ${id}`,
+      })
+      continue
+    }
     const change = taskChangeOf(task)
     // Выполняется, статус не менялся — heartbeat, а не новость.
     if (!change) continue
-    const key = candidateKey('task', id)
     const previousItem = previousByKey.get(key)
     const pending = Boolean(previousItem && ['planned', 'snoozed', 'failed', 'claimed'].includes(previousItem.state))
     // Пока событие не доставлено (ждёт бюджета, отложено), оно остаётся
@@ -485,8 +545,13 @@ export function collectCandidates({ now = new Date(), reminders = [], events = [
       source: `поручение ${id}`,
       change,
       detail: task.error ? String(task.error).slice(0, 200) : (task.obstacle ? String(task.obstacle).slice(0, 200) : undefined),
-      userId: task.userId ?? userId,
-      chatId: task.chatId ?? chatId,
+      // `userId` кандидата — получатель доставки, а не владелец задачи: так
+      // запись в `items` принадлежит тому, кому её отправили. Владелец и
+      // область остаются в `subjectUserId`/`scope_id` для повторной проверки.
+      userId: userId ?? principal.userId,
+      chatId: chatId ?? task.chatId,
+      record: taskAccessRecord(task),
+      extra: principal.userId === undefined ? undefined : { subjectUserId: principal.userId },
       reviewOnly: change === 'waiting',
     }))
   }
@@ -1167,8 +1232,13 @@ export class ProactiveService {
     return gathered
   }
 
-  /** Кандидаты одного получателя с учётом доступа. */
-  candidatesFor(target, gathered, now) {
+  /**
+   * Кандидаты одного получателя с учётом доступа.
+   *
+   * Отказы по задачам складываются в `denied` — тик добавит их в журнал
+   * решений с причиной, не раскрывая текст чужой задачи.
+   */
+  candidatesFor(target, gathered, now, denied = []) {
     const previous = this.store.items.filter((item) => (
       item.userId === undefined || String(item.userId) === String(target.userId)
     ))
@@ -1182,6 +1252,11 @@ export class ProactiveService {
       chatId: target.chatId,
       settings: this.settings,
       access: this.access,
+      onDenied: (decision) => denied.push({
+        ...decision,
+        userId: target.userId,
+        chatId: target.chatId,
+      }),
     }))
   }
 
@@ -1191,8 +1266,11 @@ export class ProactiveService {
    * Сюда попадают отложенные и запланированные события: если задачу закрыли, а
    * встречу отменили, напоминать о них нельзя.
    */
-  async reconcile(target, candidates, now, unavailable = []) {
+  async reconcile(target, candidates, now, unavailable = [], denied = []) {
     const byKey = new Map(candidates.map((candidate) => [candidate.key, candidate]))
+    // Отказ по доступу — не повод отменять запись: доступ могут вернуть, а
+    // «событие больше не актуально» здесь было бы неправдой.
+    const deniedKeys = new Set(denied.map((decision) => decision.key).filter(Boolean))
     // Недоступный источник не подтверждает отсутствие записи: событие нельзя
     // отменять только потому, что календарь или мост не ответил.
     const missing = new Set(unavailable)
@@ -1205,6 +1283,7 @@ export class ProactiveService {
     for (const item of [...this.store.items]) {
       if (item.type === 'review') continue
       if (item.userId !== undefined && String(item.userId) !== String(target.userId)) continue
+      if (deniedKeys.has(item.key)) continue
       if (['sent', 'done', 'cancelled', 'reviewed', 'muted', 'expired'].includes(item.state)) continue
       if (item.expiresAt && now.getTime() > Date.parse(item.expiresAt)) {
         await this.store.setState(item.key, 'expired', { now, reason: 'истёк срок актуальности' })
@@ -1262,9 +1341,9 @@ export class ProactiveService {
       if (!this.access || target.userId === undefined) return true
       return this.access.canRead(target.userId, record)
     }
-    const ownTasks = (gathered.tasks ?? []).filter((entry) => (
-      entry?.userId === undefined || target.userId === undefined || String(entry.userId) === String(target.userId)
-    ))
+    // Задачи проходят тот же ACL, что и доставка: обзор не перечисляет чужие
+    // поручения и не считает задачу без владельца общей.
+    const ownTasks = (gathered.tasks ?? []).filter((entry) => canReadTask(target.userId, entry, this.access))
     // Отложенное до более позднего срока в обзор не подмешиваем: иначе обзор
     // «съел» бы отложенное уведомление раньше времени.
     const reviewCandidates = candidates.filter((candidate) => {
@@ -1323,6 +1402,25 @@ export class ProactiveService {
     }
   }
 
+  /**
+   * Повторная проверка доступа непосредственно перед доставкой.
+   *
+   * Кандидаты уже собраны с ACL, но доступ может быть отозван между сборкой и
+   * отправкой. Для задачи проверяется её владелец и область, для остальных —
+   * та же запись, что фильтровалась в источниках.
+   */
+  canDeliver(target, candidate) {
+    if (!this.access) return true
+    if (target?.userId === undefined || target?.userId === null) return false
+    const owner = candidate?.subjectUserId ?? candidate?.userId
+    if (owner === undefined || owner === null) return false
+    const record = {
+      userId: owner,
+      ...(candidate?.scope_id === undefined ? {} : { scope_id: candidate.scope_id }),
+    }
+    return typeof this.access.canRead === 'function' ? this.access.canRead(target.userId, record) : false
+  }
+
   /** Инициативные уведомления: приоритет, бюджет, тихие часы, актуальность. */
   async planInitiatives(target, candidates, now) {
     const decisions = []
@@ -1358,6 +1456,20 @@ export class ProactiveService {
       }
       if (this.store.sentToday(now).count >= settings.dayLimit) {
         decisions.push({ kind: 'deferred', key: candidate.key, type: candidate.type, reason: 'дневной предел исчерпан' })
+        continue
+      }
+      // Последняя проверка перед отправкой: отзыв доступа между сборкой
+      // кандидатов и этим моментом не должен приводить к доставке.
+      if (!this.canDeliver(target, candidate)) {
+        decisions.push({
+          kind: 'filtered',
+          key: candidate.key,
+          type: candidate.type,
+          reason: candidate.type === 'task' ? TASK_ACCESS_DENIED_REASON : 'нет доступа к записи',
+          source: candidate.source,
+          userId: target.userId,
+          chatId: target.chatId,
+        })
         continue
       }
       if (!this.enabled) {
@@ -1402,8 +1514,10 @@ export class ProactiveService {
       await this.store.refresh()
       const gathered = await this.gather(at)
       for (const target of this.targets) {
-        const candidates = this.candidatesFor(target, gathered, at)
-        decisions.push(...await this.reconcile(target, candidates, at, gathered.unavailable))
+        const denied = []
+        const candidates = this.candidatesFor(target, gathered, at, denied)
+        decisions.push(...denied)
+        decisions.push(...await this.reconcile(target, candidates, at, gathered.unavailable, denied))
         const review = await this.planReview(target, gathered, candidates, at)
         if (review) decisions.push(review)
         decisions.push(...await this.planInitiatives(target, candidates, at))

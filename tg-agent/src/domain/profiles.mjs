@@ -351,7 +351,11 @@ export function rulesOfProfiles({ store, access, history, logger } = {}) {
         // Секрет не становится записью: человек получает объяснение, а значение
         // не попадает ни в файл, ни в журнал.
         if (detectSecretKind(text)) return SECRET_MEMORY_TEXT
-        const { fact, duplicate } = memory.remember(userId, text, { chatId })
+        const result = memory.remember(userId, text, { chatId })
+        // Отказ прав приходит из общего сервиса: данные проекта не меняются, а
+        // город не сохраняется отдельно от факта.
+        if (!result.ok) return result.text ?? rememberErrorText(new Error(result.reason ?? 'forbidden'))
+        const { fact, duplicate } = result
         let savedCity
         let changed = false
         if (cityValue !== '') {
