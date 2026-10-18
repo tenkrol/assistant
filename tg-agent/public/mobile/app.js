@@ -1640,6 +1640,14 @@ async function refreshPushToggle() {
     const registration = await pushRegistration()
     const subscription = registration ? await registration.pushManager.getSubscription() : null
     toggle.classList.toggle('is-on', Boolean(subscription))
+    // Подписка принадлежит браузеру, а не аккаунту. Если на этом устройстве
+    // раньше входил другой человек, переназначаем её текущему аккаунту.
+    if (subscription) {
+      const config = await getPushConfig()
+      if (config.enabled) {
+        await api('POST', '/api/push/subscribe', subscription.toJSON()).catch(() => {})
+      }
+    }
   } catch {
     toggle.classList.remove('is-on')
   }
