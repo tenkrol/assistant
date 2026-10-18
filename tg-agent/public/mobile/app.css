@@ -3226,3 +3226,23 @@ html.large-text .setting-row span {
     padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
   }
 }
+
+
+/* iOS/WebKit (включая Яндекс.Браузер) зумит страницу, если поле ввода
+   меньше 16px — из-за этого «съезжает» вся вёрстка при наборе. */
+@media (max-width: 559px) {
+  .input,
+  .composer-field input,
+  .search-row .input,
+  .new-task textarea,
+  .setting-row select,
+  .agent-preview {
+    font-size: 16px;
+  }
+
+  /* Когда открыта клавиатура, нижние вкладки убираем: композер остаётся
+     над клавиатурой, а не прыгает вместе с панелью. */
+  body.is-keyboard[data-screen="chat"] .tabbar {
+    display: none;
+  }
+}
