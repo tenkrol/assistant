@@ -335,6 +335,9 @@ export function createMiniApp({
     sendError(response, 503, ERROR_CODES.unavailable, `Хранилище недоступно: ${what}`)
   const badRequest = (response, error) => sendError(response, 400, ERROR_CODES.badRequest, error)
   const notFound = (response) => sendError(response, 404, ERROR_CODES.notFound, 'Не найдено')
+  /** Отказ пространства: viewer и архив не меняют данные. */
+  const readOnly = (response) => sendError(response, 403, ERROR_CODES.forbidden, 'Только просмотр: в этом проекте нельзя менять данные')
+  const isAccessDenied = (error) => /access denied/.test(String(error?.message ?? ''))
 
   const mapReminder = (reminder) => ({
     id: String(reminder.id),
@@ -432,6 +435,7 @@ export function createMiniApp({
       reminder = store.add({ chatId, userId, text, dueAt: due.date.toISOString(), repeat })
     } catch (error) {
       logger?.warn?.('miniapp reminder rejected', { error, userId })
+      if (isAccessDenied(error)) return readOnly(response)
       const message = String(error?.message ?? '').includes('too many')
         ? 'Слишком много напоминаний'
         : 'Не удалось создать напоминание'
@@ -446,18 +450,20 @@ export function createMiniApp({
     if (!store || typeof store.cancel !== 'function') return missingStore(response, 'напоминания')
     const id = safeDecode(params[0])
     if (id === undefined) return notFound(response)
+    const known = store.list(undefined, userId).find((item) => item.id === String(id))
+    if (known && store.access && !store.access.canWrite(userId, known)) return readOnly(response)
     const removed = store.cancel(chatId, id, userId)
     if (!removed) return notFound(response)
     await store.flush()
     sendJson(response, 200, { ok: true, id: String(removed.id) })
   }
 
-  async function listEvents(request, response, { chatId, url }) {
+  async function listEvents(request, response, { userId, chatId, url }) {
     const store = pickStore(stores.events)
     if (!store || typeof store.upcoming !== 'function') return missingStore(response, 'календарь')
     const days = parseDays(url.searchParams.get('days'))
     if (!days.ok) return badRequest(response, days.error)
-    sendJson(response, 200, store.upcoming(chatId, { days: days.value }).map(mapEvent))
+    sendJson(response, 200, store.upcoming(chatId, { days: days.value, userId }).map(mapEvent))
   }
 
   async function createEvent(request, response, { userId, chatId }) {
@@ -477,18 +483,27 @@ export function createMiniApp({
     if (typeof repeat !== 'string' || !eventRepeatSet.has(repeat)) return badRequest(response, 'Недопустимый повтор события')
 
     const place = typeof body.value.place === 'string' && body.value.place.trim() !== '' ? body.value.place.trim() : undefined
-    const event = store.add({ chatId, userId, title, at: at.date.toISOString(), repeat, place })
+    let event
+    try {
+      event = store.add({ chatId, userId, title, at: at.date.toISOString(), repeat, place })
+    } catch (error) {
+      logger?.warn?.('miniapp event rejected', { error, userId })
+      if (isAccessDenied(error)) return readOnly(response)
+      throw error
+    }
     if (!event) return badRequest(response, 'Не удалось создать событие')
     await store.flush()
     sendJson(response, 200, mapEvent(event))
   }
 
-  async function deleteEvent(request, response, { chatId, params }) {
+  async function deleteEvent(request, response, { userId, chatId, params }) {
     const store = pickStore(stores.events)
     if (!store || typeof store.remove !== 'function') return missingStore(response, 'календарь')
     const id = safeDecode(params[0])
     if (id === undefined) return notFound(response)
-    const removed = store.remove(chatId, id)
+    const known = store.list(undefined, userId).find((item) => item.id === String(id))
+    if (known && store.access && !store.access.canWrite(userId, known)) return readOnly(response)
+    const removed = store.remove(chatId, id, userId)
     if (!removed) return notFound(response)
     await store.flush()
     sendJson(response, 200, { ok: true, id: String(removed.id) })

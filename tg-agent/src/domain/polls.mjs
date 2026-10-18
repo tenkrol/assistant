@@ -174,7 +174,11 @@ export function parsePollAction(data, { prefix = 'poll' } = {}) {
  * @param {object} options - `store` — хранилище опросов.
  * @returns {object} правила создания и голосования.
  */
-export function rulesOfPolls({ store } = {}) {
+export function rulesOfPolls({ store, access } = {}) {
+  const guard = access ?? store?.access
+  const readOnlyText = 'Ошибка инструмента poll: в этом проекте у вас роль viewer (только просмотр), создать опрос нельзя.'
+  const readOnlyToast = 'Только просмотр: голосовать в этом проекте нельзя'
+
   return {
     store,
 
@@ -197,7 +201,17 @@ export function rulesOfPolls({ store } = {}) {
         return { text: `Ошибка инструмента poll: вариант «${tooLong}» длиннее ${MAX_OPTION_LENGTH} символов. Сократи его и вызови инструмент снова.` }
       }
 
-      const poll = store.add({ chatId, userId, question: clean, options: cleaned })
+      if (guard && userId !== undefined) {
+        const scopeId = guard.scopeIdFor(userId, chatId)
+        if (!guard.canWriteScope(userId, scopeId)) return { text: readOnlyText }
+      }
+      let poll
+      try {
+        poll = store.add({ chatId, userId, question: clean, options: cleaned })
+      } catch (error) {
+        if (/access denied/.test(String(error?.message))) return { text: readOnlyText }
+        throw error
+      }
       if (!poll) return { text: 'Ошибка инструмента poll: не удалось создать опрос, проверь вопрос и варианты.' }
       // Подтверждённый опрос обязан пережить перезапуск до первого нажатия.
       await store.flush()
@@ -219,8 +233,14 @@ export function rulesOfPolls({ store } = {}) {
     async vote(id, userId, optionIndex) {
       const poll = store?.get?.(id)
       if (!poll) return { toast: 'Опрос уже закрыт' }
+      if (guard && userId !== undefined) {
+        // Чужой опрос не должен даже подтверждать своё существование.
+        if (!guard.canRead(userId, poll)) return { toast: 'Опрос не найден или недоступен', denied: true }
+        if (!guard.canWrite(userId, poll)) return { poll, changed: false, toast: readOnlyToast, denied: true }
+      }
       const result = store.vote(id, userId, optionIndex)
       if (!result?.poll) return { toast: 'Опрос уже закрыт' }
+      if (result.denied) return { poll: result.poll, changed: false, toast: readOnlyToast, denied: true }
       return {
         ...result,
         toast: result.poll.closedAt !== undefined

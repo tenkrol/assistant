@@ -48,12 +48,16 @@ export class ReminderStore {
    * @param {object} [options.logger] - logger.
    * @param {number} [options.maxPerChat] - reminders allowed per chat.
    * @param {number} [options.maxPerUser] - reminders allowed per user.
+   * @param {object} [options.access] - единая проверка доступа (`src/core/access.mjs`).
    */
-  constructor({ file, logger, maxPerChat = 50, maxPerUser = 50 }) {
+  constructor({ file, logger, maxPerChat = 50, maxPerUser = 50, access }) {
     this.file = file
     this.logger = logger
     this.maxPerChat = maxPerChat
     this.maxPerUser = maxPerUser
+    // Единственная точка проверки доступа. Без неё поведение прежнее: хранилище
+    // остаётся пригодным для тестов и одиночных сценариев.
+    this.access = access
     /** @type {Array<{id: string, chatId: number, userId?: number, text: string, dueAt: string, repeat: string, createdAt: string}>} */
     this.reminders = []
     this.nextId = 1
@@ -96,7 +100,12 @@ export class ReminderStore {
    */
   list(chatId, userId) {
     return this.reminders.filter((reminder) => {
-      if (chatId !== undefined && reminder.chatId !== chatId) return false
+      // Запись общего проекта видна участнику из любого чата; личная остаётся
+      // привязанной к своему чату.
+      if (chatId !== undefined && reminder.chatId !== chatId) {
+        if (!this.access || userId === undefined || !this.access.isSharedFor(userId, reminder)) return false
+      }
+      if (this.access && userId !== undefined) return this.access.canRead(userId, reminder)
       if (userId !== undefined && reminder.userId !== undefined && reminder.userId !== userId) return false
       return true
     })
@@ -111,9 +120,11 @@ export class ReminderStore {
    * Add one reminder.
    *
    * @param {object} input - `chatId`, `userId`, `text`, `dueAt` (Date or ISO string), `repeat`.
+   * @param {string} [input.scopeId] - явное пространство; иначе активный проект или личное.
+   * @param {boolean} [input.system] - системная запись (перенос тихого часа), без проверки роли.
    * @returns {object} the stored reminder.
    */
-  add({ chatId, userId, text, dueAt, repeat = 'none' }) {
+  add({ chatId, userId, text, dueAt, repeat = 'none', scopeId, system = false }) {
     const clean = String(text ?? '').trim()
     if (clean === '') throw new Error('reminder text is required')
     if (clean.length > 500) throw new Error('reminder text is too long')
@@ -123,14 +134,23 @@ export class ReminderStore {
     if (Number.isNaN(due.getTime())) throw new Error('reminder time is invalid')
     // The per-user cap is checked first and counts every chat, so it stays
     // reachable and a user cannot spread the same load across chats.
-    if (userId !== undefined && this.list(undefined, userId).length >= this.maxPerUser) {
+    if (userId !== undefined && this.reminders.filter((item) => String(item.userId) === String(userId)).length >= this.maxPerUser) {
       throw new Error(`too many reminders for this user (${this.maxPerUser})`)
     }
     if (this.list(chatId).length >= this.maxPerChat) throw new Error(`too many reminders in this chat (${this.maxPerChat})`)
+    // Область записи выбирает access: активный проект пары «пользователь + чат»
+    // или личное пространство. Модель не может подменить пользователя.
+    const targetScope = userId === undefined || !this.access
+      ? scopeId
+      : this.access.scopeIdFor(userId, chatId, scopeId)
+    if (targetScope !== undefined && this.access && userId !== undefined && !system && !this.access.canWriteScope(userId, targetScope)) {
+      throw new Error('access denied: в этом проекте только просмотр')
+    }
     const reminder = {
       id: String(this.nextId++),
       chatId,
       ...(userId === undefined ? {} : { userId }),
+      ...(targetScope === undefined ? {} : { scope_id: targetScope }),
       text: clean,
       dueAt: due.toISOString(),
       repeat,
@@ -147,14 +167,18 @@ export class ReminderStore {
    * removed, so nobody in a group cancels somebody else's reminder.
    */
   cancel(chatId, id, userId) {
-    const index = this.reminders.findIndex((reminder) => {
-      if (reminder.chatId !== chatId || reminder.id !== String(id)) return false
-      if (userId === undefined) return true
-      return reminder.userId === undefined || reminder.userId === userId
-    })
-    if (index === -1) return undefined
-    const [removed] = this.reminders.splice(index, 1)
-    return removed
+    const reminder = this.reminders.find((item) => item.id === String(id))
+    if (!reminder) return undefined
+    if (this.access && userId !== undefined) {
+      // Участник общего проекта может убрать запись из другого чата, но только
+      // если у него есть право записи. Viewer не меняет данные никак.
+      if (!this.access.canWrite(userId, reminder)) return undefined
+    } else {
+      if (reminder.chatId !== chatId) return undefined
+      if (userId !== undefined && reminder.userId !== undefined && reminder.userId !== userId) return undefined
+    }
+    this.reminders = this.reminders.filter((item) => item !== reminder)
+    return reminder
   }
 
   /** Drop one reminder by id (used after a one-off fires). */

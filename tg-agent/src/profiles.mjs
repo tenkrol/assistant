@@ -47,12 +47,15 @@ export class ProfileStore {
    * @param {object} [options.logger] - logger.
    * @param {number} [options.maxUsers] - how many profiles to keep.
    * @param {number} [options.maxFacts] - facts allowed per user.
+   * @param {object} [options.access] - единая проверка доступа (`src/core/access.mjs`).
    */
-  constructor({ file, logger, maxUsers = DEFAULT_MAX_USERS, maxFacts = DEFAULT_MAX_FACTS }) {
+  constructor({ file, logger, maxUsers = DEFAULT_MAX_USERS, maxFacts = DEFAULT_MAX_FACTS, access }) {
     this.file = file
     this.logger = logger
     this.maxUsers = maxUsers
     this.maxFacts = maxFacts
+    // Профиль человека — его личное пространство; access нужен для `scope_id`.
+    this.access = access
     /** @type {Map<string, {city?: string, facts: Array<{id: string, text: string, createdAt: string}>, nextFactId: number, updatedAt: string}>} */
     this.users = new Map()
     // Очередь записей: перекрывающиеся flush не должны перетирать снимки.
@@ -90,6 +93,7 @@ export class ProfileStore {
           facts,
           nextFactId: Math.max(Number(profile?.nextFactId) || 0, highest + 1),
           updatedAt: typeof profile?.updatedAt === 'string' ? profile.updatedAt : new Date().toISOString(),
+          ...(typeof profile?.scope_id === 'string' ? { scope_id: profile.scope_id } : {}),
         })
       }
       this.logger?.info('profiles loaded', { users: this.users.size })
@@ -106,7 +110,11 @@ export class ProfileStore {
     let profile = this.users.get(key)
     if (!profile) {
       profile = emptyProfile()
+      if (this.access) profile.scope_id = this.access.scopeOf(key).id
       this.users.set(key, profile)
+    } else if (this.access && profile.scope_id === undefined) {
+      // Старая запись до миграции: пространство владельца подставляется здесь же.
+      profile.scope_id = this.access.scopeOf(key).id
     }
     return profile
   }
@@ -337,6 +345,7 @@ export class ProfileStore {
             nextFactId: profile.nextFactId,
             facts: profile.facts,
             updatedAt: profile.updatedAt,
+            ...(profile.scope_id === undefined ? {} : { scope_id: profile.scope_id }),
           }]),
         )
         this.storage.state.users = users

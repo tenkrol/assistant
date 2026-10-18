@@ -110,19 +110,21 @@ export function clampRemindBefore(value) {
  *   `locale`, `logger`, `now`.
  * @returns {object} правила: календарь и инструмент `event`.
  */
-export function rulesOfEvents({ store, reminders, timeZone = '', locale = 'ru-RU', logger, now = () => Date.now() } = {}) {
+export function rulesOfEvents({ store, reminders, timeZone = '', locale = 'ru-RU', logger, now = () => Date.now(), access } = {}) {
   // Инструмент получает обёртку `{ store, tool }`, бот — тоже; принимаем и сам стор.
   const reminderStore = reminders?.store ?? reminders
   const referenceNow = () => Number(now())
   const zone = () => timeZone
+  const guard = access ?? store?.access
+  const readOnlyText = 'Ошибка инструмента event: в этом проекте у вас роль viewer, изменения недоступны.'
 
   return {
     store,
     timeZone: zone(),
 
     /** `/calendar`: ближайшие две недели. */
-    calendar(chatId, { days = 14 } = {}) {
-      return { text: calendarText(store.upcoming(chatId, { days }), { timeZone }) }
+    calendar(chatId, { days = 14, userId } = {}) {
+      return { text: calendarText(store.upcoming(chatId, { days, userId }), { timeZone }) }
     },
 
     /** Правила инструмента `event`: добавить, показать, удалить. */
@@ -132,12 +134,14 @@ export function rulesOfEvents({ store, reminders, timeZone = '', locale = 'ru-RU
       const action = String(args.action ?? 'add').trim().toLowerCase()
 
       if (action === 'list') {
-        const events = store.upcoming(chatId, { days: LIST_DAYS })
+        const events = store.upcoming(chatId, { days: LIST_DAYS, userId })
         return { text: eventListText(events, { timeZone }) }
       }
 
       if (action === 'remove') {
-        const target = store.remove(chatId, args.id ?? args.title)
+        const known = userId === undefined ? undefined : store.list?.(undefined, userId)?.find((item) => item.id === String(args.id ?? '') || item.title === args.title)
+        if (known && guard && !guard.canWrite(userId, known)) return { text: readOnlyText }
+        const target = store.remove(chatId, args.id ?? args.title, userId)
         if (!target) return { text: 'Ошибка инструмента event: не нашёл такое событие. Покажите список — action list.' }
         await store.flush()
         return { text: eventRemovedText(target, { timeZone }) }
@@ -163,7 +167,17 @@ export function rulesOfEvents({ store, reminders, timeZone = '', locale = 'ru-RU
       }
       const repeat = args.repeat === 'yearly' ? 'yearly' : 'none'
       const remindBefore = args.remind_before === undefined ? DEFAULT_REMIND_BEFORE : Number(args.remind_before)
-      const event = store.add({ chatId, userId, title, at: instant.toISOString(), repeat, place: args.place, remindBefore: Number.isFinite(remindBefore) ? remindBefore : DEFAULT_REMIND_BEFORE })
+      if (guard && userId !== undefined) {
+        const scopeId = guard.scopeIdFor(userId, chatId)
+        if (!guard.canWriteScope(userId, scopeId)) return { text: readOnlyText }
+      }
+      let event
+      try {
+        event = store.add({ chatId, userId, title, at: instant.toISOString(), repeat, place: args.place, remindBefore: Number.isFinite(remindBefore) ? remindBefore : DEFAULT_REMIND_BEFORE })
+      } catch (error) {
+        if (/access denied/.test(String(error?.message))) return { text: readOnlyText }
+        throw error
+      }
       if (!event) return { text: 'Ошибка инструмента event: не удалось записать событие.' }
       await store.flush()
 
@@ -179,6 +193,7 @@ export function rulesOfEvents({ store, reminders, timeZone = '', locale = 'ru-RU
             text: `через ${minutes} мин: ${title}`,
             dueAt: remindAt,
             repeat: 'none',
+            ...(event.scope_id === undefined ? {} : { scopeId: event.scope_id }),
           })
           if (created) {
             await reminderStore.flush()

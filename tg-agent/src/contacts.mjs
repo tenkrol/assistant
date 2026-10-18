@@ -33,8 +33,8 @@ function migrateContacts(data) {
   }
 }
 
-export function createContactStore({ file, logger } = {}) {
-  /** @type {Map<string, {chatId: number, name?: string, username?: string, phone?: string}>} */
+export function createContactStore({ file, logger, access } = {}) {
+  /** @type {Map<string, {chatId: number, name?: string, username?: string, phone?: string, scope_id?: string}>} */
   const contacts = new Map()
   // Без каталога данных стор работает только в памяти: записывать некуда.
   const storage = file
@@ -51,6 +51,10 @@ export function createContactStore({ file, logger } = {}) {
   let writing = Promise.resolve()
 
   const keyOf = (chatId) => String(chatId)
+
+  /** Контакт доступен пользователю: общий проект видят все участники, личное — владелец. */
+  const visible = (entry, viewerId) =>
+    viewerId === undefined || !access ? true : access.canRead(viewerId, entry)
 
   /** Прочитать файл через общий слой; ошибки не роняют бота. */
   async function load() {
@@ -95,16 +99,20 @@ export function createContactStore({ file, logger } = {}) {
   }
 
   return {
+    file,
     load,
+    flush,
 
     /** Запомнить или уточнить человека. Пустые поля не затирают уже известные. */
-    async remember({ chatId, name, username, phone } = {}) {
+    async remember({ chatId, name, username, phone, scopeId } = {}) {
       if (chatId === undefined || chatId === null || chatId === '') return undefined
       await ensureLoaded()
       const key = keyOf(chatId)
       const current = contacts.get(key) ?? { chatId }
+      const scope = scopeId ?? current.scope_id ?? access?.scopeOf(chatId).id
       const next = {
         chatId: current.chatId,
+        ...(scope === undefined ? {} : { scope_id: scope }),
         name: name || current.name,
         username: username ? String(username).replace(/^@/, '') : current.username,
         phone: phone ? phoneKey(phone) : current.phone,
@@ -115,30 +123,30 @@ export function createContactStore({ file, logger } = {}) {
       return next
     },
 
-    byPhone(phone) {
+    byPhone(phone, viewerId) {
       const wanted = phoneKey(phone)
       if (!wanted) return undefined
-      return [...contacts.values()].find((entry) => entry.phone === wanted)
+      return [...contacts.values()].find((entry) => entry.phone === wanted && visible(entry, viewerId))
     },
 
-    byUsername(username) {
+    byUsername(username, viewerId) {
       const wanted = String(username ?? '').replace(/^@/, '').toLowerCase()
       if (!wanted) return undefined
-      return [...contacts.values()].find((entry) => String(entry.username ?? '').toLowerCase() === wanted)
+      return [...contacts.values()].find((entry) => String(entry.username ?? '').toLowerCase() === wanted && visible(entry, viewerId))
     },
 
     /** Поиск по началу имени: «Маша» найдёт «Марию», если так записано. */
-    search(query) {
+    search(query, viewerId) {
       const needle = String(query ?? '').trim().toLowerCase()
       if (!needle) return []
-      const all = [...contacts.values()]
+      const all = [...contacts.values()].filter((entry) => visible(entry, viewerId))
       const exact = all.filter((entry) => String(entry.name ?? '').toLowerCase() === needle)
       if (exact.length > 0) return exact
       return all.filter((entry) => String(entry.name ?? '').toLowerCase().includes(needle))
     },
 
-    list() {
-      return [...contacts.values()].map((entry) => ({
+    list(viewerId) {
+      return [...contacts.values()].filter((entry) => visible(entry, viewerId)).map((entry) => ({
         chatId: entry.chatId,
         name: entry.name ?? entry.username ?? String(entry.chatId),
       }))
@@ -146,6 +154,11 @@ export function createContactStore({ file, logger } = {}) {
 
     size() {
       return contacts.size
+    },
+
+    /** Записи для миграции `scope_id` (id контакта и владелец — один и тот же чат). */
+    scopeEntries() {
+      return [...contacts.entries()].map(([chatId, record]) => ({ record, ownerId: chatId }))
     },
   }
 }

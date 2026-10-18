@@ -136,15 +136,20 @@ export function createSendToTool({ send, contacts, ownerName = 'владельц
     },
   }
 
-  /** Разобрать адресата: ник, id, телефон или имя из справочника. */
-  function resolve(target) {
+  /**
+   * Разобрать адресата: ник, id, телефон или имя из справочника.
+   *
+   * `viewerId` — проверенный автор сообщения: справочник фильтруется через
+   * пространство доступа, чтобы чужой личный контакт не стал адресатом.
+   */
+  function resolve(target, viewerId) {
     const value = String(target ?? '').trim()
     if (value === '') return { error: 'не понял, кому писать: укажите @ник, имя, id или телефон.' }
 
     if (value.startsWith('@')) {
       // Для человека Telegram не принимает @ник: нужен числовой id из справочника.
       // Для каналов и групп ник работает и так.
-      const known = contacts?.byUsername?.(value)
+      const known = contacts?.byUsername?.(value, viewerId)
       if (known) return { chatId: known.chatId, label: known.name ?? value, how: 'ник из справочника' }
       return { chatId: value, label: value, how: 'ник' }
     }
@@ -152,7 +157,7 @@ export function createSendToTool({ send, contacts, ownerName = 'владельц
     const bare = digits(value)
     const looksLikePhone = /^[+()\d\s-]+$/.test(value) && bare.length >= 10 && !/^\d{5,12}$/.test(value)
     if (looksLikePhone) {
-      const found = contacts?.byPhone?.(phoneKey(value))
+      const found = contacts?.byPhone?.(phoneKey(value), viewerId)
       if (found) return { chatId: found.chatId, label: found.name ?? value, how: 'телефон' }
       return {
         error:
@@ -164,7 +169,7 @@ export function createSendToTool({ send, contacts, ownerName = 'владельц
 
     if (/^-?\d{4,}$/.test(value)) return { chatId: Number(value), label: value, how: 'id' }
 
-    const matches = contacts?.search?.(value) ?? []
+    const matches = contacts?.search?.(value, viewerId) ?? []
     if (matches.length === 1) return { chatId: matches[0].chatId, label: matches[0].name ?? value, how: 'имя' }
     if (matches.length > 1) {
       const names = matches.map((entry) => entry.name ?? entry.chatId).join(', ')
@@ -174,14 +179,14 @@ export function createSendToTool({ send, contacts, ownerName = 'владельц
     // Второй проход: точный поиск пуст, но имя могли назвать иначе — «Мария»
     // вместо «Маши», «Мари» вместо «Марии». Угадываем только единственного
     // кандидата; двое и больше — прежний отказ с уточнением.
-    const soft = (contacts?.list?.() ?? []).filter((entry) => softlyMatches(value, entry.name))
+    const soft = (contacts?.list?.(viewerId) ?? []).filter((entry) => softlyMatches(value, entry.name))
     if (soft.length === 1) return { chatId: soft[0].chatId, label: soft[0].name ?? value, how: 'имя' }
     if (soft.length > 1) {
       const names = soft.map((entry) => entry.name ?? entry.chatId).join(', ')
       return { error: `под «${value}» нашлось несколько человек (${names}). Уточните, кому именно.` }
     }
 
-    const known = (contacts?.list?.() ?? []).map((entry) => entry.name ?? entry.chatId)
+    const known = (contacts?.list?.(viewerId) ?? []).map((entry) => entry.name ?? entry.chatId)
     return {
       error: known.length
         ? `не нашёл «${value}» в справочнике. Известные мне люди: ${known.join(', ')}. Можно ещё указать @ник канала или группы.`
@@ -189,10 +194,11 @@ export function createSendToTool({ send, contacts, ownerName = 'владельц
     }
   }
 
-  async function executeDetailed({ target, text } = {}) {
+  async function executeDetailed({ target, text } = {}, context = {}) {
     const body = String(text ?? '').trim()
     if (body === '') return { text: 'Ошибка инструмента sendto: пустой текст сообщения.' }
-    const resolved = resolve(target)
+    // Идентичность — только из проверенного контекста, не из аргументов модели.
+    const resolved = resolve(target, context.userId)
     if (resolved.error) return { text: `Ошибка инструмента sendto: ${resolved.error}` }
 
     const signed = `От ${ownerName}: ${body.slice(0, MAX_TEXT)}`

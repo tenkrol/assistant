@@ -61,11 +61,13 @@ export class PollStore {
    * @param {string} options.file - JSON file used for persistence.
    * @param {object} [options.logger] - logger.
    * @param {number} [options.maxPolls] - polls kept after the oldest ones expire.
+   * @param {object} [options.access] - единая проверка доступа (`src/core/access.mjs`).
    */
-  constructor({ file, logger, maxPolls = 100 }) {
+  constructor({ file, logger, maxPolls = 100, access }) {
     this.file = file
     this.logger = logger
     this.maxPolls = maxPolls
+    this.access = access
     /** @type {Array<{id: string, chatId: number, userId?: number|string, question: string, options: Array<{text: string, votes: Array<number|string>}>, createdAt: string, closedAt?: string}>} */
     this.polls = []
     this.nextId = 1
@@ -96,14 +98,23 @@ export class PollStore {
     return this
   }
 
-  /** All polls, or only those of one chat. */
-  list(chatId) {
-    return chatId === undefined ? [...this.polls] : this.polls.filter((poll) => poll.chatId === chatId)
+  /** All polls, only those of one chat, or only those readable by one user. */
+  list(chatId, userId) {
+    return this.polls.filter((poll) => {
+      if (chatId !== undefined && poll.chatId !== chatId) {
+        if (!this.access || userId === undefined || !this.access.isSharedFor(userId, poll)) return false
+      }
+      if (this.access && userId !== undefined) return this.access.canRead(userId, poll)
+      return true
+    })
   }
 
   /** One poll by id (ids are strings, as in reminders). */
-  get(id) {
-    return this.polls.find((poll) => poll.id === String(id))
+  get(id, userId) {
+    const poll = this.polls.find((item) => item.id === String(id))
+    if (!poll) return undefined
+    if (this.access && userId !== undefined && !this.access.canRead(userId, poll)) return undefined
+    return poll
   }
 
   /**
@@ -116,16 +127,24 @@ export class PollStore {
    *   10 distinct non-blank options, or an option longer than 60 characters.
    *   Nothing is written in that case.
    */
-  add({ chatId, userId, question, options } = {}) {
+  add({ chatId, userId, question, options, scopeId } = {}) {
     const clean = String(question ?? '').trim()
     if (clean === '' || clean.length > MAX_QUESTION_LENGTH) return undefined
     const cleaned = cleanOptions(options)
     if (cleaned.length < MIN_OPTIONS || cleaned.length > MAX_OPTIONS) return undefined
     if (cleaned.some((text) => text.length > MAX_OPTION_LENGTH)) return undefined
+    // Viewer и архивный проект не создают опрос: отказ до записи.
+    const targetScope = userId === undefined || !this.access
+      ? scopeId
+      : this.access.scopeIdFor(userId, chatId, scopeId)
+    if (targetScope !== undefined && this.access && userId !== undefined && !this.access.canWriteScope(userId, targetScope)) {
+      throw new Error('access denied: в этом проекте только просмотр')
+    }
     const poll = {
       id: String(this.nextId++),
       chatId,
       ...(userId === undefined ? {} : { userId }),
+      ...(targetScope === undefined ? {} : { scope_id: targetScope }),
       question: clean,
       options: cleaned.map((text) => ({ text, votes: [] })),
       createdAt: new Date().toISOString(),
@@ -155,7 +174,13 @@ export class PollStore {
    */
   vote(id, userId, optionIndex) {
     // Один голос на человека и закрытие опроса — правила домена.
-    return castVote(this.get(id), userId, optionIndex)
+    const poll = this.get(id, userId)
+    if (!poll) return undefined
+    // Viewer читает результаты, но не меняет их; архивный проект тоже заморожен.
+    if (this.access && userId !== undefined && !this.access.canWrite(userId, poll)) {
+      return { poll, changed: false, previousIndex: this.voteIndexOf(poll, userId), denied: true }
+    }
+    return castVote(poll, userId, optionIndex)
   }
 
   /** Zero-based index of the option this user picked, or -1. */
@@ -170,9 +195,10 @@ export class PollStore {
    * @returns {object | undefined} the closed poll, `undefined` for an unknown id.
    *   Closing an already closed poll keeps the original `closedAt`.
    */
-  close(id) {
-    const poll = this.get(id)
+  close(id, userId) {
+    const poll = this.get(id, userId)
     if (!poll) return undefined
+    if (this.access && userId !== undefined && !this.access.canWrite(userId, poll)) return undefined
     if (poll.closedAt === undefined) poll.closedAt = new Date().toISOString()
     this.enforceLimit()
     return poll

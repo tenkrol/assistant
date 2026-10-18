@@ -152,8 +152,14 @@ export function reminderDeliveryText(reminder, { lateNotice = false, owner } = {
  * @param {object} options - `store`, `timeZone`, `locale`, `now`, `quiet`, `logger`.
  * @returns {object} правила: создание, список, отмена, откладывание, доставка.
  */
-export function rulesOfReminders({ store, timeZone = '', locale = 'ru-RU', now = () => new Date(), quiet, logger } = {}) {
+export function rulesOfReminders({ store, timeZone = '', locale = 'ru-RU', now = () => new Date(), quiet, logger, access } = {}) {
   const referenceNow = () => asDate(now())
+  // Доступ приходит извне, но если хранилище уже собрано с ним — берём оттуда.
+  const guard = access ?? store?.access
+  const readOnlyText = 'Только просмотр: в этом проекте у вас роль viewer, изменения недоступны. Попросите владельца выдать роль editor.'
+
+  /** Можно ли менять запись; без access ограничение прежнее — по userId/chatId. */
+  const writable = (userId, record) => !guard || userId === undefined || guard.canWrite(userId, record)
 
   return {
     store,
@@ -200,10 +206,15 @@ export function rulesOfReminders({ store, timeZone = '', locale = 'ru-RU', now =
         return { text: `Ошибка инструмента remind: время ${past} уже прошло. Уточни у пользователя дату и время.` }
       }
 
+      if (guard && userId !== undefined) {
+        const scopeId = guard.scopeIdFor(userId, chatId)
+        if (!guard.canWriteScope(userId, scopeId)) return { text: readOnlyText }
+      }
       let reminder
       try {
         reminder = store.add({ chatId, userId, text, dueAt: due, repeat })
       } catch (error) {
+        if (/access denied/.test(String(error?.message))) return { text: readOnlyText }
         return { text: `Ошибка инструмента remind: ${error.message}` }
       }
       // Подтверждённое напоминание обязано пережить перезапуск.
@@ -237,6 +248,8 @@ export function rulesOfReminders({ store, timeZone = '', locale = 'ru-RU', now =
       if (!/^\d+$/.test(value)) {
         return { text: 'Укажите номер: `/cancel 3`. Список — `/reminders`.' }
       }
+      const known = userId === undefined ? undefined : store?.list?.(undefined, userId)?.find((item) => item.id === value)
+      if (known && !writable(userId, known)) return { text: readOnlyText }
       const removed = store?.cancel(chatId, value, userId)
       await store?.flush()
       return {
@@ -247,6 +260,10 @@ export function rulesOfReminders({ store, timeZone = '', locale = 'ru-RU', now =
 
     /** Отмена кнопкой под сообщением: короткое всплывающее и новый текст сообщения. */
     async cancelByButton({ chatId, userId, id } = {}) {
+      const known = userId === undefined ? undefined : store?.list?.(undefined, userId)?.find((item) => item.id === String(id))
+      if (known && !writable(userId, known)) {
+        return { toast: 'Только просмотр', outcome: readOnlyText, denied: true }
+      }
       const removed = store?.cancel(chatId, id, userId)
       await store?.flush()
       return {
@@ -268,6 +285,9 @@ export function rulesOfReminders({ store, timeZone = '', locale = 'ru-RU', now =
           outcome: '✖️ Это напоминание уже сработало или отменено',
         }
       }
+      if (!writable(userId, existing)) {
+        return { toast: 'Только просмотр', outcome: readOnlyText, denied: true }
+      }
       if (!Number.isFinite(minutes) || minutes <= 0 || minutes > 1440) {
         return { toast: 'Неверная задержка' }
       }
@@ -277,6 +297,7 @@ export function rulesOfReminders({ store, timeZone = '', locale = 'ru-RU', now =
         text: existing.text,
         dueAt: new Date(referenceNow().getTime() + minutes * 60_000),
         repeat: existing.repeat ?? 'none',
+        ...(existing.scope_id === undefined ? {} : { scopeId: existing.scope_id }),
       })
       store.cancel(chatId, existing.id, userId)
       await store.flush()
@@ -297,6 +318,9 @@ export function rulesOfReminders({ store, timeZone = '', locale = 'ru-RU', now =
         text: reminder.text,
         dueAt: until,
         repeat: reminder.repeat ?? 'none',
+        ...(reminder.scope_id === undefined ? {} : { scopeId: reminder.scope_id }),
+        // Перенос из-за тихого часа — системное действие, а не правка человеком.
+        system: true,
       })
       store.cancel(reminder.chatId, reminder.id, reminder.userId)
       await store.flush()

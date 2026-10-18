@@ -23,6 +23,8 @@ import { createReminderTool } from './reminder-tool.mjs'
 import { ProfileStore } from './profiles.mjs'
 import { EventStore } from './events.mjs'
 import { PollStore, createPollTool } from './polls.mjs'
+import { ScopeStore } from './scopes.mjs'
+import { createAccess, migrateScopes } from './core/access.mjs'
 import { createYoutubeTool } from './youtube-tool.mjs'
 import { createServerTool } from './server-tool.mjs'
 import { createEventTool } from './event-tool.mjs'
@@ -260,11 +262,18 @@ export async function createInstance({ config, logger, instance, shared, platfor
     },
   }
   const { model, webTools, holidays, jokes, files } = shared
+  // Пространства читаются первыми: без них миграция не знает личных областей.
+  const scopes = {
+    store: new ScopeStore({ file: stateFile(botConfig.dataDir, 'scopes', instance.namespace), logger }),
+  }
+  await scopes.store.load()
+  const access = createAccess({ store: scopes.store, logger })
   const history = new HistoryStore({
     file: stateFile(botConfig.dataDir, 'history', instance.namespace),
     limit: config.history.limit,
     maxChats: config.history.maxChats,
     logger,
+    access,
   })
   await history.load()
 
@@ -300,7 +309,7 @@ export async function createInstance({ config, logger, instance, shared, platfor
   // reminders can be delivered right away, and the scheduler is built once the
   // bot exists because delivery goes through its `send`.
   const reminders = config.reminders.enabled
-    ? { store: new ReminderStore({ file: stateFile(botConfig.dataDir, 'reminders', instance.namespace), logger }) }
+    ? { store: new ReminderStore({ file: stateFile(botConfig.dataDir, 'reminders', instance.namespace), logger, access }) }
     : undefined
   if (reminders) {
     await reminders.store.load()
@@ -310,7 +319,7 @@ export async function createInstance({ config, logger, instance, shared, platfor
   // Profiles: durable facts about each user and their default city. Loaded before
   // the bot starts, because the first answer already uses them.
   const profiles = config.profiles.enabled
-    ? { store: new ProfileStore({ file: stateFile(botConfig.dataDir, 'users', instance.namespace), logger, maxUsers: config.profiles.maxUsers }) }
+    ? { store: new ProfileStore({ file: stateFile(botConfig.dataDir, 'users', instance.namespace), logger, maxUsers: config.profiles.maxUsers, access }) }
     : undefined
   if (profiles) {
     await profiles.store.load()
@@ -363,7 +372,7 @@ export async function createInstance({ config, logger, instance, shared, platfor
   // Calendar: one store per bot instance, next to the other state files.
   const events = config.events?.enabled === false
     ? undefined
-    : { store: new EventStore({ file: stateFile(botConfig.dataDir, 'events', instance.namespace), logger, timeZone: config.time?.timeZone }) }
+    : { store: new EventStore({ file: stateFile(botConfig.dataDir, 'events', instance.namespace), logger, timeZone: config.time?.timeZone, access }) }
   if (events) {
     await events.store.load()
     events.tool = createEventTool({ store: events.store, reminders, timeZone: config.time?.timeZone, logger })
@@ -381,14 +390,77 @@ export async function createInstance({ config, logger, instance, shared, platfor
   })
   const polls = config.polls?.enabled === false
     ? undefined
-    : { store: new PollStore({ file: stateFile(botConfig.dataDir, 'polls', instance.namespace), logger }) }
+    : { store: new PollStore({ file: stateFile(botConfig.dataDir, 'polls', instance.namespace), logger, access }) }
   if (polls) {
     await polls.store.load()
     polls.tool = createPollTool({ store: polls.store })
   }
 
-  const bot = new Assistant({ config: botConfig, platform, model, history, webTools, agentBridge, agentLink, reminders, profiles, usage, media, tts, files, events, polls, youtube, server, logger })
+  const bot = new Assistant({ config: botConfig, platform, model, history, webTools, agentBridge, agentLink, reminders, profiles, usage, media, tts, files, events, polls, youtube, server, access, scopes, logger })
   bot.agentEvents = agentEvents
+
+  // Миграция записей без `scope_id` в личные пространства. Копия файлов
+  // создаётся до первой записи; повторный запуск ничего не меняет.
+  try {
+    await bot.contacts?.load?.()
+    const targets = [
+      {
+        name: 'history',
+        file: history.file,
+        entries: () => [...history.chats.entries()].map(([chatId, record]) => ({ record, ownerId: chatId })),
+        flush: () => history.flush(),
+      },
+      ...(reminders ? [{
+        name: 'reminders',
+        file: reminders.store.file,
+        entries: () => reminders.store.reminders.map((record) => ({ record, ownerId: record.userId ?? record.chatId })),
+        flush: () => reminders.store.flush(),
+      }] : []),
+      ...(profiles ? [{
+        name: 'profiles',
+        file: profiles.store.file,
+        entries: () => [...profiles.store.users.entries()].map(([userId, record]) => ({ record, ownerId: userId })),
+        flush: () => profiles.store.flush(),
+      }] : []),
+      ...(events ? [{
+        name: 'events',
+        file: events.store.file,
+        entries: () => events.store.events.map((record) => ({ record, ownerId: record.userId ?? record.chatId })),
+        flush: () => events.store.flush(),
+      }] : []),
+      ...(polls ? [{
+        name: 'polls',
+        file: polls.store.file,
+        entries: () => polls.store.polls.map((record) => ({ record, ownerId: record.userId ?? record.chatId })),
+        flush: () => polls.store.flush(),
+      }] : []),
+      ...(bot.contacts ? [{
+        name: 'contacts',
+        file: bot.contacts.file,
+        // Старый справочник принадлежал боту, а не человеку, с которым
+        // переписывались: его законный владелец — первый допущенный пользователь.
+        entries: () => {
+          const owner = [...(botConfig.access.allowedUserIds ?? [])][0]
+          return bot.contacts.scopeEntries().map((entry) => ({ ...entry, ownerId: owner ?? entry.ownerId }))
+        },
+        flush: () => bot.contacts.flush(),
+      }] : []),
+    ]
+    const result = await migrateScopes({
+      access,
+      targets,
+      backupDir: path.join(botConfig.dataDir, 'backups'),
+      logger,
+    })
+    if (result.migrated > 0) {
+      logger.info('scopes migrated for existing records', { records: result.migrated, backupDir: result.backupDir })
+    }
+  } catch (error) {
+    // Копия не удалась или файл занят: не начинаем работу с наполовину
+    // мигрированными данными.
+    logger.error('scope migration failed', { error: error?.message ?? error })
+    throw error
+  }
 
   // The digest needs the bot for delivery and the profile for the city, so it is
   // built after the bot and attached to it.
@@ -529,5 +601,5 @@ export async function createInstance({ config, logger, instance, shared, platfor
     }
   }
 
-  return { bot, instance, platform, reminders }
+  return { bot, instance, platform, reminders, scopes }
 }

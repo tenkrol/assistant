@@ -102,7 +102,13 @@ export function createConversation(bot) {
     const sharedContacts = (message.attachments ?? message.files ?? []).filter((item) => item?.kind === 'contact')
     for (const item of sharedContacts) {
       if (item.userId) {
-        bot.contacts?.remember?.({ chatId: item.userId, name: item.name, username: item.username, phone: item.phone })?.catch?.(() => {})
+        bot.contacts?.remember?.({
+          chatId: item.userId,
+          name: item.name,
+          username: item.username,
+          phone: item.phone,
+          ...(bot.access ? { scopeId: bot.access.scopeIdFor(from.id, message.chat.id) } : {}),
+        })?.catch?.(() => {})
       }
       const who = item.name || (item.username ? '@' + item.username : 'контакт')
       bot.logger?.info?.('contact remembered', { hasPhone: Boolean(item.phone), hasUser: Boolean(item.userId) })
@@ -275,7 +281,9 @@ export function createConversation(bot) {
       }
       // В группе говорящий подписан в истории, иначе модель не отличит, кто что
       // сказал, и «меня зовут X» припишет не тому человеку.
-      const history = bot.history.messages(chatKey).map((entry) => (
+      // В личном чате история принадлежит человеку и проверяется access; история
+      // группы — это история чата, её читают все допущенные участники.
+      const history = bot.history.messages(chatKey, isGroup ? undefined : userId).map((entry) => (
         isGroup && entry.role === 'user' && entry.author
           ? { role: 'user', content: `${entry.author}: ${entry.content}` }
           : entry
@@ -444,10 +452,19 @@ export function createConversation(bot) {
       // Вложение становится короткой заглушкой: файл истории не должен расти
       // от base64-картинок или целых документов.
       const historyLine = prepared.summary || prompt
-      await bot.history.append(chatKey, { role: 'user', content: historyLine, ...(authorName ? { author: authorName } : {}) })
+      await bot.history.append(
+        chatKey,
+        { role: 'user', content: historyLine, ...(authorName ? { author: authorName } : {}) },
+        { userId: isGroup ? undefined : userId },
+      )
       // Кого бот видел — для sendto: Telegram не даёт писать человеку по @нику,
       // нужен числовой id, а он есть только у тех, кто уже писал боту.
-      bot.contacts?.remember?.({ chatId: message?.chat?.id, name: message?.from?.name, username: message?.from?.username })?.catch?.(() => {})
+      bot.contacts?.remember?.({
+        chatId: message?.chat?.id,
+        name: message?.from?.name,
+        username: message?.from?.username,
+        ...(bot.access && userId !== undefined ? { scopeId: bot.access.scopeIdFor(userId, chatId) } : {}),
+      })?.catch?.(() => {})
       if (text === '') {
         // Пустое завершение — валидный ответ API. Человеку всё равно нужен
         // ответ, а пустой ход ассистента не должен попадать в историю.

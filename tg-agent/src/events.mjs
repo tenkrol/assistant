@@ -57,12 +57,14 @@ function migrateEvents(data) {
  */
 export class EventStore {
   /**
-   * @param {object} options - `{ file, logger, timeZone }`.
+   * @param {object} options - `{ file, logger, timeZone, access }`.
    */
-  constructor({ file, logger, timeZone = '' } = {}) {
+  constructor({ file, logger, timeZone = '', access } = {}) {
     this.file = file
     this.logger = logger
     this.timeZone = timeZone
+    // Единая проверка доступа; без неё стор работает как раньше.
+    this.access = access
     this.events = []
     this.nextId = 1
     // Очередь записей: перекрывающиеся flush не должны перетирать снимки.
@@ -114,15 +116,23 @@ export class EventStore {
    * @param {object} request - `{ chatId, userId, title, at, repeat, place, remindBefore }`.
    * @returns {object|undefined} the stored event.
    */
-  add({ chatId, userId, title, at, repeat = 'none', place, remindBefore }) {
+  add({ chatId, userId, title, at, repeat = 'none', place, remindBefore, scopeId }) {
     const cleanTitle = String(title ?? '').trim().slice(0, 200)
     const when = new Date(at)
     if (chatId === undefined || cleanTitle === '' || Number.isNaN(when.getTime())) return undefined
     if (!EVENT_REPEATS.includes(repeat)) return undefined
+    // Область выбирает access; viewer и архив получают отказ до записи.
+    const targetScope = userId === undefined || !this.access
+      ? scopeId
+      : this.access.scopeIdFor(userId, chatId, scopeId)
+    if (targetScope !== undefined && this.access && userId !== undefined && !this.access.canWriteScope(userId, targetScope)) {
+      throw new Error('access denied: в этом проекте только просмотр')
+    }
     const event = {
       id: String(this.nextId++),
       chatId: Number(chatId),
       userId: userId === undefined ? undefined : Number(userId),
+      ...(targetScope === undefined ? {} : { scope_id: targetScope }),
       title: cleanTitle,
       at: when.toISOString(),
       repeat,
@@ -135,11 +145,22 @@ export class EventStore {
     return event
   }
 
-  /** Events of one chat, with their next occurrence, sorted by time. */
-  list(chatId) {
+  /**
+   * Events of one chat, with their next occurrence, sorted by time.
+   *
+   * Если передан `userId`, остаются только доступные ему записи. События общего
+   * проекта видны участнику из любого чата.
+   */
+  list(chatId, userId) {
     const now = new Date()
     return this.events
-      .filter((event) => chatId === undefined || event.chatId === Number(chatId))
+      .filter((event) => {
+        if (chatId !== undefined && event.chatId !== Number(chatId)) {
+          if (!this.access || userId === undefined || !this.access.isSharedFor(userId, event)) return false
+        }
+        if (this.access && userId !== undefined) return this.access.canRead(userId, event)
+        return true
+      })
       .map((event) => ({ ...event, nextAt: eventOccurrence(event, now) }))
       .sort((left, right) => Date.parse(left.nextAt) - Date.parse(right.nextAt))
   }
@@ -148,29 +169,34 @@ export class EventStore {
    * Events that fall inside a window.
    *
    * @param {number|string} chatId - chat to look at.
-   * @param {object} options - `{ from, days }`.
+   * @param {object} options - `{ from, days, userId }`.
    * @returns {Array<object>} events with `dayKey` and `time`.
    */
-  upcoming(chatId, { from = new Date(), days = 1 } = {}) {
+  upcoming(chatId, { from = new Date(), days = 1, userId } = {}) {
     const zone = this.timeZone
     const keys = new Set()
     for (let offset = 0; offset < days; offset++) {
       keys.add(dayKeyInZone(new Date(from.getTime() + offset * 86_400_000), zone))
     }
-    return this.list(chatId)
+    return this.list(chatId, userId)
       .filter((event) => keys.has(dayKeyInZone(new Date(event.nextAt), zone)))
       .map((event) => ({ ...event, dayKey: dayKeyInZone(new Date(event.nextAt), zone), time: timeInZone(new Date(event.nextAt), zone) }))
   }
 
   /** Remove an event by id, or by its number in the chat's list. */
-  remove(chatId, idOrNumber) {
+  remove(chatId, idOrNumber, userId) {
     const wanted = String(idOrNumber ?? '').trim()
-    const own = this.events.filter((event) => event.chatId === Number(chatId))
+    const own = this.list(chatId, userId)
     const byNumber = own[Number(wanted) - 1]
-    const target = this.events.find((event) => event.id === wanted && event.chatId === Number(chatId)) ?? byNumber
-    if (!target) return undefined
-    this.events = this.events.filter((event) => event !== target)
-    return target
+    const found = this.events.find((event) => event.id === wanted) ?? byNumber
+    if (!found) return undefined
+    if (this.access && userId !== undefined) {
+      if (!this.access.canWrite(userId, found)) return undefined
+    } else if (found.chatId !== Number(chatId)) {
+      return undefined
+    }
+    this.events = this.events.filter((event) => event !== found)
+    return found
   }
 
   /** Drop the oldest events once the cap is reached. */

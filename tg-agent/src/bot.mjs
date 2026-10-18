@@ -64,13 +64,18 @@ export class Assistant {
    * @param {object} [options.profiles] - `{ store, tool }` профилей.
    * @param {object} [options.usage] - учёт токенов.
    * @param {object} [options.digest] - утренний дайджест.
+   * @param {object} [options.access] - единая проверка доступа к пространствам.
+   * @param {object} [options.scopes] - `{ store }` пространств.
    * @param {object} options.logger - логгер.
    */
-  constructor({ config, platform, model, history, webTools, agentBridge, agentLink, reminders, profiles, usage, digest, media, tts, files, events, polls, youtube, server, logger }) {
+  constructor({ config, platform, model, history, webTools, agentBridge, agentLink, reminders, profiles, usage, digest, media, tts, files, events, polls, youtube, server, access, scopes, logger }) {
     this.config = config
+    // Пространства и доступ: единственная точка проверки для всех хранилищ.
+    this.access = access
+    this.scopes = scopes
     // Кого бот знает: имена и @ники приходят с сообщениями, телефоны — только
     // когда человек сам делится контактом. Нужно для sendto.
-    this.contacts = createContactStore({ file: this.config.dataDir ? `${this.config.dataDir}/contacts.json` : undefined, logger: this.logger })
+    this.contacts = createContactStore({ file: this.config.dataDir ? `${this.config.dataDir}/contacts.json` : undefined, logger, access })
     // Ядро общается только с одним адаптером; см. src/platforms/port.mjs.
     this.platform = platform
     this.model = model
@@ -99,9 +104,9 @@ export class Assistant {
     // Домены не знают ни про платформу, ни про сеть — им передаются данные и store.
     this.domain = {
       profiles: rulesOfProfiles({ store: profiles?.store, logger }),
-      reminders: rulesOfReminders({ store: reminders?.store, timeZone: config.time?.timeZone ?? '', quiet: config.quiet, logger }),
-      events: rulesOfEvents({ store: events?.store, reminders: reminders?.store, timeZone: config.time?.timeZone ?? '', logger }),
-      polls: rulesOfPolls({ store: polls?.store }),
+      reminders: rulesOfReminders({ store: reminders?.store, timeZone: config.time?.timeZone ?? '', quiet: config.quiet, logger, access }),
+      events: rulesOfEvents({ store: events?.store, reminders: reminders?.store, timeZone: config.time?.timeZone ?? '', logger, access }),
+      polls: rulesOfPolls({ store: polls?.store, access }),
     }
     // Единый реестр инструментов: ядро получает готовый список схем и один
     // диспетчер, а не собирает их вручную. Доставка текста в чат — зависимость
@@ -515,6 +520,12 @@ export class Assistant {
    * @param {object} [info] - `lateNotice` помечает напоминания, просроченные к старту.
    */
   async deliverReminder(reminder, { lateNotice = false } = {}) {
+    // Отозванный доступ действует и на ожидающие доставки уведомления: если
+    // автора больше нет в пространстве, напоминание молча снимается.
+    if (this.access && reminder.userId !== undefined && !this.access.canRead(reminder.userId, reminder)) {
+      this.logger.warn('reminder skipped: access revoked', { id: reminder.id, userId: reminder.userId })
+      return
+    }
     // Сначала тихие часы: напоминание, которое сработало бы в 03:00,
     // переносится на конец окна, а не будит никого.
     const quietEnd = this.quietHoursEnd(new Date())

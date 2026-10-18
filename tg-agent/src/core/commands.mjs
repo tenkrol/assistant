@@ -10,6 +10,7 @@ import { MOODS, MOOD_NAMES, PERSONAS, PERSONA_NAMES, moodOf } from '../personas.
 import { capabilityHelp } from './capabilities.mjs'
 import { buildExportDocument, buildExportPdf, exportToMarkdown } from './export.mjs'
 import { MODES } from './modes.mjs'
+import { createProjectCommands } from './projects.mjs'
 
 // Режимы живут в общем модуле; реэкспорт оставлен для прежних импортов.
 export { MODES }
@@ -43,6 +44,9 @@ const HELP = [
   "/character — характер бота",
   "/mood — настроение дня",
   "/voice — озвучивать ответы в этом чате",
+  "",
+  "Проекты",
+  "/project — общий проект: создать, пригласить, выбрать, архив",
   "",
   "Напоминания и календарь",
   "/reminders — список напоминаний",
@@ -82,6 +86,9 @@ const HELP = [
  * @returns {{runCommand: (command: {name: string, args: string}, message: object) => Promise<void>}}
  */
 export function createCommandRouter(bot) {
+  // Общие проекты: команда живёт отдельно, а проверки — в `src/core/access.mjs`.
+  const projects = createProjectCommands(bot)
+
   /**
    * Исполнить одну команду.
    *
@@ -218,8 +225,12 @@ export function createCommandRouter(bot) {
           await bot.send(chatId, 'Календарь выключен в настройках.')
           return
         }
-        const result = bot.domain.events.calendar(chatId, { days: 14 })
+        const result = bot.domain.events.calendar(chatId, { days: 14, userId: message.from.id })
         await bot.send(chatId, result.text)
+        return
+      }
+      case 'project': {
+        await projects.run({ args }, message)
         return
       }
       case 'start':

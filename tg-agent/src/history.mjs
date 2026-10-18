@@ -29,14 +29,16 @@ export class HistoryStore {
    * @param {object} [options.logger] - logger with warn/error methods.
    * @param {number} [options.saveDelayMs] - debounce before writing to disk.
    * @param {number} [options.maxChats] - chats kept in memory, least recently used evicted first.
+   * @param {object} [options.access] - единая проверка доступа (`src/core/access.mjs`).
    */
-  constructor({ file, limit, logger, saveDelayMs = 250, maxChats = 1000 }) {
+  constructor({ file, limit, logger, saveDelayMs = 250, maxChats = 1000, access }) {
     this.file = file
     this.limit = limit
     this.logger = logger
     this.saveDelayMs = saveDelayMs
     this.maxChats = Math.max(1, maxChats)
-    /** @type {Map<string, { messages: Array<{role: string, content: string}>, model?: string }>} */
+    this.access = access
+    /** @type {Map<string, { messages: Array<{role: string, content: string}>, model?: string, scope_id?: string }>} */
     this.chats = new Map()
     /** Chat id -> last access, used to evict the least recently used record. */
     this.lastUsed = new Map()
@@ -61,7 +63,11 @@ export class HistoryStore {
         const messages = Array.isArray(record?.messages)
           ? record.messages.filter((m) => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string')
           : []
-        this.chats.set(chatId, { messages, model: typeof record?.model === 'string' ? record.model : undefined })
+        this.chats.set(chatId, {
+          messages,
+          model: typeof record?.model === 'string' ? record.model : undefined,
+          ...(typeof record?.scope_id === 'string' ? { scope_id: record.scope_id } : {}),
+        })
       }
       this.logger?.info('history loaded', { chats: this.chats.size })
     } catch (error) {
@@ -71,11 +77,20 @@ export class HistoryStore {
     return this
   }
 
-  /** Messages for one chat, oldest first. */
-  messages(chatId) {
+  /**
+   * Messages for one chat, oldest first.
+   *
+   * Личная история проверяется через access: второй человек не читает чужой
+   * диалог, даже зная id чата. Без `userId` поведение прежнее — это системные
+   * читатели (выгрузка владельца и планировщик).
+   */
+  messages(chatId, userId) {
     const key = String(chatId)
     if (this.chats.has(key)) this.touch(key)
-    return [...(this.chats.get(key)?.messages ?? [])]
+    const record = this.chats.get(key)
+    if (!record) return []
+    if (this.access && userId !== undefined && !this.access.canRead(userId, record)) return []
+    return [...record.messages]
   }
 
   /** Model override set with `/model`; undefined means "use the configured one". */
@@ -117,8 +132,8 @@ export class HistoryStore {
    * messages, and the window starts with a user message (an assistant-first
    * window confuses providers and wastes context).
    */
-  async append(chatId, message) {
-    const record = this.record(chatId)
+  async append(chatId, message, { userId } = {}) {
+    const record = this.record(chatId, { userId })
     record.messages.push(message)
     while (record.messages.length > this.limit || (record.messages.length > 0 && record.messages[0].role !== 'user')) {
       record.messages.shift()
@@ -138,13 +153,19 @@ export class HistoryStore {
     return this.chats.size
   }
 
-  record(chatId) {
+  record(chatId, { userId } = {}) {
     const key = String(chatId)
     let record = this.chats.get(key)
     if (!record) {
-      record = { messages: [] }
+      // Личный чат получает личное пространство владельца. Общая история
+      // группы остаётся историей чата и живёт без scope_id.
+      const scopeId = this.access && userId !== undefined ? this.access.scopeIdFor(userId, chatId) : undefined
+      record = { messages: [], ...(scopeId === undefined ? {} : { scope_id: scopeId }) }
       this.chats.set(key, record)
       this.evictIfNeeded()
+    } else if (this.access && userId !== undefined && record.scope_id === undefined) {
+      // Старая запись до миграции: личный чат получает пространство владельца.
+      record.scope_id = this.access.scopeIdFor(userId, chatId)
     }
     this.touch(key)
     return record
@@ -195,7 +216,12 @@ export class HistoryStore {
     const chats = {}
     for (const [chatId, record] of this.chats) {
       if (record.messages.length === 0 && record.model === undefined) continue
-      chats[chatId] = record
+      chats[chatId] = {
+        messages: record.messages,
+        ...(record.model === undefined ? {} : { model: record.model }),
+        ...(record.scope_id === undefined ? {} : { scope_id: record.scope_id }),
+        ...(record.voice === true ? { voice: true } : {}),
+      }
     }
     // Синхронизируем доменное состояние с состоянием слоя перед записью.
     this.storage.state.chats = chats
