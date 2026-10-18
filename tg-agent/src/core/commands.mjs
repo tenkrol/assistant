@@ -141,6 +141,48 @@ export function createCommandRouter(bot) {
         await bot.send(chatId, await bot.searchHistory(String(chatId), query))
         return
       }
+      case 'agents': {
+        if (!bot.agentBridge?.enabled || typeof bot.agentBridge.agents !== 'function') {
+          await bot.send(chatId, 'Агенты недоступны: мост к агенту выключен или старый контракт.')
+          return
+        }
+        try {
+          const agents = await bot.agentBridge.agents()
+          if (agents.length === 0) {
+            await bot.send(chatId, 'Агенты не зарегистрированы.')
+            return
+          }
+          const lines = agents.map((agent) => [
+            `• ${agent.id}${agent.modelProfile ? ` · ${agent.modelProfile}` : ''} — ${agent.status ?? 'ready'}`,
+            agent.capabilities?.length ? `  ${agent.capabilities.join(', ')}` : '',
+          ].filter(Boolean).join('\n'))
+          await bot.send(chatId, ['**Агенты**', ...lines].join('\n'))
+        } catch (error) {
+          await bot.send(chatId, `Не удалось получить агентов: ${String(error?.message ?? error).slice(0, 160)}`)
+        }
+        return
+      }
+      case 'activity': {
+        if (!bot.agentBridge?.enabled || typeof bot.agentBridge.activity !== 'function') {
+          await bot.send(chatId, 'Активность недоступна: мост к агенту выключен или старый контракт.')
+          return
+        }
+        const parts = String(args ?? '').trim().split(/\s+/).filter(Boolean)
+        const agent = parts.find((part) => !/^\d+$/.test(part))
+        const limitPart = parts.find((part) => /^\d+$/.test(part))
+        try {
+          const events = await bot.agentBridge.activity({ limit: limitPart ? Number(limitPart) : 15, agent })
+          if (events.length === 0) {
+            await bot.send(chatId, 'Событий активности пока нет.')
+            return
+          }
+          const lines = events.map((event) => `• ${event.taskId ?? '—'} · ${event.agent ?? '—'} · ${event.type ?? '—'}${event.status ? ` · ${event.status}` : ''}${event.tokens ? ` · ${event.tokens} ток.` : ''}`)
+          await bot.send(chatId, ['**Активность**', ...lines].join('\n'))
+        } catch (error) {
+          await bot.send(chatId, `Не удалось получить активность: ${String(error?.message ?? error).slice(0, 160)}`)
+        }
+        return
+      }
       case 'server': {
         if (!bot.server) {
           await bot.send(chatId, 'Состояние сервера недоступно в этой сборке.')

@@ -126,6 +126,22 @@ export function createAgentBridgeV2({
     return call(`/v1/tasks/${encodeURIComponent(taskId)}`, { method: 'GET' })
   }
 
+  /** Реестр агентов (PLB-015). */
+  async function agents() {
+    const payload = await call('/v1/agents', { method: 'GET' })
+    return Array.isArray(payload?.agents) ? payload.agents : []
+  }
+
+  /** Последние события активности (PLB-015). */
+  async function activity({ limit = 20, agent, taskId } = {}) {
+    const params = new URLSearchParams()
+    if (limit) params.set('limit', String(limit))
+    if (agent) params.set('agent', String(agent))
+    if (taskId) params.set('taskId', String(taskId))
+    const payload = await call(`/v1/activity?${params.toString()}`, { method: 'GET' })
+    return Array.isArray(payload?.events) ? payload.events : []
+  }
+
   const definition = {
     type: 'function',
     function: {
@@ -159,6 +175,8 @@ export function createAgentBridgeV2({
     replyTask,
     cancelTask,
     getTask,
+    agents,
+    activity,
     uploadFile,
     downloadFile,
 
