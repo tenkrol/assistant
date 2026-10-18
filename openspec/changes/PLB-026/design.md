@@ -22,6 +22,8 @@
   - новые `GET /api/chat/history`, `GET/PATCH /api/settings`, `GET /api/stats`;
   - `GET/POST /api/accounts` и `PATCH /api/account` — список, добавление Маши и смена
     своего логина/пароля; добавлять пользователей может только владелец;
+  - `POST /api/chat/message` — текст уходит в `bot.handleWebMessage`; ответы и файлы
+    возвращаются JSON-ом, а не отправляются в Telegram.
   - статика `/mobile/` с CSP, `nosniff`, `X-Frame-Options: DENY`; `/mobile` → `/mobile/`.
 - `UsageStore.recent(days)` — последние дни для графика.
 - `src/config.mjs` + `.env.example`: `MOBILE_PASSWORD_HASH`, `MOBILE_SESSION_SECRET`,
@@ -38,6 +40,11 @@
 
 Пароль нигде не сохраняется; cookie HttpOnly. Если страница открыта внутри Telegram и есть
 `initData`, вход по паролю не нужен — используется подпись Telegram.
+
+**Веб-чат.** `Assistant.handleWebMessage` запускает тот же `conversation.handleMessage`,
+что и Telegram, но через `AsyncLocalStorage` подменяет доставку: `send`, стример и файлы
+складываются в ответ сайту. Сообщение и ответ попадают в общую историю, поэтому диалог
+продолжается и в Telegram. `sendto` в другой чат по-прежнему идёт через платформу.
 
 ## Влияние
 - Пароль и секрет живут только в `.env` на сервере; без них вход по паролю выключен,

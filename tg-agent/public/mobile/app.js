@@ -555,6 +555,7 @@ function renderChat() {
   const day = h('div', 'day-chip', 'Диалог с ассистентом')
   box.append(day)
   messages.forEach((message) => box.append(chatMessageNode(message.role, message.text, message.author)))
+  chatScrollToBottom()
 }
 
 function chatMessageNode(role, text, author) {
