@@ -48,6 +48,7 @@ async function makeProactiveStore(file, overrides = {}) {
     quiet: null,
     reviewAt: '23:59',
     dayLimit: 3,
+    owner: { userId: 7 },
     ...overrides,
   })
   await store.load()

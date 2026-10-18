@@ -228,6 +228,7 @@ export function createConversation(bot) {
             key: keyParts.join(':'),
             userId: from.id,
             chatId,
+            channel: bot.platform?.name,
           })
           toast = result.toast
           outcome = result.outcome

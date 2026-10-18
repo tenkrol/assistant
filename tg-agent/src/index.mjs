@@ -494,6 +494,11 @@ export async function createInstance({ config, logger, instance, shared, platfor
     throw error
   }
 
+  // Кому доставлять: люди этой платформы, как у утреннего дайджеста. Канал
+  // входит в ключ получателя, чтобы id Telegram и VK не слились в одного.
+  const proactivePlatformIds = botConfig.access.allowedByPlatform?.[instance.platform] ?? new Set()
+  const proactiveTargetIds = proactivePlatformIds.size > 0 ? proactivePlatformIds : botConfig.access.allowedUserIds
+  const proactiveTargets = [...proactiveTargetIds].map((id) => ({ userId: id, chatId: id, channel: instance.platform }))
   // Проактивность: один файл состояния и один планировщик. Сервис не создаёт
   // свой таймер — его тик зовёт существующий `ReminderScheduler`. Флаг
   // `PROACTIVE_ENABLED=false` оставляет только журнал решений (dry-run).
@@ -504,12 +509,10 @@ export async function createInstance({ config, logger, instance, shared, platfor
     quiet: botConfig.quiet,
     reviewAt: botConfig.proactive?.reviewAt ?? '09:00',
     dayLimit: botConfig.proactive?.dayLimit ?? 3,
+    // Старые общие настройки переходят первому получателю этой платформы.
+    owner: proactiveTargets[0],
   })
   await proactiveStore.load()
-  // Кому доставлять: люди этой платформы, как у утреннего дайджеста.
-  const proactivePlatformIds = botConfig.access.allowedByPlatform?.[instance.platform] ?? new Set()
-  const proactiveTargetIds = proactivePlatformIds.size > 0 ? proactivePlatformIds : botConfig.access.allowedUserIds
-  const proactiveTargets = [...proactiveTargetIds].map((id) => ({ userId: id, chatId: id }))
   // Поручения приходят из моста агента. Ответ кэшируется, чтобы минутный
   // планировщик не дёргал мост каждую минуту.
   let taskCache
@@ -533,6 +536,7 @@ export async function createInstance({ config, logger, instance, shared, platfor
     access,
     logger,
     enabled: botConfig.proactive?.enabled === true,
+    channel: instance.platform,
     intervalMs: botConfig.proactive?.checkIntervalMs ?? 60_000,
     deliver: (chatId, text, keyboard) => bot.send(chatId, text, undefined, keyboard),
   })

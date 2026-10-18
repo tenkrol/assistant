@@ -19,8 +19,10 @@ import path from 'node:path'
 import { createJsonStore } from './storage/json-store.mjs'
 import { quietHoursEnd, resolveZone } from './domain/reminders.mjs'
 
-/** Версия схемы `proactive.json`. */
-export const PROACTIVE_VERSION = 1
+/** Версия схемы `proactive.json`: состояние персональное на пользователя и канал. */
+export const PROACTIVE_VERSION = 2
+/** Канал по умолчанию: старые записи и тесты без канала считаются Telegram. */
+export const DEFAULT_CHANNEL = 'telegram'
 /** Дневной предел инициативных уведомлений; обзор считается отдельно. */
 export const DEFAULT_DAY_LIMIT = 3
 /** Один обзор в день. */
@@ -243,20 +245,57 @@ export function normalizeSettings(input = {}, { timeZone = '', quiet, dayLimit =
   for (const [key, value] of Object.entries(input.categories ?? {})) {
     if (CATEGORIES.includes(key)) categories[key] = value !== false
   }
+  // `mute` — то же отключение типа, но в явном виде: старые настройки хранят
+  // его только в `categories`, поэтому оба поля приводятся к одному состоянию.
+  const muted = new Set()
+  for (const [key, value] of Object.entries(categories)) if (value === false) muted.add(key)
+  if (Array.isArray(input.mute)) {
+    for (const key of input.mute) if (CATEGORIES.includes(key)) muted.add(key)
+  } else if (input.mute && typeof input.mute === 'object') {
+    for (const [key, value] of Object.entries(input.mute)) {
+      if (CATEGORIES.includes(key) && value !== false) muted.add(key)
+    }
+  }
+  for (const key of muted) categories[key] = false
+  const mute = Object.fromEntries([...muted].map((key) => [key, true]))
   const channels = { text: true, ...(input.channels && typeof input.channels === 'object' ? input.channels : {}) }
   const limit = Number(input.dayLimit ?? dayLimit)
   const max = Number(input.reviewMax ?? reviewMax)
   const snooze = Number(input.snoozeMinutes ?? snoozeMinutes)
   return {
+    // Общий флаг `PROACTIVE_ENABLED` остаётся выключателем всего сервиса;
+    // здесь — личное включение, чтобы один человек мог отказаться от рассылки.
+    enabled: input.enabled !== false,
     tz: zone,
     reviewAt: validTime(input.reviewAt) ? input.reviewAt : (validTime(reviewAt) ? reviewAt : '09:00'),
     quiet: window,
     channels,
     categories,
+    mute,
     dayLimit: Number.isInteger(limit) && limit > 0 ? limit : DEFAULT_DAY_LIMIT,
     reviewMax: Number.isInteger(max) && max > 0 ? max : DEFAULT_REVIEW_MAX,
     snoozeMinutes: Number.isInteger(snooze) && snooze > 0 ? snooze : DEFAULT_SNOOZE_MINUTES,
   }
+}
+
+/**
+ * Ключ получателя: `<channel>:<userId>`.
+ *
+ * Идентичность берётся только из проверенного контекста (id пользователя от
+ * платформы); канал нужен, чтобы одинаковый числовой id в Telegram и VK не
+ * оказался одним человеком.
+ */
+export function principalKey(channel, userId) {
+  const name = String(channel || DEFAULT_CHANNEL).trim() || DEFAULT_CHANNEL
+  return `${name}:${userId}`
+}
+
+/** Principal из объекта-получателя, строки или решения журнала. */
+export function principalOf(value = {}) {
+  if (typeof value === 'string' && value !== '') return value
+  if (value?.principal) return String(value.principal)
+  if (value?.userId === undefined || value?.userId === null || value?.userId === '') return undefined
+  return principalKey(value.channel ?? value.platform, value.userId)
 }
 
 /** Ключ события: стабильный, поэтому дубли объединяются, а перенос виден. */
@@ -695,68 +734,190 @@ export function buildReviewMessage({ now = new Date(), settings = {}, events = [
   }
 }
 
-/** Пустое состояние нового `proactive.json`. */
-function defaultState(settings) {
-  return {
-    watermark: { at: null, reviewDay: null },
-    sentToday: { date: null, count: 0, reviews: 0 },
-    items: [],
-    settings,
-    journal: [],
-  }
+/** Пустое состояние нового `proactive.json` — схема 2. */
+function defaultState() {
+  return { users: {}, journal: [] }
 }
 
 const ITEM_STATES = new Set(['planned', 'claimed', 'sent', 'failed', 'snoozed', 'done', 'cancelled', 'reviewed', 'muted', 'expired'])
+/** Состояния, после которых доставка этому получателю уже не повторится. */
+const FINAL_STATES = new Set(['sent', 'done', 'cancelled', 'reviewed', 'muted', 'expired'])
 
-/** Запись о доставке в допустимой форме. */
-function normalizeItem(value) {
+/** Значения из конфигурации, которые подставляются новому получателю. */
+function settingsFallback(base = {}) {
+  return {
+    timeZone: base?.tz ?? '',
+    quiet: base?.quiet,
+    dayLimit: base?.dayLimit,
+    reviewAt: base?.reviewAt,
+    reviewMax: base?.reviewMax,
+    snoozeMinutes: base?.snoozeMinutes,
+  }
+}
+
+/** Счётчики дня в допустимой форме. */
+function normalizeSent(value) {
+  const sent = value && typeof value === 'object' ? value : {}
+  return {
+    date: typeof sent.date === 'string' ? sent.date : null,
+    count: Number(sent.count) || 0,
+    reviews: Number(sent.reviews) || 0,
+  }
+}
+
+/** Watermark обзора в допустимой форме. */
+function normalizeWatermark(value) {
+  const watermark = value && typeof value === 'object' ? value : {}
+  return {
+    at: typeof watermark.at === 'string' ? watermark.at : null,
+    reviewDay: typeof watermark.reviewDay === 'string' ? watermark.reviewDay : null,
+  }
+}
+
+/** Состояние доставки одному получателю. */
+function normalizeDelivery(value) {
+  if (value == null || typeof value !== 'object') return undefined
+  return {
+    state: ITEM_STATES.has(value.state) ? value.state : 'planned',
+    attempts: Number(value.attempts) || 0,
+    reserved: Boolean(value.reserved),
+    ...(typeof value.claimedAt === 'string' ? { claimedAt: value.claimedAt } : {}),
+    ...(typeof value.sentAt === 'string' ? { sentAt: value.sentAt } : {}),
+    ...(typeof value.nextAttemptAt === 'string' ? { nextAttemptAt: value.nextAttemptAt } : {}),
+    ...(typeof value.snoozeUntil === 'string' ? { snoozeUntil: value.snoozeUntil } : {}),
+    ...(typeof value.reason === 'string' ? { reason: value.reason } : {}),
+    ...(typeof value.lastError === 'string' ? { lastError: value.lastError } : {}),
+    ...(typeof value.updatedAt === 'string' ? { updatedAt: value.updatedAt } : {}),
+  }
+}
+
+/**
+ * Запись о событии в допустимой форме.
+ *
+ * Метаданные объекта общие, а состояние доставки — в `deliveries` по ключу
+ * получателя. Поэтому общий перенос встречи хранится один раз, но у A и B
+ * имеют независимые `claimed/sent/snoozed`.
+ */
+function normalizeItem(value, fallbackPrincipal) {
   if (value == null || typeof value !== 'object') return undefined
   if (typeof value.key !== 'string' || value.key === '') return undefined
   if (!['reminder', 'event', 'task', 'review'].includes(value.type)) return undefined
   if (Number.isNaN(Date.parse(value.plannedAt)) || Number.isNaN(Date.parse(value.expiresAt))) return undefined
+  const {
+    state, attempts, reserved, claimedAt, sentAt, nextAttemptAt, snoozeUntil, lastError, updatedAt,
+    deliveries, ...rest
+  } = value
+  const map = {}
+  if (deliveries && typeof deliveries === 'object') {
+    for (const [principal, delivery] of Object.entries(deliveries)) {
+      const normalized = normalizeDelivery(delivery)
+      if (principal && normalized) map[String(principal)] = normalized
+    }
+  }
+  // Схема 1 хранила состояние доставки на самом объекте: при миграции оно
+  // становится доставкой владельца, а не теряется.
+  if (Object.keys(map).length === 0) {
+    const legacy = normalizeDelivery(value)
+    if (legacy && fallbackPrincipal) map[String(fallbackPrincipal)] = legacy
+  }
+  // Поля старой схемы уже разобраны в `deliveries`; в метаданных они не нужны.
   return {
-    ...value,
-    state: ITEM_STATES.has(value.state) ? value.state : 'planned',
-    attempts: Number(value.attempts) || 0,
+    ...rest,
+    key: value.key,
+    type: value.type,
     priority: Number(value.priority) || 0,
+    deliveries: map,
   }
 }
 
+/** Состояние одного получателя: настройки, бюджет, watermark и его объекты. */
+function normalizeUserState(source, base, principal) {
+  const data = source && typeof source === 'object' ? source : {}
+  const items = {}
+  const raw = data.items
+  if (Array.isArray(raw)) {
+    for (const entry of raw) {
+      const item = normalizeItem(entry, principal)
+      if (item && !items[item.key]) items[item.key] = item
+    }
+  } else if (raw && typeof raw === 'object') {
+    for (const [key, entry] of Object.entries(raw)) {
+      const item = normalizeItem({ ...(entry ?? {}), key: entry?.key ?? key }, principal)
+      if (item && !items[item.key]) items[item.key] = item
+    }
+  }
+  return {
+    settings: normalizeSettings(data.settings ?? {}, settingsFallback(base)),
+    sentToday: normalizeSent(data.sentToday),
+    watermark: normalizeWatermark(data.watermark),
+    items,
+  }
+}
+
+/** Состояние нового получателя из конфигурации. */
+function defaultUserState(base = {}) {
+  return normalizeUserState({}, base, undefined)
+}
+
 /** Привести состояние файла к полной форме, не потеряв записи. */
-function normalizeState(data, settings) {
+function normalizeState(data, base) {
   const source = data && typeof data === 'object' ? data : {}
-  const sent = source.sentToday && typeof source.sentToday === 'object' ? source.sentToday : {}
-  const watermark = source.watermark && typeof source.watermark === 'object' ? source.watermark : {}
+  const users = {}
+  if (source.users && typeof source.users === 'object') {
+    for (const [principal, value] of Object.entries(source.users)) {
+      if (!principal || typeof principal !== 'string') continue
+      users[principal] = normalizeUserState(value, base, principal)
+    }
+  }
   return {
     ...source,
-    watermark: {
-      at: typeof watermark.at === 'string' ? watermark.at : null,
-      reviewDay: typeof watermark.reviewDay === 'string' ? watermark.reviewDay : null,
-    },
-    sentToday: {
-      date: typeof sent.date === 'string' ? sent.date : null,
-      count: Number(sent.count) || 0,
-      reviews: Number(sent.reviews) || 0,
-    },
-    items: Array.isArray(source.items) ? source.items.map(normalizeItem).filter(Boolean) : [],
-    settings: normalizeSettings(source.settings ?? {}, {
-      timeZone: settings?.tz ?? '',
-      quiet: settings?.quiet,
-      dayLimit: settings?.dayLimit,
-      reviewAt: settings?.reviewAt,
-      reviewMax: settings?.reviewMax,
-      snoozeMinutes: settings?.snoozeMinutes,
-    }),
+    users,
     journal: Array.isArray(source.journal)
       ? source.journal.filter((entry) => entry && typeof entry === 'object').slice(-JOURNAL_LIMIT)
       : [],
   }
 }
 
-/** Миграция схемы `proactive.json`: версия 0 — файл без `version`. */
-function migrateProactive(data, from, to, settings) {
-  const next = normalizeState(data, settings)
-  return { ...next, version: to }
+/** Владелец старого общего состояния: первый получатель из старых записей. */
+function legacyOwnerOf(source) {
+  const raw = source?.items
+  const list = Array.isArray(raw) ? raw : (raw && typeof raw === 'object' ? Object.values(raw) : [])
+  const first = list.find((entry) => entry && (entry.userId !== undefined || entry.chatId !== undefined))
+  const id = first?.userId ?? first?.chatId
+  return id === undefined || id === null ? undefined : principalKey(first.channel, id)
+}
+
+/**
+ * Миграция схемы `proactive.json`.
+ *
+ * Общие `settings/sentToday/watermark/items` старой схемы переходят владельцу
+ * (первому получателю). Повторный запуск ничего не меняет: версия уже 2, а
+ * `deliveries` владельца заполнены.
+ */
+function migrateProactive(data, from, to, base, owner) {
+  const source = data && typeof data === 'object' ? data : {}
+  const state = normalizeState(source, base)
+  const target = owner ?? legacyOwnerOf(source) ?? principalKey(DEFAULT_CHANNEL, 'default')
+  const hasLegacy = source.settings !== undefined
+    || source.sentToday !== undefined
+    || source.watermark !== undefined
+    || source.items !== undefined
+  if (hasLegacy) {
+    const user = state.users[target] ?? defaultUserState(base)
+    if (source.settings && typeof source.settings === 'object') {
+      user.settings = normalizeSettings(source.settings, settingsFallback(base))
+    }
+    if (source.sentToday) user.sentToday = normalizeSent(source.sentToday)
+    if (source.watermark) user.watermark = normalizeWatermark(source.watermark)
+    const raw = source.items
+    const list = Array.isArray(raw) ? raw : (raw && typeof raw === 'object' ? Object.values(raw) : [])
+    for (const entry of list) {
+      const item = normalizeItem(entry, target)
+      if (item && !user.items[item.key]) user.items[item.key] = item
+    }
+    state.users[target] = user
+  }
+  return { version: to, users: state.users, journal: state.journal }
 }
 
 /** Запись журнала в допустимой форме. */
@@ -769,6 +930,7 @@ function journalEntry(entry, now) {
     ...(entry.title === undefined ? {} : { title: String(entry.title) }),
     reason: String(entry.reason ?? ''),
     ...(entry.source === undefined ? {} : { source: String(entry.source) }),
+    ...(entry.principal === undefined ? {} : { principal: String(entry.principal) }),
     ...(entry.userId === undefined ? {} : { userId: entry.userId }),
     ...(entry.chatId === undefined ? {} : { chatId: entry.chatId }),
     ...(entry.text === undefined ? {} : { text: String(entry.text) }),
@@ -784,20 +946,71 @@ function journalEntry(entry, now) {
  * важна `claim`: она под замком читает актуальный файл, проверяет бюджет и
  * помечает событие захваченным, поэтому одно уведомление не уйдёт дважды.
  */
+/**
+ * Найти объект по ключу.
+ *
+ * Сначала ищем в собственном ведре получателя, затем в общих: метаданные
+ * объекта и его доставки могут лежать в ведре того, кто первым его увидел.
+ */
+function findItemEntry(state, key, principal) {
+  const users = state?.users && typeof state.users === 'object' ? state.users : {}
+  if (principal) {
+    const own = users[principal]?.items?.[key]
+    if (own?.deliveries?.[principal]) return { bucket: principal, item: own }
+    for (const [bucket, user] of Object.entries(users)) {
+      const item = user?.items?.[key]
+      if (item?.deliveries?.[principal]) return { bucket, item }
+    }
+    return undefined
+  }
+  for (const [bucket, user] of Object.entries(users)) {
+    const item = user?.items?.[key]
+    if (item) return { bucket, item }
+  }
+  return undefined
+}
+
+/** Слить общие метаданные объекта с доставкой конкретному получателю. */
+function itemView(item, principal) {
+  const delivery = principal ? item?.deliveries?.[principal] : undefined
+  if (!delivery) return undefined
+  return { ...item, ...delivery, principal }
+}
+
+/** Ведро получателя; создаётся при первом обращении с настройками из конфига. */
+function ensureUserState(state, principal, base) {
+  if (!state.users || typeof state.users !== 'object') state.users = {}
+  if (!state.users[principal]) state.users[principal] = defaultUserState(base)
+  return state.users[principal]
+}
+
+/**
+ * Хранилище проактивности: `proactive.json` в общем слое состояния.
+ *
+ * Схема 2 хранит настройки, счётчики, watermark и объекты отдельно по
+ * получателю `<channel>:<userId>`. Общий объект (например перенос встречи)
+ * лежит один раз, а состояние его доставки — в `deliveries` каждого адресата.
+ *
+ * Миграция идёт с копией файла и идемпотентна: второй запуск не делает новую
+ * копию и не меняет уже заполненные настройки. Для двух экземпляров планировщика
+ * важна `claim`: она под замком читает актуальный файл, проверяет бюджет и
+ * помечает событие захваченным, поэтому одно уведомление не уйдёт дважды.
+ */
 export class ProactiveStore {
   /**
    * @param {object} options - `file`, `logger`, `timeZone`, `quiet`,
-   *   `reviewAt`, `dayLimit`, `reviewMax`, `snoozeMinutes`.
+   *   `reviewAt`, `dayLimit`, `reviewMax`, `snoozeMinutes`, `owner`.
    */
-  constructor({ file, logger, timeZone = '', quiet, reviewAt = '09:00', dayLimit = DEFAULT_DAY_LIMIT, reviewMax = DEFAULT_REVIEW_MAX, snoozeMinutes = DEFAULT_SNOOZE_MINUTES } = {}) {
+  constructor({ file, logger, timeZone = '', quiet, reviewAt = '09:00', dayLimit = DEFAULT_DAY_LIMIT, reviewMax = DEFAULT_REVIEW_MAX, snoozeMinutes = DEFAULT_SNOOZE_MINUTES, owner } = {}) {
     this.file = file
     this.logger = logger
+    this.owner = principalOf(owner)
     this.baseSettings = normalizeSettings({}, { timeZone, quiet, reviewAt, dayLimit, reviewMax, snoozeMinutes })
     this.storage = createJsonStore({
       file,
       version: PROACTIVE_VERSION,
-      defaults: defaultState(this.baseSettings),
-      migrate: (data, from, to) => migrateProactive(data, from, to, this.baseSettings),
+      defaults: defaultState(),
+      migrate: (data, from, to) => migrateProactive(data, from, to, this.baseSettings, this.owner),
       logger,
     })
   }
@@ -806,7 +1019,7 @@ export class ProactiveStore {
    * Дочитать файл и, если он старой схемы, оставить копию до миграции.
    *
    * Копия делается ровно один раз: после миграции в файле есть `version` и
-   * `settings`, поэтому повторный запуск её не создаёт.
+   * либо `users`, поэтому повторный запуск её не создаёт.
    */
   async preserveBeforeMigration() {
     if (!this.file) return false
@@ -826,9 +1039,9 @@ export class ProactiveStore {
     const found = Number(parsed?.version)
     const finite = Number.isFinite(found)
     const oldVersion = !finite || found < PROACTIVE_VERSION
-    if (!oldVersion && parsed?.settings) return false
+    if (!oldVersion && (parsed?.settings || parsed?.users)) return false
     // Старую версию копирует общий слой состояния; здесь копия нужна только
-    // тогда, когда версия та же, а настроек ещё нет (иначе было бы две копии).
+    // тогда, когда версия та же, а нужных полей ещё нет (иначе было бы две копии).
     if (!(finite && found < PROACTIVE_VERSION)) {
       const target = `${this.file}.bak-${new Date().toISOString().replace(/[:.]/g, '-')}`
       await fs.mkdir(path.dirname(this.file), { recursive: true })
@@ -877,54 +1090,105 @@ export class ProactiveStore {
     return this.storage.state
   }
 
-  get settings() {
-    return this.storage.state.settings
+  /** Получатели состояния (ключи `<channel>:<userId>`). */
+  get users() {
+    return this.storage.state.users ?? {}
   }
 
+  /** Владелец старого состояния: первый получатель, чьи настройки уже есть. */
+  get ownerPrincipal() {
+    if (this.owner) return this.owner
+    const first = Object.keys(this.users)[0]
+    return first ?? principalKey(DEFAULT_CHANNEL, 'default')
+  }
+
+  /** Настройки получателя; новый получатель начинается с defaults из конфига. */
+  settingsFor(principal) {
+    const key = principalOf(principal) ?? this.ownerPrincipal
+    return ensureUserState(this.storage.state, key, this.baseSettings).settings
+  }
+
+  /** Watermark получателя. */
+  watermarkFor(principal) {
+    const key = principalOf(principal) ?? this.ownerPrincipal
+    return ensureUserState(this.storage.state, key, this.baseSettings).watermark
+  }
+
+  get settings() {
+    return this.settingsFor(this.ownerPrincipal)
+  }
+
+  /** Объекты владельца — совместимый доступ для одиночного получателя. */
   get items() {
-    return this.storage.state.items ?? []
+    return this.itemsFor(this.ownerPrincipal)
   }
 
   get watermark() {
-    return this.storage.state.watermark ?? {}
+    return this.watermarkFor(this.ownerPrincipal)
   }
 
   get journal() {
     return this.storage.state.journal ?? []
   }
 
-  /** Запись по ключу. */
-  itemOf(key) {
-    return this.items.find((item) => item.key === key)
+  /** Все объекты получателя, слитые с его состоянием доставки. */
+  itemsFor(principal) {
+    const key = principalOf(principal) ?? this.ownerPrincipal
+    const result = []
+    for (const user of Object.values(this.users)) {
+      for (const item of Object.values(user?.items ?? {})) {
+        if (!item?.deliveries?.[key]) continue
+        result.push(itemView(item, key))
+      }
+    }
+    return result
+  }
+
+  /** Запись по ключу; без получателя — первая найденная, для совместимости. */
+  itemOf(key, principal) {
+    const who = principal ? principalOf(principal) : undefined
+    const found = findItemEntry(this.storage.state, key, who)
+    if (!found) return undefined
+    return itemView(found.item, who ?? Object.keys(found.item.deliveries ?? {})[0])
   }
 
   /**
-   * Счётчики на местную дату `now`.
+   * Счётчики на местную дату `now` для получателя.
    *
    * @param {Date} now - момент проверки.
+   * @param {string|object} [principal] - чей бюджет; по умолчанию владельца.
    * @returns {{date: string, count: number, reviews: number}} бюджет дня.
    */
-  sentToday(now = new Date()) {
-    const day = dayKeyInZone(now, this.settings.tz)
-    const sent = this.storage.state.sentToday ?? {}
-    if (sent.date !== day) return { date: day, count: 0, reviews: 0 }
-    return { date: day, count: Number(sent.count) || 0, reviews: Number(sent.reviews) || 0 }
+  sentToday(now = new Date(), principal) {
+    const key = principalOf(principal) ?? this.ownerPrincipal
+    const user = ensureUserState(this.storage.state, key, this.baseSettings)
+    const day = dayKeyInZone(now, user.settings.tz)
+    if (user.sentToday.date !== day) return { date: day, count: 0, reviews: 0 }
+    return { date: day, count: Number(user.sentToday.count) || 0, reviews: Number(user.sentToday.reviews) || 0 }
   }
 
-  /** Сбросить счётчики при смене местной даты и убрать старую историю. */
-  rollover(state, now) {
-    const day = dayKeyInZone(now, state.settings.tz)
-    if (!state.sentToday || state.sentToday.date !== day) {
-      state.sentToday = { date: day, count: 0, reviews: 0 }
+  /** Сбросить счётчики получателя при смене местной даты и убрать старую историю. */
+  rollover(state, now, principal) {
+    const key = principalOf(principal) ?? this.ownerPrincipal
+    const user = ensureUserState(state, key, this.baseSettings)
+    const day = dayKeyInZone(now, user.settings.tz)
+    if (!user.sentToday || user.sentToday.date !== day) {
+      user.sentToday = { date: day, count: 0, reviews: 0 }
     }
-    // Завершённые записи нужны только для дедупликации и разбора недавних
-    // решений: хранить их вечно в JSON-файле нельзя.
+    // Завершённые доставки нужны только для дедупликации и разбора недавних
+    // решений: хранить их вечно в JSON-файле нельзя. Общий объект живёт, пока
+    // его состояние нужно хотя бы одному адресату.
     const cutoff = now.getTime() - 14 * 86_400_000
-    state.items = (state.items ?? []).filter((item) => {
-      if (!['sent', 'done', 'cancelled', 'reviewed', 'muted', 'expired'].includes(item.state)) return true
-      const stamp = Date.parse(item.updatedAt ?? item.sentAt ?? item.plannedAt)
-      return Number.isNaN(stamp) || stamp >= cutoff
-    })
+    for (const owner of Object.values(state.users ?? {})) {
+      for (const [itemKey, item] of Object.entries(owner?.items ?? {})) {
+        for (const [addressee, delivery] of Object.entries(item?.deliveries ?? {})) {
+          if (!FINAL_STATES.has(delivery.state)) continue
+          const stamp = Date.parse(delivery.updatedAt ?? delivery.sentAt ?? item.plannedAt)
+          if (!Number.isNaN(stamp) && stamp < cutoff) delete item.deliveries[addressee]
+        }
+        if (!item.deliveries || Object.keys(item.deliveries).length === 0) delete owner.items[itemKey]
+      }
+    }
     return day
   }
 
@@ -935,208 +1199,257 @@ export class ProactiveStore {
       state.journal = Array.isArray(state.journal) ? state.journal : []
       for (const entry of entries) state.journal.push(journalEntry(entry, now))
       if (state.journal.length > JOURNAL_LIMIT) state.journal = state.journal.slice(-JOURNAL_LIMIT)
-      state.watermark = state.watermark ?? {}
-      state.watermark.at = iso(now)
+      // Watermark «последнее решение» — тоже персональный: запись одного
+      // человека не должна выглядеть активностью другого.
+      const principals = new Set(entries.map((entry) => principalOf(entry) ?? this.ownerPrincipal))
+      for (const principal of principals) {
+        const user = ensureUserState(state, principal, this.baseSettings)
+        user.watermark.at = iso(now)
+      }
     })
     return this
+  }
+
+  /** Найти объект или создать его в ведре получателя, добавив доставку. */
+  prepareItem(state, candidate, principal, at) {
+    // Сначала ищем доставку этого получателя, затем сам объект по ключу:
+    // общий перенос встречи уже лежит в ведре A, и B должен добавить свою
+    // доставку к нему, а не создать второй объект.
+    let found = findItemEntry(state, candidate.key, principal) ?? findItemEntry(state, candidate.key)
+    if (!found) {
+      const user = ensureUserState(state, principal, this.baseSettings)
+      const delivery = normalizeDelivery({ state: 'planned', attempts: 0, reserved: false, updatedAt: iso(at) })
+      const item = normalizeItem({ ...candidate, deliveries: { [principal]: delivery } }, principal)
+      if (!item) return undefined
+      item.createdAt = item.createdAt ?? iso(at)
+      user.items[item.key] = item
+      return { bucket: principal, item }
+    }
+    if (!found.item.deliveries[principal]) {
+      found.item.deliveries[principal] = normalizeDelivery({ state: 'planned', attempts: 0, reserved: false, updatedAt: iso(at) })
+    }
+    return found
   }
 
   /**
    * Захватить событие под доставку и зарезервировать место в бюджете.
    *
    * Всё чтение и запись идут в одной транзакции: второй экземпляр увидит
-   * состояние `claimed`/`sent` и не отправит то же событие ещё раз.
+   * состояние `claimed`/`sent` и не отправит то же событие ещё раз. Бюджет,
+   * watermark и состояние проверяются в ведре конкретного получателя.
    *
    * @param {object} candidate - событие с ключом и данными.
-   * @param {object} options - `now`, `review`.
+   * @param {object} options - `now`, `review`, `principal`.
    * @returns {Promise<object>} `{ok, reason?, item?, budget?}`.
    */
-  async claim(candidate, { now = new Date(), review = false } = {}) {
+  async claim(candidate, { now = new Date(), review = false, principal } = {}) {
     const at = asDate(now)
+    const key = principalOf(principal) ?? this.ownerPrincipal
     return this.storage.transaction((state) => {
-      const day = this.rollover(state, at)
-      let item = state.items.find((entry) => entry.key === candidate.key)
-      if (!item) {
-        item = normalizeItem({
-          ...candidate,
-          state: 'planned',
-          attempts: 0,
-          reserved: false,
-          createdAt: iso(at),
-          updatedAt: iso(at),
-        })
-        if (!item) return { ok: false, reason: 'некорректное событие' }
-        state.items.push(item)
-      }
+      const day = this.rollover(state, at, key)
+      const found = this.prepareItem(state, candidate, key, at)
+      if (!found) return { ok: false, reason: 'некорректное событие' }
+      const item = found.item
+      const delivery = item.deliveries[key]
       const deny = (reason) => ({ ok: false, reason })
-      if (['sent', 'done', 'cancelled', 'reviewed', 'muted', 'expired'].includes(item.state)) return deny(`состояние ${item.state}`)
-      if (item.state === 'claimed' && item.claimedAt && at.getTime() - Date.parse(item.claimedAt) < CLAIM_TTL_MS) {
+      if (FINAL_STATES.has(delivery.state)) return deny(`состояние ${delivery.state}`)
+      if (delivery.state === 'claimed' && delivery.claimedAt && at.getTime() - Date.parse(delivery.claimedAt) < CLAIM_TTL_MS) {
         return deny('уже отправляется другим экземпляром')
       }
-      if (item.nextAttemptAt && at.getTime() < Date.parse(item.nextAttemptAt)) return deny('ожидает повтора')
+      if (delivery.nextAttemptAt && at.getTime() < Date.parse(delivery.nextAttemptAt)) return deny('ожидает повтора')
       if (item.expiresAt && at.getTime() > Date.parse(item.expiresAt)) {
-        item.state = 'expired'
-        item.updatedAt = iso(at)
+        delivery.state = 'expired'
+        delivery.updatedAt = iso(at)
         return deny('истёк срок актуальности')
       }
+      const user = ensureUserState(state, key, this.baseSettings)
       if (review) {
-        if (state.sentToday.reviews >= REVIEW_LIMIT) return deny('обзор на сегодня уже отправлен')
-        if (!item.reserved) {
-          state.sentToday.reviews += 1
-          item.reserved = true
+        if (user.sentToday.reviews >= REVIEW_LIMIT) return deny('обзор на сегодня уже отправлен')
+        if (!delivery.reserved) {
+          user.sentToday.reviews += 1
+          delivery.reserved = true
         }
       } else {
-        if (state.sentToday.count >= state.settings.dayLimit) return deny('дневной предел исчерпан')
-        if (!item.reserved) {
-          state.sentToday.count += 1
-          item.reserved = true
+        if (user.sentToday.count >= user.settings.dayLimit) return deny('дневной предел исчерпан')
+        if (!delivery.reserved) {
+          user.sentToday.count += 1
+          delivery.reserved = true
         }
       }
-      item.state = 'claimed'
-      item.claimedAt = iso(at)
-      item.updatedAt = iso(at)
-      item.attempts = (Number(item.attempts) || 0) + 1
+      delivery.state = 'claimed'
+      delivery.claimedAt = iso(at)
+      delivery.updatedAt = iso(at)
+      delivery.attempts = (Number(delivery.attempts) || 0) + 1
       return {
         ok: true,
-        item: { ...item },
+        item: itemView(item, key),
         day,
-        budget: { ...state.sentToday },
+        budget: { ...user.sentToday },
       }
     })
   }
 
-  /** Доставка удалась: состояние `sent`, отметка watermark. */
-  async finish(key, { now = new Date(), state: finalState = 'sent', reviewDay } = {}) {
+  /** Доставка удалась: состояние `sent`, отметка watermark получателя. */
+  async finish(key, { now = new Date(), state: finalState = 'sent', reviewDay, principal } = {}) {
     const at = asDate(now)
+    const who = principalOf(principal) ?? this.ownerPrincipal
     await this.storage.transaction((draft) => {
-      const item = draft.items.find((entry) => entry.key === key)
-      if (item) {
-        item.state = finalState
-        item.sentAt = iso(at)
-        item.updatedAt = iso(at)
-        item.reserved = false
-        delete item.claimedAt
+      const found = findItemEntry(draft, key, who)
+      const delivery = found?.item.deliveries[who]
+      if (delivery) {
+        delivery.state = finalState
+        delivery.sentAt = iso(at)
+        delivery.updatedAt = iso(at)
+        delivery.reserved = false
+        delete delivery.claimedAt
       }
-      draft.watermark = draft.watermark ?? {}
-      draft.watermark.at = iso(at)
-      if (reviewDay) draft.watermark.reviewDay = reviewDay
+      const user = ensureUserState(draft, who, this.baseSettings)
+      user.watermark.at = iso(at)
+      if (reviewDay) user.watermark.reviewDay = reviewDay
     })
     return this
   }
 
   /** Отметить событие выполненным/отложенным/отменённым без отправки. */
-  async setState(key, state, { now = new Date(), reason } = {}) {
+  async setState(key, state, { now = new Date(), reason, principal } = {}) {
     const at = asDate(now)
+    const who = principalOf(principal) ?? this.ownerPrincipal
     await this.storage.transaction((draft) => {
-      const item = draft.items.find((entry) => entry.key === key)
-      if (!item) return
-      if (item.reserved) {
+      const found = findItemEntry(draft, key, who)
+      const delivery = found?.item.deliveries[who]
+      if (!delivery) return
+      const user = ensureUserState(draft, who, this.baseSettings)
+      if (delivery.reserved) {
         // Возврат резерва: попытка не состоялась.
-        if (item.type === 'review') draft.sentToday.reviews = Math.max(0, (draft.sentToday.reviews || 0) - 1)
-        else draft.sentToday.count = Math.max(0, (draft.sentToday.count || 0) - 1)
-        item.reserved = false
+        if (found.item.type === 'review') user.sentToday.reviews = Math.max(0, (user.sentToday.reviews || 0) - 1)
+        else user.sentToday.count = Math.max(0, (user.sentToday.count || 0) - 1)
+        delivery.reserved = false
       }
-      item.state = state
-      item.updatedAt = iso(at)
-      if (reason) item.reason = reason
-      delete item.claimedAt
+      delivery.state = state
+      delivery.updatedAt = iso(at)
+      if (reason) delivery.reason = reason
+      delete delivery.claimedAt
     })
     return this
   }
 
   /** Доставка сорвалась: вернуть резерв и назначить backoff. */
-  async release(key, { now = new Date(), error } = {}) {
+  async release(key, { now = new Date(), error, principal } = {}) {
     const at = asDate(now)
+    const who = principalOf(principal) ?? this.ownerPrincipal
     await this.storage.transaction((draft) => {
-      const item = draft.items.find((entry) => entry.key === key)
-      if (!item) return
-      if (item.reserved) {
-        if (item.type === 'review') draft.sentToday.reviews = Math.max(0, (draft.sentToday.reviews || 0) - 1)
-        else draft.sentToday.count = Math.max(0, (draft.sentToday.count || 0) - 1)
-        item.reserved = false
+      const found = findItemEntry(draft, key, who)
+      const delivery = found?.item.deliveries[who]
+      if (!delivery) return
+      const user = ensureUserState(draft, who, this.baseSettings)
+      if (delivery.reserved) {
+        if (found.item.type === 'review') user.sentToday.reviews = Math.max(0, (user.sentToday.reviews || 0) - 1)
+        else user.sentToday.count = Math.max(0, (user.sentToday.count || 0) - 1)
+        delivery.reserved = false
       }
-      item.state = 'failed'
-      item.updatedAt = iso(at)
-      item.lastError = String(error?.message ?? error ?? 'ошибка доставки').slice(0, 200)
-      const backoff = Math.min(30 * 60 * 1000, 60 * 1000 * Math.max(1, Number(item.attempts) || 1))
-      item.nextAttemptAt = iso(new Date(at.getTime() + backoff))
-      delete item.claimedAt
+      delivery.state = 'failed'
+      delivery.updatedAt = iso(at)
+      delivery.lastError = String(error?.message ?? error ?? 'ошибка доставки').slice(0, 200)
+      const backoff = Math.min(30 * 60 * 1000, 60 * 1000 * Math.max(1, Number(delivery.attempts) || 1))
+      delivery.nextAttemptAt = iso(new Date(at.getTime() + backoff))
+      delete delivery.claimedAt
     })
     return this
   }
 
   /** Отложить событие на `minutes`: при повторной проверке оно ещё актуально? */
-  async snooze(key, { now = new Date(), minutes = DEFAULT_SNOOZE_MINUTES } = {}) {
+  async snooze(key, { now = new Date(), minutes = DEFAULT_SNOOZE_MINUTES, principal } = {}) {
     const at = asDate(now)
+    const who = principalOf(principal) ?? this.ownerPrincipal
     let result
     await this.storage.transaction((draft) => {
-      const item = draft.items.find((entry) => entry.key === key)
-      if (!item) return
-      if (item.reserved) {
-        if (item.type === 'review') draft.sentToday.reviews = Math.max(0, (draft.sentToday.reviews || 0) - 1)
-        else draft.sentToday.count = Math.max(0, (draft.sentToday.count || 0) - 1)
-        item.reserved = false
+      const found = findItemEntry(draft, key, who)
+      const delivery = found?.item.deliveries[who]
+      if (!delivery) return
+      const user = ensureUserState(draft, who, this.baseSettings)
+      if (delivery.reserved) {
+        if (found.item.type === 'review') user.sentToday.reviews = Math.max(0, (user.sentToday.reviews || 0) - 1)
+        else user.sentToday.count = Math.max(0, (user.sentToday.count || 0) - 1)
+        delivery.reserved = false
       }
       const planned = new Date(at.getTime() + minutes * 60_000)
-      item.state = 'snoozed'
+      delivery.state = 'snoozed'
       // `plannedAt` остаётся исходным сроком события: иначе перенос встречи
       // выглядел бы как «перенос с времени snooze».
-      item.snoozeUntil = iso(planned)
-      item.nextAttemptAt = iso(planned)
-      item.updatedAt = iso(at)
-      if (item.type === 'review') {
+      delivery.snoozeUntil = iso(planned)
+      delivery.nextAttemptAt = iso(planned)
+      delivery.updatedAt = iso(at)
+      if (found.item.type === 'review') {
         // Отложенный обзор — это перенос того же обзора, а не второй за день.
-        draft.watermark = draft.watermark ?? {}
-        draft.watermark.reviewDay = null
-        draft.sentToday.reviews = Math.max(0, (draft.sentToday.reviews || 0) - 1)
+        user.watermark.reviewDay = null
+        user.sentToday.reviews = Math.max(0, (user.sentToday.reviews || 0) - 1)
       }
-      if (Date.parse(item.expiresAt) < planned.getTime()) item.expiresAt = iso(new Date(planned.getTime() + 60 * 60 * 1000))
-      result = { ...item }
-      delete item.claimedAt
+      if (Date.parse(found.item.expiresAt) < planned.getTime()) {
+        found.item.expiresAt = iso(new Date(planned.getTime() + 60 * 60 * 1000))
+      }
+      result = itemView(found.item, who)
+      delete delivery.claimedAt
     })
     return result
   }
 
-  /** Отключить категорию уведомлений. */
-  async mute(type) {
+  /** Отключить категорию уведомлений у конкретного получателя. */
+  async mute(type, principal) {
+    const who = principalOf(principal) ?? this.ownerPrincipal
     await this.storage.transaction((draft) => {
-      draft.settings.categories = { ...draft.settings.categories, [type]: false }
+      const user = ensureUserState(draft, who, this.baseSettings)
+      user.settings.categories = { ...user.settings.categories, [type]: false }
+      user.settings.mute = { ...(user.settings.mute ?? {}), [type]: true }
     })
     return this
   }
 
-  /** Обзор пропущен: отметить день, чтобы не пытаться снова каждую минуту. */
-  async skipReview(day, reason, { now = new Date() } = {}) {
-    const at = asDate(now)
+  /** Личное включение/выключение проактивности (общий флаг остаётся выше). */
+  async setEnabled(enabled, principal) {
+    const who = principalOf(principal) ?? this.ownerPrincipal
     await this.storage.transaction((draft) => {
-      draft.watermark = draft.watermark ?? {}
-      draft.watermark.reviewDay = day
-      draft.watermark.at = iso(at)
+      const user = ensureUserState(draft, who, this.baseSettings)
+      user.settings.enabled = enabled !== false
+    })
+    return this
+  }
+
+  /** Обзор пропущен: отметить день получателя, чтобы не пытаться снова каждую минуту. */
+  async skipReview(day, reason, { now = new Date(), principal } = {}) {
+    const at = asDate(now)
+    const who = principalOf(principal) ?? this.ownerPrincipal
+    await this.storage.transaction((draft) => {
+      const user = ensureUserState(draft, who, this.baseSettings)
+      user.watermark.reviewDay = day
+      user.watermark.at = iso(at)
     })
     return this
   }
 
   /** Пункты, показанные в обзоре, больше не отправляем как инициативу. */
-  async markReviewed(keys = [], { now = new Date() } = {}) {
+  async markReviewed(keys = [], { now = new Date(), principal } = {}) {
     if (keys.length === 0) return this
     const at = asDate(now)
+    const who = principalOf(principal) ?? this.ownerPrincipal
     await this.storage.transaction((draft) => {
       for (const key of keys) {
-        const item = draft.items.find((entry) => entry.key === key)
-        if (!item) continue
-        if (['sent', 'done', 'cancelled'].includes(item.state)) continue
-        item.state = 'reviewed'
-        item.updatedAt = iso(at)
+        const found = findItemEntry(draft, key, who)
+        const delivery = found?.item.deliveries[who]
+        if (!delivery) continue
+        if (['sent', 'done', 'cancelled'].includes(delivery.state)) continue
+        delivery.state = 'reviewed'
+        delivery.updatedAt = iso(at)
       }
     })
     return this
   }
 
   /** Пометка watermark после тика без решений. */
-  async touch(now = new Date()) {
+  async touch(now = new Date(), principal) {
+    const who = principalOf(principal) ?? this.ownerPrincipal
     await this.storage.transaction((draft) => {
-      draft.watermark = draft.watermark ?? {}
-      draft.watermark.at = iso(now)
+      const user = ensureUserState(draft, who, this.baseSettings)
+      user.watermark.at = iso(now)
     })
     return this
   }
@@ -1156,15 +1469,16 @@ export class ProactiveService {
    * @param {ProactiveStore} options.store - хранилище `proactive.json`.
    * @param {object} [options.sources] - `{ reminders, events, tasks }`; у первых
    *   двух есть `list()`, `tasks` — функция, возвращающая массив поручений.
-   * @param {Array<{userId: number|string, chatId: number|string}>} [options.targets] - кому доставлять.
+   * @param {Array<{userId: number|string, chatId: number|string, channel?: string}>} [options.targets] - кому доставлять.
    * @param {(chatId: number|string, text: string, keyboard?: object) => Promise<void>} options.deliver - доставка.
    * @param {object} [options.access] - единая проверка доступа (`src/core/access.mjs`).
    * @param {object} [options.logger] - логгер.
-   * @param {boolean} [options.enabled] - false = dry-run.
+   * @param {boolean} [options.enabled] - false = dry-run (общий флаг `PROACTIVE_ENABLED`).
+   * @param {string} [options.channel] - канал по умолчанию, если у target его нет.
    * @param {number} [options.intervalMs] - как часто считать план.
    * @param {() => Date} [options.now] - часы, подменяются в тестах.
    */
-  constructor({ store, sources = {}, targets = [], deliver, access, logger, enabled = false, intervalMs = 60_000, now = () => new Date() } = {}) {
+  constructor({ store, sources = {}, targets = [], deliver, access, logger, enabled = false, channel = DEFAULT_CHANNEL, intervalMs = 60_000, now = () => new Date() } = {}) {
     this.store = store
     this.sources = sources
     this.targets = targets
@@ -1172,6 +1486,7 @@ export class ProactiveService {
     this.access = access
     this.logger = logger
     this.enabled = Boolean(enabled)
+    this.channel = channel
     this.intervalMs = intervalMs
     this.now = now
     this.ticking = false
@@ -1180,20 +1495,33 @@ export class ProactiveService {
     this.reported = new Set()
   }
 
-  /** Настройки из файла: тихие часы, лимиты, категории. */
+  /** Ключ получателя `<channel>:<userId>` из проверенного target. */
+  principalOf(target = {}) {
+    if (target?.principal) return String(target.principal)
+    const channel = target?.channel ?? target?.platform ?? this.channel ?? DEFAULT_CHANNEL
+    return principalKey(channel, target?.userId)
+  }
+
+  /** Настройки конкретного получателя. */
+  settingsFor(target) {
+    return this.store.settingsFor(this.principalOf(target))
+  }
+
+  /** Настройки владельца — совместимый доступ для одиночного получателя. */
   get settings() {
     return this.store.settings
   }
 
-  /** Категория включена? */
-  categoryEnabled(type) {
-    if (!this.settings.categories) return true
-    return this.settings.categories[type] !== false
+  /** Категория включена у получателя? */
+  categoryEnabled(type, settings = this.settings) {
+    if (settings?.mute?.[type] === true) return false
+    if (!settings?.categories) return true
+    return settings.categories[type] !== false
   }
 
-  /** Канал включён? Сейчас у бота один текстовый канал. */
-  channelEnabled() {
-    return this.settings.channels?.text !== false
+  /** Канал включён у получателя? Сейчас у бота один текстовый канал. */
+  channelEnabled(settings = this.settings) {
+    return settings?.channels?.text !== false
   }
 
   /**
@@ -1239,9 +1567,10 @@ export class ProactiveService {
    * решений с причиной, не раскрывая текст чужой задачи.
    */
   candidatesFor(target, gathered, now, denied = []) {
-    const previous = this.store.items.filter((item) => (
-      item.userId === undefined || String(item.userId) === String(target.userId)
-    ))
+    const principal = this.principalOf(target)
+    // Предыдущее состояние — только этого получателя: чужой `sent` не должен
+    // ни подавлять его кандидата, ни попадать в расчёт значимости.
+    const previous = this.store.itemsFor(principal)
     return mergeCandidates(collectCandidates({
       now,
       reminders: gathered.reminders,
@@ -1250,10 +1579,11 @@ export class ProactiveService {
       previous,
       userId: target.userId,
       chatId: target.chatId,
-      settings: this.settings,
+      settings: this.store.settingsFor(principal),
       access: this.access,
       onDenied: (decision) => denied.push({
         ...decision,
+        principal,
         userId: target.userId,
         chatId: target.chatId,
       }),
@@ -1266,7 +1596,7 @@ export class ProactiveService {
    * Сюда попадают отложенные и запланированные события: если задачу закрыли, а
    * встречу отменили, напоминать о них нельзя.
    */
-  async reconcile(target, candidates, now, unavailable = [], denied = []) {
+  async reconcile(target, candidates, now, unavailable = [], denied = [], principal = this.principalOf(target)) {
     const byKey = new Map(candidates.map((candidate) => [candidate.key, candidate]))
     // Отказ по доступу — не повод отменять запись: доступ могут вернуть, а
     // «событие больше не актуально» здесь было бы неправдой.
@@ -1280,29 +1610,29 @@ export class ProactiveService {
       || (type === 'reminder' && missing.has('напоминания'))
     )
     const decisions = []
-    for (const item of [...this.store.items]) {
+    for (const item of [...this.store.itemsFor(principal)]) {
       if (item.type === 'review') continue
-      if (item.userId !== undefined && String(item.userId) !== String(target.userId)) continue
       if (deniedKeys.has(item.key)) continue
-      if (['sent', 'done', 'cancelled', 'reviewed', 'muted', 'expired'].includes(item.state)) continue
+      if (FINAL_STATES.has(item.state)) continue
       if (item.expiresAt && now.getTime() > Date.parse(item.expiresAt)) {
-        await this.store.setState(item.key, 'expired', { now, reason: 'истёк срок актуальности' })
-        decisions.push({ kind: 'expired', key: item.key, type: item.type, reason: 'истёк срок актуальности', userId: item.userId })
+        await this.store.setState(item.key, 'expired', { now, reason: 'истёк срок актуальности', principal })
+        decisions.push({ kind: 'expired', key: item.key, type: item.type, reason: 'истёк срок актуальности', principal, userId: item.userId })
         continue
       }
       if (item.state === 'claimed' && item.claimedAt && now.getTime() - Date.parse(item.claimedAt) > CLAIM_TTL_MS) {
-        await this.store.setState(item.key, 'planned', { now, reason: 'захват доставки истёк' })
+        await this.store.setState(item.key, 'planned', { now, reason: 'захват доставки истёк', principal })
         continue
       }
       if (sourceDown(item.type)) continue
       if (!byKey.has(item.key)) {
-        await this.store.setState(item.key, 'cancelled', { now, reason: 'событие больше не актуально' })
+        await this.store.setState(item.key, 'cancelled', { now, reason: 'событие больше не актуально', principal })
         decisions.push({
           kind: 'cancelled',
           key: item.key,
           type: item.type,
           reason: 'событие больше не актуально',
           source: item.source,
+          principal,
           userId: item.userId,
         })
       }
@@ -1310,26 +1640,31 @@ export class ProactiveService {
     return decisions
   }
 
-  /** Обзор: только значимое, один раз в местные сутки и после тихих часов. */
-  async planReview(target, gathered, candidates, now) {
-    const settings = this.settings
+  /** Обзор: только значимое, один раз в местные сутки получателя и после тихих часов. */
+  async planReview(target, gathered, candidates, now, principal = this.principalOf(target)) {
+    const settings = this.store.settingsFor(principal)
+    // Личное отключение: общий флаг по-прежнему выше, но этот человек
+    // отказался от рассылки, и его день не помечается как «обзор пропущен».
+    if (settings.enabled === false) {
+      return { kind: 'skipped', type: 'review', reason: 'проактивность выключена в настройках пользователя' }
+    }
     const day = dayKeyInZone(now, settings.tz)
-    if (this.store.watermark.reviewDay === day) return undefined
+    if (this.store.watermarkFor(principal).reviewDay === day) return undefined
     // Отложенный обзор ждёт назначенного времени, а не отправляется на следующем тике.
-    const existingReview = this.store.itemOf(candidateKey('review', day))
+    const existingReview = this.store.itemOf(candidateKey('review', day), principal)
     if (existingReview?.state === 'snoozed' && Date.parse(existingReview.snoozeUntil ?? existingReview.plannedAt) > now.getTime()) return undefined
     if (now.getTime() < reviewInstant(now, settings).getTime()) return undefined
-    if (!this.channelEnabled()) return { kind: 'skipped', type: 'review', reason: 'канал отключён' }
-    if (!this.categoryEnabled('review')) {
+    if (!this.channelEnabled(settings)) return { kind: 'skipped', type: 'review', reason: 'канал отключён' }
+    if (!this.categoryEnabled('review', settings)) {
       const decision = { kind: 'muted', type: 'review', reason: 'категория «обзор» отключена' }
-      if (this.enabled) await this.store.skipReview(day, decision.reason, { now })
+      if (this.enabled) await this.store.skipReview(day, decision.reason, { now, principal })
       return decision
     }
     if (isQuietNow(now, settings)) {
       const end = quietHoursEnd(now, { quiet: settings.quiet, timeZone: settings.tz })
       if (!end || end.getTime() >= endOfDayInstant(now, settings.tz).getTime()) {
         const decision = { kind: 'skipped', type: 'review', reason: 'тихие часы до конца дня' }
-        if (this.enabled) await this.store.skipReview(day, decision.reason, { now })
+        if (this.enabled) await this.store.skipReview(day, decision.reason, { now, principal })
         return decision
       }
       return { kind: 'deferred', type: 'review', reason: 'тихие часы', until: end.toISOString() }
@@ -1347,7 +1682,7 @@ export class ProactiveService {
     // Отложенное до более позднего срока в обзор не подмешиваем: иначе обзор
     // «съел» бы отложенное уведомление раньше времени.
     const reviewCandidates = candidates.filter((candidate) => {
-      const item = this.store.itemOf(candidate.key)
+      const item = this.store.itemOf(candidate.key, principal)
       if (item?.state !== 'snoozed') return true
       return Date.parse(item.snoozeUntil ?? item.plannedAt) <= now.getTime()
     })
@@ -1361,12 +1696,12 @@ export class ProactiveService {
       unavailable: gathered.unavailable,
     })
     if (built.empty) {
-      const decision = { kind: 'skipped', type: 'review', reason: 'обзор пуст: значимых пунктов нет' }
-      if (this.enabled) await this.store.skipReview(day, decision.reason, { now })
+      const decision = { kind: 'skipped', type: 'review', reason: 'обзор пуст: значимых пунктов нет', principal }
+      if (this.enabled) await this.store.skipReview(day, decision.reason, { now, principal })
       return decision
     }
-    if (this.store.sentToday(now).reviews >= REVIEW_LIMIT) {
-      return { kind: 'skipped', type: 'review', reason: 'обзор на сегодня уже отправлен' }
+    if (this.store.sentToday(now, principal).reviews >= REVIEW_LIMIT) {
+      return { kind: 'skipped', type: 'review', reason: 'обзор на сегодня уже отправлен', principal }
     }
 
     const candidate = makeCandidate({
@@ -1384,21 +1719,21 @@ export class ProactiveService {
     })
 
     if (!this.enabled) {
-      return { kind: 'dry-run', ...candidate, text: built.text, keys: built.keys }
+      return { kind: 'dry-run', ...candidate, principal, text: built.text, keys: built.keys }
     }
 
-    const claim = await this.store.claim(candidate, { now, review: true })
-    if (!claim.ok) return { kind: 'skipped', type: 'review', key: candidate.key, reason: claim.reason }
+    const claim = await this.store.claim(candidate, { now, review: true, principal })
+    if (!claim.ok) return { kind: 'skipped', type: 'review', key: candidate.key, reason: claim.reason, principal }
     try {
       await this.deliver(target.chatId, built.text, proactiveKeyboard(candidate.key))
-      await this.store.finish(candidate.key, { now, reviewDay: day })
-      await this.store.markReviewed(built.keys, { now })
-      this.logger?.info('proactive review sent', { chatId: target.chatId, day, points: built.count })
-      return { kind: 'sent', ...candidate, text: built.text, keys: built.keys }
+      await this.store.finish(candidate.key, { now, reviewDay: day, principal })
+      await this.store.markReviewed(built.keys, { now, principal })
+      this.logger?.info('proactive review sent', { chatId: target.chatId, principal, day, points: built.count })
+      return { kind: 'sent', ...candidate, principal, text: built.text, keys: built.keys }
     } catch (error) {
-      await this.store.release(candidate.key, { now, error })
-      this.logger?.error('proactive review delivery failed', { chatId: target.chatId, error })
-      return { kind: 'failed', type: 'review', key: candidate.key, reason: String(error?.message ?? error) }
+      await this.store.release(candidate.key, { now, error, principal })
+      this.logger?.error('proactive review delivery failed', { chatId: target.chatId, principal, error })
+      return { kind: 'failed', type: 'review', key: candidate.key, reason: String(error?.message ?? error), principal }
     }
   }
 
@@ -1422,31 +1757,35 @@ export class ProactiveService {
   }
 
   /** Инициативные уведомления: приоритет, бюджет, тихие часы, актуальность. */
-  async planInitiatives(target, candidates, now) {
+  async planInitiatives(target, candidates, now, principal = this.principalOf(target)) {
     const decisions = []
-    const settings = this.settings
+    const settings = this.store.settingsFor(principal)
     for (const candidate of candidates) {
       if (candidate.reviewOnly || candidate.type === 'review') continue
-      const item = this.store.itemOf(candidate.key)
-      if (item && ['sent', 'done', 'cancelled', 'reviewed', 'muted', 'expired'].includes(item.state)) continue
+      if (settings.enabled === false) {
+        decisions.push({ kind: 'skipped', key: candidate.key, type: candidate.type, reason: 'проактивность выключена в настройках пользователя' })
+        continue
+      }
+      const item = this.store.itemOf(candidate.key, principal)
+      if (item && FINAL_STATES.has(item.state)) continue
       // Отложенное «ждёт решения» закрылось само: это не напоминание, а отмена.
       if (item && item.state === 'snoozed' && candidate.type === 'task' && candidate.change === 'completed') {
-        await this.store.setState(item.key, 'cancelled', { now, reason: 'отменено по актуальности: задача завершена' })
+        await this.store.setState(item.key, 'cancelled', { now, reason: 'отменено по актуальности: задача завершена', principal })
         decisions.push({ kind: 'cancelled', key: item.key, type: item.type, reason: 'отменено по актуальности: задача завершена', source: item.source, userId: item.userId })
         continue
       }
       if (item && item.state === 'snoozed' && Date.parse(item.snoozeUntil ?? item.plannedAt) > now.getTime()) continue
       if (item && item.state === 'claimed' && item.claimedAt && now.getTime() - Date.parse(item.claimedAt) < CLAIM_TTL_MS) continue
-      if (!this.channelEnabled()) {
+      if (!this.channelEnabled(settings)) {
         decisions.push({ kind: 'skipped', key: candidate.key, type: candidate.type, reason: 'канал отключён' })
         continue
       }
-      if (!this.categoryEnabled(candidate.type)) {
+      if (!this.categoryEnabled(candidate.type, settings)) {
         decisions.push({ kind: 'muted', key: candidate.key, type: candidate.type, reason: `категория «${TYPE_LABEL[candidate.type] ?? candidate.type}» отключена` })
         continue
       }
       if (now.getTime() > Date.parse(candidate.expiresAt)) {
-        if (item) await this.store.setState(item.key, 'expired', { now, reason: 'истёк срок актуальности' })
+        if (item) await this.store.setState(item.key, 'expired', { now, reason: 'истёк срок актуальности', principal })
         decisions.push({ kind: 'expired', key: candidate.key, type: candidate.type, reason: 'истёк срок актуальности' })
         continue
       }
@@ -1454,7 +1793,7 @@ export class ProactiveService {
         decisions.push({ kind: 'deferred', key: candidate.key, type: candidate.type, reason: 'тихие часы' })
         continue
       }
-      if (this.store.sentToday(now).count >= settings.dayLimit) {
+      if (this.store.sentToday(now, principal).count >= settings.dayLimit) {
         decisions.push({ kind: 'deferred', key: candidate.key, type: candidate.type, reason: 'дневной предел исчерпан' })
         continue
       }
@@ -1477,7 +1816,7 @@ export class ProactiveService {
         continue
       }
 
-      const claim = await this.store.claim(candidate, { now })
+      const claim = await this.store.claim(candidate, { now, principal })
       if (!claim.ok) {
         decisions.push({ kind: 'deferred', key: candidate.key, type: candidate.type, reason: claim.reason })
         continue
@@ -1485,12 +1824,12 @@ export class ProactiveService {
       try {
         const text = notificationText(candidate)
         await this.deliver(target.chatId, text, proactiveKeyboard(candidate.key))
-        await this.store.finish(candidate.key, { now })
-        this.logger?.info('proactive sent', { chatId: target.chatId, key: candidate.key, type: candidate.type, priority: candidate.priority })
+        await this.store.finish(candidate.key, { now, principal })
+        this.logger?.info('proactive sent', { chatId: target.chatId, principal, key: candidate.key, type: candidate.type, priority: candidate.priority })
         decisions.push({ kind: 'sent', ...candidate, text })
       } catch (error) {
-        await this.store.release(candidate.key, { now, error })
-        this.logger?.error('proactive delivery failed', { chatId: target.chatId, key: candidate.key, error })
+        await this.store.release(candidate.key, { now, error, principal })
+        this.logger?.error('proactive delivery failed', { chatId: target.chatId, principal, key: candidate.key, error })
         decisions.push({ kind: 'failed', key: candidate.key, type: candidate.type, reason: String(error?.message ?? error) })
       }
     }
@@ -1499,6 +1838,10 @@ export class ProactiveService {
 
   /**
    * Один тик. Обычно его зовёт существующий планировщик напоминаний.
+   *
+   * Перебираются получатели, а не общий store: у каждого свои кандидаты (ACL),
+   * бюджет, watermark обзора и запись решения. Пустой обзор одного не
+   * подавляет обзор другого.
    *
    * @param {object} [options] - `now`, `force`.
    * @returns {Promise<Array<object>>} принятые решения (для журнала и тестов).
@@ -1513,17 +1856,27 @@ export class ProactiveService {
     try {
       await this.store.refresh()
       const gathered = await this.gather(at)
+      const seen = new Set()
       for (const target of this.targets) {
+        const principal = this.principalOf(target)
+        if (seen.has(principal)) continue
+        seen.add(principal)
+        const tag = (decision) => ({
+          ...decision,
+          principal,
+          ...(decision.userId === undefined ? { userId: target.userId } : {}),
+          ...(decision.chatId === undefined ? { chatId: target.chatId } : {}),
+        })
         const denied = []
         const candidates = this.candidatesFor(target, gathered, at, denied)
-        decisions.push(...denied)
-        decisions.push(...await this.reconcile(target, candidates, at, gathered.unavailable, denied))
-        const review = await this.planReview(target, gathered, candidates, at)
-        if (review) decisions.push(review)
-        decisions.push(...await this.planInitiatives(target, candidates, at))
+        decisions.push(...denied.map(tag))
+        decisions.push(...(await this.reconcile(target, candidates, at, gathered.unavailable, denied, principal)).map(tag))
+        const review = await this.planReview(target, gathered, candidates, at, principal)
+        if (review) decisions.push(tag(review))
+        decisions.push(...(await this.planInitiatives(target, candidates, at, principal)).map(tag))
       }
       const fresh = decisions.filter((decision) => {
-        const signature = [decision.kind, decision.key ?? decision.type, decision.reason ?? ''].join('|')
+        const signature = [decision.principal ?? '', decision.kind, decision.key ?? decision.type, decision.reason ?? ''].join('|')
         if (this.reported.has(signature)) return false
         // Набор живёт в памяти процесса; ограничиваем его, чтобы долгая работа
         // не превращалась в утечку.
@@ -1559,21 +1912,25 @@ export class ProactiveService {
    * Объяснение последнего уведомления по запросу пользователя.
    *
    * @param {number|string} [userId] - чей запрос; чужие события не раскрываются.
+   * @param {string} [channel] - канал; по умолчанию канал сервиса.
    * @returns {string} краткий ответ с причиной и источником.
    */
-  explainLast(userId) {
+  explainLast(userId, channel = this.channel) {
+    const principal = userId === undefined ? undefined : principalKey(channel, userId)
     const own = this.store.journal.filter((entry) => (
       ['sent', 'dry-run'].includes(entry.kind)
       // Чужая запись без владельца тоже не объясняется: лучше промолчать,
-      // чем показать данные другого пространства.
-      && (userId === undefined || (entry.userId !== undefined && String(entry.userId) === String(userId)))
+      // чем показать данные другого пространства. Сначала смотрим на
+      // получателя (`principal`), затем на старые записи без него.
+      && (userId === undefined
+        || (entry.principal !== undefined
+          ? entry.principal === principal
+          : (entry.userId !== undefined && String(entry.userId) === String(userId))))
     ))
     const last = own.at(-1)
     if (!last) {
-      const item = [...this.store.items].reverse().find((entry) => (
-        entry.state === 'sent'
-        && (userId === undefined || (entry.userId !== undefined && String(entry.userId) === String(userId)))
-      ))
+      const visible = principal ? this.store.itemsFor(principal) : this.store.items
+      const item = [...visible].reverse().find((entry) => entry.state === 'sent')
       if (!item) return 'Инициативных уведомлений пока не было — объяснять нечего.'
       return this.whyText(item)
     }
@@ -1583,33 +1940,44 @@ export class ProactiveService {
   /**
    * Нажатие кнопки уведомления.
    *
-   * @param {object} request - `action` (open/done/snooze/mute), `key`, `userId`, `now`.
+   * @param {object} request - `action` (open/done/snooze/mute), `key`, `userId`, `channel`, `now`.
    * @returns {Promise<{toast: string, outcome?: string, denied?: boolean}>} ответ для кнопки.
    */
-  async handleAction({ action, key, userId, now = this.now() } = {}) {
+  async handleAction({ action, key, userId, channel = this.channel, now = this.now() } = {}) {
     const at = asDate(now)
-    const item = this.store.itemOf(key)
+    const principal = userId === undefined ? undefined : principalKey(channel, userId)
+    // Сначала ищем доставку именно этого человека: общий объект у A и B
+    // имеет один ключ, но разные состояния.
+    let item = principal ? this.store.itemOf(key, principal) : this.store.itemOf(key)
     if (!item) {
-      return { toast: 'Уведомление уже неактивно', outcome: 'Это уведомление больше не актуально.' }
+      // Запись есть, но этому человеку не доставлялась — не раскрываем её.
+      const any = this.store.itemOf(key)
+      if (!any) return { toast: 'Уведомление уже неактивно', outcome: 'Это уведомление больше не актуально.' }
+      return { toast: 'Нет доступа', outcome: 'Это уведомление из другой области.', denied: true }
     }
-    if (userId !== undefined && item.userId !== undefined && String(item.userId) !== String(userId)) {
+    if (principal && item.principal !== principal) {
+      return { toast: 'Нет доступа', outcome: 'Это уведомление из другой области.', denied: true }
+    }
+    if (userId !== undefined && item.userId !== undefined && String(item.userId) !== String(userId) && item.principal !== principal) {
       return { toast: 'Нет доступа', outcome: 'Это уведомление из другой области.', denied: true }
     }
     if (action === 'open') {
       return { toast: 'Почему это пришло', outcome: this.whyText(item) }
     }
+    const who = item.principal ?? principal ?? this.store.ownerPrincipal
     if (action === 'done') {
-      await this.store.setState(key, 'done', { now: at, reason: 'отмечено выполненным' })
+      await this.store.setState(key, 'done', { now: at, reason: 'отмечено выполненным', principal: who })
       return { toast: 'Отмечено выполненным', outcome: `✅ Выполнено: ${item.title}` }
     }
     if (action === 'snooze') {
-      const minutes = this.settings.snoozeMinutes ?? DEFAULT_SNOOZE_MINUTES
-      const moved = await this.store.snooze(key, { now: at, minutes })
-      const until = moved ? formatLocalTime(moved.snoozeUntil ?? moved.plannedAt, this.settings.tz) : ''
+      const settings = this.store.settingsFor(who)
+      const minutes = settings.snoozeMinutes ?? DEFAULT_SNOOZE_MINUTES
+      const moved = await this.store.snooze(key, { now: at, minutes, principal: who })
+      const until = moved ? formatLocalTime(moved.snoozeUntil ?? moved.plannedAt, settings.tz) : ''
       return { toast: `Отложено на ${minutes} мин`, outcome: `⏰ Отложено до ${until}. Проверю актуальность перед напоминанием.` }
     }
     if (action === 'mute') {
-      await this.store.mute(item.type)
+      await this.store.mute(item.type, who)
       return { toast: 'Тип отключён', outcome: `🔕 Уведомления типа «${TYPE_LABEL[item.type] ?? item.type}» отключены.` }
     }
     return { toast: 'Не понял действие' }

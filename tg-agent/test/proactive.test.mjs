@@ -54,6 +54,7 @@ async function makeStore(file, overrides = {}) {
     quiet: { start: 23 * 60, end: 8 * 60 },
     reviewAt: '23:59',
     dayLimit: 3,
+    owner: { userId: 7 },
     ...overrides,
   })
   await store.load()
@@ -513,8 +514,8 @@ test('миграция proactive.json: копия до изменения и и�
     assert.equal(afterFirst.length, 1, 'копия старой схемы сделана')
     assert.equal(store.settings.tz, ZONE)
     const saved = JSON.parse(await fs.readFile(ctx.file, 'utf8'))
-    assert.equal(saved.version, 1)
-    assert.equal(saved.settings.tz, ZONE)
+    assert.equal(saved.version, 2)
+    assert.equal(saved.users['telegram:7'].settings.tz, ZONE)
 
     const again = await makeStore(ctx.file)
     const afterSecond = (await fs.readdir(ctx.dir)).filter((name) => name.includes('.bak-'))
