@@ -9,12 +9,21 @@
    где адресная строка и нижняя панель перекрывают низ экрана. */
 function syncAppHeight() {
   const viewport = window.visualViewport
-  const height = Math.round((viewport && viewport.height) || window.innerHeight || 0)
+  // Берём минимум: если браузер отдаёт завышенную высоту (или клавиатура
+  // уменьшила visualViewport), нижняя панель не уедет за экран.
+  const candidates = [
+    viewport && viewport.height,
+    document.documentElement.clientHeight,
+    window.innerHeight
+  ].filter((value) => Number.isFinite(value) && value > 0)
+  if (candidates.length === 0) return
+  const height = Math.round(Math.min(...candidates))
   if (height > 0) document.documentElement.style.setProperty('--app-height', height + 'px')
 }
 
 syncAppHeight()
 window.addEventListener('resize', syncAppHeight)
+window.addEventListener('load', syncAppHeight)
 window.addEventListener('orientationchange', () => setTimeout(syncAppHeight, 200))
 if (window.visualViewport) {
   window.visualViewport.addEventListener('resize', syncAppHeight)
