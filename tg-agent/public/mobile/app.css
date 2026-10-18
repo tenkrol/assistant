@@ -171,7 +171,11 @@ svg.ic {
   position: relative;
   display: flex;
   flex-direction: column;
+  /* Старые мобильные браузеры (в том числе Яндекс) могут не знать 100dvh:
+     сначала vh, затем dvh, затем высота из visualViewport, которую ставит JS. */
+  height: 100vh;
   height: 100dvh;
+  height: var(--app-height, 100dvh);
   max-width: 520px;
   margin: 0 auto;
   overflow: hidden;
@@ -3205,4 +3209,16 @@ html.large-text .setting-row span {
   border: 1px solid var(--border-2);
   font-size: 13px;
   line-height: 1.5;
+}
+
+
+/* Нижняя панель не должна прятаться за системной навигацией мобильного браузера */
+.tabbar {
+  padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+}
+
+@media (pointer: coarse) {
+  .tabbar {
+    padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+  }
 }

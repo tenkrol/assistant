@@ -5,6 +5,22 @@
  * `/api/*` мини-приложения. Cookie сессии HttpOnly, клиент её не видит; каждый
  * изменяющий запрос несёт `X-Mobile-Client: 1` — сервер отклоняет чужие Origin.
  */
+/* Высота приложения: visualViewport точнее 100dvh в мобильных браузерах,
+   где адресная строка и нижняя панель перекрывают низ экрана. */
+function syncAppHeight() {
+  const viewport = window.visualViewport
+  const height = Math.round((viewport && viewport.height) || window.innerHeight || 0)
+  if (height > 0) document.documentElement.style.setProperty('--app-height', height + 'px')
+}
+
+syncAppHeight()
+window.addEventListener('resize', syncAppHeight)
+window.addEventListener('orientationchange', () => setTimeout(syncAppHeight, 200))
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', syncAppHeight)
+  window.visualViewport.addEventListener('scroll', syncAppHeight)
+}
+
 const $ = (id) => document.getElementById(id)
 
 const h = (tag, className, text) => {
