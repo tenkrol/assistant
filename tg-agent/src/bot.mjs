@@ -352,21 +352,39 @@ export class Assistant {
       if (message.attachments.length > 0) {
         for (const [index, attachment] of message.attachments.entries()) {
           const method = attachment.kind === 'video' ? 'sendVideo' : 'sendPhoto'
-          const relay = typeof this.platform[method] === 'function'
-            ? await this.platform[method]({
-              chatId: message.chat.id,
-              bytes: attachment.bytes,
-              fileName: attachment.name,
-              mime: attachment.mime,
-              caption: index === 0 ? caption.slice(0, 1024) : undefined,
-            })
-            : await this.platform.sendDocument({
-              chatId: message.chat.id,
-              bytes: attachment.bytes,
-              fileName: attachment.name,
-              caption: index === 0 ? caption.slice(0, 1024) : undefined,
-            })
-          if (index === 0) relayedMessageId = relay?.messageId
+          const captionText = index === 0 ? caption.slice(0, 1024) : undefined
+          let relay
+          try {
+            relay = typeof this.platform[method] === 'function'
+              ? await this.platform[method]({
+                chatId: message.chat.id,
+                bytes: attachment.bytes,
+                fileName: attachment.name,
+                mime: attachment.mime,
+                caption: captionText,
+              })
+              : await this.platform.sendDocument({
+                chatId: message.chat.id,
+                bytes: attachment.bytes,
+                fileName: attachment.name,
+                caption: captionText,
+              })
+          } catch (error) {
+            // Telegram может не принять конкретный файл (например, битое фото).
+            // Это не повод терять ответ на сайте: пробуем документом, иначе логируем.
+            this.logger.warn('web media relay failed, trying document', { error, kind: attachment.kind })
+            try {
+              relay = await this.platform.sendDocument({
+                chatId: message.chat.id,
+                bytes: attachment.bytes,
+                fileName: attachment.name,
+                caption: captionText,
+              })
+            } catch (fallbackError) {
+              this.logger.warn('web media document relay failed', { error: fallbackError })
+            }
+          }
+          if (index === 0 && relay?.messageId) relayedMessageId = relay.messageId
         }
       } else if (caption.trim() !== '') {
         const relayed = await this.platform.sendText({
