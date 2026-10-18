@@ -491,7 +491,7 @@ function showApp(session) {
     loadStats()
   ])
   refreshProfile()
-  startGroupPoll()
+  startChatPoll()
   void refreshPushToggle()
 }
 
@@ -636,10 +636,10 @@ function sameMessages(left, right) {
     && (item.replyTo && item.replyTo.text ? item.replyTo.text : '') === (right[index].replyTo && right[index].replyTo.text ? right[index].replyTo.text : ''))
 }
 
-async function refreshGroupChat() {
+async function refreshChatHistory() {
   if (groupPollInFlight || document.hidden || currentScreen !== 'chat') return
   const target = state.chatTarget
-  if (!target || target.type === 'private' || state.loading.chat) return
+  if (!target || state.loading.chat) return
   if (state.chatSending) return
   groupPollInFlight = true
   try {
@@ -659,9 +659,9 @@ async function refreshGroupChat() {
   }
 }
 
-function startGroupPoll() {
+function startChatPoll() {
   if (groupPollTimer) return
-  groupPollTimer = setInterval(() => { void refreshGroupChat() }, 5000)
+  groupPollTimer = setInterval(() => { void refreshChatHistory() }, 5000)
 }
 
 let chatLoadSeq = 0

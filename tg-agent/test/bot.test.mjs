@@ -1859,7 +1859,7 @@ test('an explicit creation request still forces the tool', async () => {
   }
 })
 
-test('веб-сообщение проходит через конвейер и не уходит в Telegram', async () => {
+test('веб-сообщение проходит через конвейер и пересылается в Telegram', async () => {
   const ctx = await setup({ responses: [{ content: 'ответ с сайта' }] })
   try {
     const result = await ctx.bot.handleWebMessage({
@@ -1870,7 +1870,9 @@ test('веб-сообщение проходит через конвейер и 
     })
     assert.ok(result.sends.length >= 1, 'сайт получил ответ')
     assert.match(result.sends.map((entry) => entry.text).join('\n'), /ответ с сайта/)
-    assert.equal(ctx.telegramStub.state.sends.length, 0, 'в Telegram ничего не отправлено')
+    assert.equal(ctx.telegramStub.state.sends.length, 2, 'сообщение и ответ пересланы в Telegram')
+    assert.match(ctx.telegramStub.state.sends[0].text, /Вячеслав \(с сайта\)/)
+    assert.match(ctx.telegramStub.state.sends[1].text, /ответ с сайта/)
     await ctx.history.flush()
     const history = await historyFile(ctx.dir)
     const chat = history.chats[String(ALLOWED)] ?? history.chats[ALLOWED]
@@ -1882,7 +1884,7 @@ test('веб-сообщение проходит через конвейер и 
   }
 })
 
-test('веб-команда возвращает ответ на сайт, а не в Telegram', async () => {
+test('веб-команда возвращает ответ на сайт и пересылает его в Telegram', async () => {
   const ctx = await setup({ updates: [] })
   try {
     const result = await ctx.bot.handleWebMessage({
@@ -1892,7 +1894,9 @@ test('веб-команда возвращает ответ на сайт, а н
       name: 'Вячеслав',
     })
     assert.ok(result.sends.some((entry) => entry.text.includes(String(ALLOWED))))
-    assert.equal(ctx.telegramStub.state.sends.length, 0)
+    assert.equal(ctx.telegramStub.state.sends.length, 2)
+    assert.match(ctx.telegramStub.state.sends[0].text, /\/whoami/)
+    assert.match(ctx.telegramStub.state.sends[1].text, new RegExp(String(ALLOWED)))
   } finally {
     await ctx.cleanup()
   }
