@@ -171,6 +171,11 @@ export class MobilePushStore {
     return this.subscriptions.filter((item) => wanted.has(String(item.userId)))
   }
 
+  /** Сбросить изменения на диск (после удаления протухших подписок). */
+  async flush() {
+    await this.storage.flush()
+  }
+
   /** Добавить или обновить подписку; один endpoint — одна запись. */
   async add({ userId, subscription } = {}) {
     const id = Number(userId)
