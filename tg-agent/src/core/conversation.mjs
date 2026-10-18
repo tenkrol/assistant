@@ -16,6 +16,7 @@
  */
 import { formatTimeContext } from '../time-context.mjs'
 import { prepareAttachments } from '../media-handler.mjs'
+import { citationBlock, locatorText } from '../documents.mjs'
 import { detectFacts } from '../auto-memory.mjs'
 import { characterHint as personaCharacterHint } from '../personas.mjs'
 import { parsePollAction, pollKeyboard, pollMessage } from '../polls.mjs'
@@ -292,8 +293,23 @@ export function createConversation(bot) {
           media: bot.media,
           limits: { maxBytes: bot.config.media?.maxBytes },
           logger: bot.logger,
+          // Документ сохраняется как источник до ответа модели: так он остаётся
+          // доступным для поиска и после этого хода.
+          onDocument: bot.documents
+            ? async ({ attachment, bytes }) => {
+              const result = await bot.documents.ingest({
+                userId,
+                chatId,
+                fileName: attachment.name,
+                mimeType: attachment.mime,
+                bytes,
+                limits: bot.config.documents,
+              })
+              return result.note ?? result.error
+            }
+            : undefined,
         })
-        : { parts: [], notes: [], summary: '' }
+        : { parts: [], notes: [], notices: [], summary: '' }
       // Из вложений ничего не вышло (сканированный PDF, голосовое без
       // распознавателя), а подписи нет: спрашивать модель с пустым сообщением
       // значило бы получить «модель ничего не вернула», то есть тишину. Говорим,
@@ -302,7 +318,8 @@ export function createConversation(bot) {
         const reason = prepared.notes.length > 0
           ? prepared.notes.map((note) => `⚠️ ${note}`).join('\n')
           : '⚠️ Не удалось разобрать вложение.'
-        await bot.send(chatId, `${reason}\n\nПришлите текст сообщением или файл в другом формате — отвечу по содержимому.`, message.message_id)
+        const saved = prepared.notices?.length > 0 ? `${prepared.notices.join('\n')}\n\n` : ''
+        await bot.send(chatId, `${saved}${reason}\n\nПришлите текст сообщением или файл в другом формате — отвечу по содержимому.`, message.message_id)
         void bot.react(message, '🤔')
         return
       }
@@ -466,7 +483,21 @@ export function createConversation(bot) {
       }
 
       // Шаг 5. Ответ и действия.
-      const text = answer.text.trim()
+      let text = answer.text.trim()
+      // Документ — источник, а не повод для фантазии: если инструмент не нашёл
+      // подтверждения, звучит его честный отказ; если нашёл — в ответе обязан
+      // быть проверяемый фрагмент, даже когда модель забыла его привести.
+      const documentsOutcome = toolResults.get('documents')
+      if (documentsOutcome?.enforceRefusal) {
+        text = documentsOutcome.text
+      } else if (documentsOutcome?.citations?.length) {
+        const missing = documentsOutcome.citations.filter((citation) => (
+          !text.includes(citation.snippet)
+          || !text.includes(citation.documentTitle)
+          || !text.includes(locatorText(citation.locator))
+        ))
+        if (missing.length > 0) text = `${text}\n\n${citationBlock(missing)}`
+      }
       bot.logger.info('model answered', {
         chatId,
         model: answer.model ?? model,
@@ -512,6 +543,10 @@ export function createConversation(bot) {
       // Голосовые ответы включаются отдельно для чата (`/voice вкл`): текст
       // приходит всегда, озвучка добавляется поверх него.
       await bot.speakAnswer(chatId, text, message)
+      // Сохранение документа в источник подтверждается отдельно от ответа.
+      if (prepared.notices?.length > 0) {
+        await bot.send(chatId, prepared.notices.join('\n')).catch(() => {})
+      }
       // Всё, что не удалось использовать (нераспознанное голосовое, сканированный
       // PDF), сообщается один раз, после ответа.
       if (prepared.notes.length > 0) {

@@ -39,6 +39,7 @@ import { ProactiveService, ProactiveStore } from './proactive.mjs'
 import { createTranscriber } from './stt.mjs'
 import { createSynthesizer } from './tts.mjs'
 import { createFileTool } from './file-tool.mjs'
+import { DocumentStore, createDocumentsTool, createModelSemanticRanker } from './documents.mjs'
 import { createSmartHomeTool } from './smart-home.mjs'
 import { createHolidaysTool } from './holidays.mjs'
 import { createJokeSource, createJokeTool } from './jokes.mjs'
@@ -263,7 +264,7 @@ export async function createInstance({ config, logger, instance, shared, platfor
       allowedUserIds: new Set([...config.access.allowedUserIds, ...(config.access.allowedByPlatform?.[instance.platform] ?? [])]),
     },
   }
-  const { model, webTools, holidays, jokes, files } = shared
+  const { model, webTools, holidays, jokes, files, ocr } = shared
   // Пространства читаются первыми: без них миграция не знает личных областей.
   const scopes = {
     store: new ScopeStore({ file: stateFile(botConfig.dataDir, 'scopes', instance.namespace), logger }),
@@ -398,7 +399,36 @@ export async function createInstance({ config, logger, instance, shared, platfor
     polls.tool = createPollTool({ store: polls.store })
   }
 
-  const bot = new Assistant({ config: botConfig, platform, model, history, webTools, agentBridge, agentLink, reminders, profiles, usage, media, tts, files, events, polls, youtube, server, access, scopes, logger })
+  // Документы как источник: оригиналы, текст с локаторами и поиск под ACL.
+  // Флаг `DOCUMENTS_ENABLED=false` оставляет прежнее поведение без домена.
+  let documents = botConfig.documents?.enabled === false
+    ? undefined
+    : new DocumentStore({
+      dataDir: botConfig.dataDir,
+      file: stateFile(botConfig.dataDir, 'documents', instance.namespace),
+      access,
+      logger,
+      limits: botConfig.documents,
+      ocr,
+      semantic: botConfig.documents?.semantic !== false && typeof model?.complete === 'function'
+        ? createModelSemanticRanker({ model, modelName: botConfig.model.name, logger })
+        : undefined,
+      linkTtlMs: botConfig.documents?.linkTtlMs,
+      cacheTtlMs: botConfig.documents?.cacheTtlMs,
+    })
+  if (documents) {
+    try {
+      await documents.load()
+      documents.tool = createDocumentsTool({ store: documents, logger })
+    } catch (error) {
+      // Файл документов новее кода или повреждён не по-нашему: не затираем его
+      // и не роняем остальных ботов. Домен просто выключен до разбора.
+      logger.error('documents disabled: store failed to load', { error: error?.message ?? error })
+      documents = undefined
+    }
+  }
+
+  const bot = new Assistant({ config: botConfig, platform, model, history, webTools, agentBridge, agentLink, reminders, profiles, usage, media, tts, files, documents, events, polls, youtube, server, access, scopes, logger })
   bot.agentEvents = agentEvents
 
   // Миграция записей без `scope_id` в личные пространства. Копия файлов

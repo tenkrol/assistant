@@ -116,6 +116,15 @@ const DEFAULTS = {
   ALERT_TEMP_MAX: '30',
   ALERT_WIND_KMH: '40',
   MEDIA_MAX_BYTES: '20000000',
+  // Документы как источник ответов (PLB-021). По умолчанию включены.
+  DOCUMENTS_ENABLED: 'true',
+  DOCUMENTS_MAX_BYTES: '20971520',
+  DOCUMENTS_MAX_PAGES: '300',
+  DOCUMENTS_MAX_CHARS: '2000000',
+  DOCUMENTS_TIMEOUT_MS: '10000',
+  DOCUMENTS_LINK_TTL_SEC: '300',
+  DOCUMENTS_CACHE_TTL_SEC: '60',
+  DOCUMENTS_SEMANTIC: 'true',
   STREAM: 'true',
   REACTIONS: 'false',
   STREAM_THROTTLE_MS: '900',
@@ -592,6 +601,18 @@ export function loadConfig(env = process.env) {
     // Voice notes and documents: an optional transcriber plus size limits.
     media: {
       maxBytes: readInt(env, 'MEDIA_MAX_BYTES', { min: 1000, max: 50_000_000 }),
+    },
+    // Документы как источник ответов: приём, индекс, поиск и ссылки. Флаг
+    // оставлен для отката: выключенный домен не принимает и не ищет документы.
+    documents: {
+      enabled: readBool(env, 'DOCUMENTS_ENABLED'),
+      maxBytes: readInt(env, 'DOCUMENTS_MAX_BYTES', { min: 1024, max: 500_000_000 }),
+      maxPages: readInt(env, 'DOCUMENTS_MAX_PAGES', { min: 1, max: 10_000 }),
+      maxChars: readInt(env, 'DOCUMENTS_MAX_CHARS', { min: 1000, max: 50_000_000 }),
+      timeoutMs: readInt(env, 'DOCUMENTS_TIMEOUT_MS', { min: 100, max: 600_000 }),
+      linkTtlMs: readInt(env, 'DOCUMENTS_LINK_TTL_SEC', { min: 1, max: 86_400 }) * 1000,
+      cacheTtlMs: readInt(env, 'DOCUMENTS_CACHE_TTL_SEC', { min: 1, max: 3600 }) * 1000,
+      semantic: readBool(env, 'DOCUMENTS_SEMANTIC'),
     },
     // Voice answers: the same SpeechKit key can synthesise, so it falls back to it.
     tts: {

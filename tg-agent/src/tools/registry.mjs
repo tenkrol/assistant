@@ -34,6 +34,7 @@ import { createSendToTool } from './sendto-tool.mjs'
  * @param {object} [options.events] - `{ store, tool }` календаря.
  * @param {object} [options.polls] - `{ store, tool }` опросов.
  * @param {object} [options.files] - инструмент файлов.
+ * @param {object} [options.documents] - инструмент документов (поиск с ACL и цитатами).
  * @param {object} [options.youtube] - инструмент YouTube.
  * @param {object} [options.server] - инструмент состояния сервера.
  * @param {object} [options.contacts] - справочник контактов для `sendto`.
@@ -54,6 +55,7 @@ export function createToolRegistry({
   events,
   polls,
   files,
+  documents,
   youtube,
   server,
   contacts,
@@ -130,6 +132,7 @@ export function createToolRegistry({
   add(reminders?.tool ?? (reminders?.store ? createReminderTool({ store: reminders.store, timeZone, logger }) : undefined))
   add(profiles?.tool ?? (profiles?.store ? createProfileTool({ store: profiles.store, logger }) : undefined))
   add(files)
+  add(documents)
   add(events?.tool ?? (events?.store ? createEventTool({ store: events.store, reminders: reminders?.store, timeZone, logger }) : undefined))
   add(polls?.tool ?? (polls?.store ? createPollTool({ store: polls.store }) : undefined))
   add(youtube)

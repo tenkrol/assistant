@@ -1223,3 +1223,23 @@ function cleanupText(text) {
 }
 
 const positiveInt = (value, fallback) => (Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback)
+
+// Внутренние разборщики нужны домену документов: он строит блоки с локаторами
+// (страница PDF, заголовок и абзац DOCX, лист и строка XLSX), а не только
+// сплошной текст. Экспорт ничего не меняет в поведении `extractText`.
+export {
+  cleanupText,
+  countPdfPages,
+  decodeXmlEntities,
+  elementName,
+  inflateFirst,
+  parseSharedStrings,
+  parseSheetRows,
+  pdfContentToText,
+  pdfStreams,
+  readEntry,
+  readEntryText,
+  readZipEntries,
+  renderRow,
+  resolveSheets,
+}

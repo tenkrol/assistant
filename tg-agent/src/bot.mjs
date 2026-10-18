@@ -68,7 +68,7 @@ export class Assistant {
    * @param {object} [options.scopes] - `{ store }` пространств.
    * @param {object} options.logger - логгер.
    */
-  constructor({ config, platform, model, history, webTools, agentBridge, agentLink, reminders, profiles, usage, digest, media, tts, files, events, polls, youtube, server, access, scopes, logger }) {
+  constructor({ config, platform, model, history, webTools, agentBridge, agentLink, reminders, profiles, usage, digest, media, tts, files, documents, events, polls, youtube, server, access, scopes, logger }) {
     this.config = config
     // Пространства и доступ: единственная точка проверки для всех хранилищ.
     this.access = access
@@ -94,6 +94,8 @@ export class Assistant {
     this.tts = tts
     // Собирает документы для пользователя; отправляет их адаптер платформы.
     this.files = files
+    // Документы как источник ответов: приём, поиск с ACL и цитаты.
+    this.documents = documents
     // Локальный календарь: события, которые бот записывает и показывает.
     this.events = events
     // Опросы, конспекты видео и самодиагностика.
@@ -123,6 +125,7 @@ export class Assistant {
       events,
       polls,
       files,
+      documents: documents?.tool,
       youtube,
       server,
       contacts: this.contacts,
