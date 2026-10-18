@@ -21,13 +21,23 @@ function syncAppHeight() {
   if (candidates.length === 0) return
   const height = Math.round(Math.min(...candidates))
   if (height <= 0) return
-  const previous = stableViewportHeight
-  if (height > previous) stableViewportHeight = height
+  if (stableViewportHeight === 0) stableViewportHeight = height
   // Клавиатура уменьшает видимую высоту заметно сильнее, чем панель браузера.
-  const keyboard = stableViewportHeight > 0 && height < stableViewportHeight * 0.8
+  const keyboard = height < stableViewportHeight * 0.8
   const wasKeyboard = document.body.classList.contains('is-keyboard')
+  const inset = keyboard ? Math.max(0, stableViewportHeight - height) : 0
+  document.documentElement.style.setProperty('--keyboard-inset', inset + 'px')
+  // При клавиатуре высоту приложения НЕ уменьшаем: иначе iOS Safari
+  // прокручивает visual viewport и шапка уезжает, оставляя пустоту.
+  document.documentElement.style.setProperty('--app-height', (keyboard ? stableViewportHeight : height) + 'px')
   document.body.classList.toggle('is-keyboard', keyboard)
-  document.documentElement.style.setProperty('--app-height', height + 'px')
+  if (!keyboard) stableViewportHeight = height
+  if (keyboard) {
+    // Safari иногда панорамирует страницу под клавиатуру даже при overflow:hidden.
+    window.scrollTo(0, 0)
+    document.documentElement.scrollTop = 0
+    document.body.scrollTop = 0
+  }
   if (keyboard && !wasKeyboard && document.body.dataset.screen === 'chat') {
     requestAnimationFrame(() => {
       if (typeof chatScrollToBottom === 'function') chatScrollToBottom()
