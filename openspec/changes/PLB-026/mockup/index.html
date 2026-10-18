@@ -1,0 +1,673 @@
+<!doctype html>
+<html lang="ru" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark light">
+<meta name="theme-color" content="#101923">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Ассистент">
+<title>Ассистент — мобильный пульт</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body data-screen="chat">
+<div class="app" id="app">
+
+  <!-- Спрайт иконок: инлайн, без внешних файлов -->
+  <svg aria-hidden="true" style="position:absolute;width:0;height:0;overflow:hidden">
+    <defs>
+      <symbol id="i-spark" viewBox="0 0 24 24"><path d="M12 3l1.6 4.7 4.7 1.6-4.7 1.6L12 15.6l-1.6-4.7L5.7 9.3l4.7-1.6L12 3Z"/><path d="M18.7 15.2l.7 2 2 .7-2 .7-.7 2-.7-2-2-.7 2-.7.7-2Z"/><path d="M5.5 14.5l.5 1.4 1.4.5-1.4.5-.5 1.4-.5-1.4-1.4-.5 1.4-.5.5-1.4Z"/></symbol>
+      <symbol id="i-chat" viewBox="0 0 24 24"><path d="M21 11.6a8.4 8.4 0 0 1-8.4 8.4H7l-4 3v-8.8A8.4 8.4 0 1 1 21 11.6Z"/></symbol>
+      <symbol id="i-calendar" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M8 3v4M16 3v4M3 10h18"/><path d="M8 14h2M14 14h2M8 17.5h2"/></symbol>
+      <symbol id="i-book" viewBox="0 0 24 24"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v18H6.5A2.5 2.5 0 0 1 4 18.5v-13Z"/><path d="M4 18.5A2.5 2.5 0 0 1 6.5 16H20"/><path d="M8 7.5h7"/></symbol>
+      <symbol id="i-cpu" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2.5"/><rect x="9.5" y="9.5" width="5" height="5" rx="1"/><path d="M9 3v3M15 3v3M9 18v3M15 18v3M3 9h3M3 15h3M18 9h3M18 15h3"/></symbol>
+      <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="7" height="7" rx="2"/><rect x="13.5" y="3.5" width="7" height="7" rx="2"/><rect x="3.5" y="13.5" width="7" height="7" rx="2"/><rect x="13.5" y="13.5" width="7" height="7" rx="2"/></symbol>
+      <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+      <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M16.5 16.5 21 21"/></symbol>
+      <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M9 21h6"/></symbol>
+      <symbol id="i-send" viewBox="0 0 24 24"><path d="M21 3 10.5 13.5"/><path d="M21 3l-6.4 18-4.1-7.5L3 9.6 21 3Z"/></symbol>
+      <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.6" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.6" fill="currentColor" stroke="none"/></symbol>
+      <symbol id="i-bell" viewBox="0 0 24 24"><path d="M18 9a6 6 0 1 0-12 0c0 5-2 6-2 6h16s-2-1-2-6Z"/><path d="M10 19.5a2.2 2.2 0 0 0 4 0"/></symbol>
+      <symbol id="i-repeat" viewBox="0 0 24 24"><path d="M17 2l3 3-3 3"/><path d="M4 11V9a4 4 0 0 1 4-4h12"/><path d="M7 22l-3-3 3-3"/><path d="M20 13v2a4 4 0 0 1-4 4H4"/></symbol>
+      <symbol id="i-check" viewBox="0 0 24 24"><path d="M4.5 12.5 9.5 17.5 20 6.5"/></symbol>
+      <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+      <symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></symbol>
+      <symbol id="i-chevron-left" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></symbol>
+      <symbol id="i-chevron-down" viewBox="0 0 24 24"><path d="M5 9l7 7 7-7"/></symbol>
+      <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5"/><path d="M4 19.5h16"/></symbol>
+      <symbol id="i-settings" viewBox="0 0 24 24"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2.2"/><circle cx="9" cy="17" r="2.2"/></symbol>
+      <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3l8 3v5.5c0 4.6-3.4 8.3-8 9.5-4.6-1.2-8-4.9-8-9.5V6l8-3Z"/><path d="M9 12l2 2 4-4"/></symbol>
+      <symbol id="i-server" viewBox="0 0 24 24"><rect x="3.5" y="4" width="17" height="6.5" rx="2"/><rect x="3.5" y="13.5" width="17" height="6.5" rx="2"/><path d="M7 7.2h.01M7 16.8h.01"/></symbol>
+      <symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></symbol>
+      <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.6 2.5 4 5.6 4 9s-1.4 6.5-4 9c-2.6-2.5-4-5.6-4-9s1.4-6.5 4-9Z"/></symbol>
+      <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4 8.5 8.5 0 1 0 20 14.5Z"/></symbol>
+      <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M19.1 4.9l-1.4 1.4M6.3 17.7l-1.4 1.4"/></symbol>
+      <symbol id="i-logout" viewBox="0 0 24 24"><path d="M14 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h8"/><path d="M17 8l4 4-4 4M21 12H10"/></symbol>
+      <symbol id="i-telegram" viewBox="0 0 24 24"><path d="M21 3 3.5 10.2l4.6 1.6L10 20l2.8-3.8 4.6 1.4L21 3Z"/><path d="M8.1 11.8 21 3l-8.2 13.2"/></symbol>
+      <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></symbol>
+      <symbol id="i-pin" viewBox="0 0 24 24"><path d="M12 21s7-5.8 7-11a7 7 0 1 0-14 0c0 5.2 7 11 7 11Z"/><circle cx="12" cy="10" r="2.5"/></symbol>
+      <symbol id="i-cake" viewBox="0 0 24 24"><path d="M4 20h16M5 20v-6a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v6"/><path d="M9 12V9M15 12V9"/><path d="M9 5.5c0 .8-.7 1.2-.7 2.2M15 5.5c0 .8-.7 1.2-.7 2.2"/></symbol>
+      <symbol id="i-weather" viewBox="0 0 24 24"><circle cx="8" cy="8" r="3.2"/><path d="M8 1.8v1.6M8 12.6v1.6M1.8 8h1.6M12.6 8h1.6M3.6 3.6l1.1 1.1M11.3 11.3l1.1 1.1"/><path d="M9.5 19.5h9a3.5 3.5 0 0 0 .4-7 5 5 0 0 0-9.6-1.2 3.6 3.6 0 0 0 .2 8.2Z"/></symbol>
+      <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5Z"/><path d="M14 3v5h5"/></symbol>
+      <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7.5A2.5 2.5 0 0 1 5.5 5H9l2 2.5h7.5A2.5 2.5 0 0 1 21 10v7.5a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17.5v-10Z"/></symbol>
+      <symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.7 9a2.4 2.4 0 1 1 3.2 2.3c-.6.2-.9.8-.9 1.4v.6"/><path d="M12 17h.01"/></symbol>
+      <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4.5 20.5a7.5 7.5 0 0 1 15 0"/></symbol>
+      <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.8a3.5 3.5 0 0 1 0 6.4M17.5 14.5A5.5 5.5 0 0 1 22 20"/></symbol>
+      <symbol id="i-volume" viewBox="0 0 24 24"><path d="M4 9.5v5h3l4.5 3.5v-12L7 9.5H4Z"/><path d="M15 9a4 4 0 0 1 0 6M17.5 6.5a8 8 0 0 1 0 11"/></symbol>
+      <symbol id="i-palette" viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 0 18c1.3 0 2-.9 2-2 0-.6-.2-1-.5-1.5-.3-.4-.4-.8-.4-1.2 0-1 .8-1.8 1.8-1.8H17a4 4 0 0 0 4-4c0-4.3-4-7.5-9-7.5Z"/><circle cx="7.5" cy="10" r="1"/><circle cx="10" cy="6.5" r="1"/><circle cx="14.5" cy="6.5" r="1"/></symbol>
+      <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M6.5 7l1 13h9l1-13"/><path d="M10 11v5M14 11v5"/></symbol>
+      <symbol id="i-arrow-up-right" viewBox="0 0 24 24"><path d="M7 17 17 7M8 7h9v9"/></symbol>
+      <symbol id="i-image" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="8.5" cy="9.5" r="1.5"/><path d="m3.5 17 5-4.5 4.5 4 3-2.5 4.5 3.5"/></symbol>
+      <symbol id="i-lock" viewBox="0 0 24 24"><rect x="4.5" y="10" width="15" height="10" rx="2.5"/><path d="M8 10V7.5a4 4 0 0 1 8 0V10"/><path d="M12 14v2.5"/></symbol>
+      <symbol id="i-device" viewBox="0 0 24 24"><rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M10.5 18.5h3"/></symbol>
+      <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 5v5h-5"/><path d="M19.2 10A8 8 0 1 0 20 15"/></symbol>
+      <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5.5v13L19 12 8 5.5Z"/></symbol>
+      <symbol id="i-paperclip" viewBox="0 0 24 24"><path d="M20 11.5 12 19.5a5 5 0 0 1-7-7l8.5-8.5a3.5 3.5 0 0 1 5 5L9.5 17.5a2 2 0 0 1-3-3L15 6"/></symbol>
+      <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 2 4 14h6l-1 8 9-12h-6l1-8Z"/></symbol>
+      <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2.5"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></symbol>
+      <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z"/><circle cx="12" cy="12" r="3"/></symbol>
+    </defs>
+  </svg>
+
+  <!-- Строка состояния: нарисована для макета, на телефоне её заменит системная -->
+  <div class="statusbar" aria-hidden="true">
+    <span class="statusbar-time">9:41</span>
+    <span class="statusbar-icons">
+      <svg viewBox="0 0 18 12" width="17" height="11"><rect x="0" y="8" width="3" height="4" rx="1"/><rect x="5" y="5.5" width="3" height="6.5" rx="1"/><rect x="10" y="3" width="3" height="9" rx="1"/><rect x="15" y="0" width="3" height="12" rx="1"/></svg>
+      <svg viewBox="0 0 16 12" width="15" height="11"><path d="M8 10.6 1.2 4.4a9.7 9.7 0 0 1 13.6 0L8 10.6Z"/><path d="M8 5.2c-1.4 0-2.7.5-3.7 1.4L8 10.1l3.7-3.5A5.3 5.3 0 0 0 8 5.2Z" fill="#101923"/></svg>
+      <svg viewBox="0 0 26 12" width="25" height="11"><rect x="0.5" y="0.5" width="22" height="11" rx="3" fill="none" stroke="currentColor"/><rect x="2.5" y="2.5" width="17" height="7" rx="1.6"/><rect x="23.5" y="3.8" width="2" height="4.4" rx="1"/></svg>
+    </span>
+  </div>
+
+  <main class="viewport" id="viewport">
+
+    <!-- ================= ВХОД ================= -->
+    <section class="screen screen-auth" data-screen="auth" hidden>
+      <div class="auth-bg" aria-hidden="true">
+        <span class="glow glow-1"></span>
+        <span class="glow glow-2"></span>
+      </div>
+      <div class="auth-content">
+        <div class="brand">
+          <div class="brand-mark"><svg class="ic"><use href="#i-spark"/></svg></div>
+          <div class="brand-name">Ассистент</div>
+          <div class="brand-sub">TenKrol · личный пульт</div>
+        </div>
+        <h1 class="auth-title">Бот всегда под рукой</h1>
+        <p class="auth-lead">Планы, память, длинные задачи и файлы — в одном месте. Без команд и шпаргалок.</p>
+        <ul class="auth-features">
+          <li>
+            <span class="feat-ic"><svg class="ic"><use href="#i-chat"/></svg></span>
+            <div><b>Чат и голос</b><span>Спросить словами или записать голосовое</span></div>
+          </li>
+          <li>
+            <span class="feat-ic"><svg class="ic"><use href="#i-calendar"/></svg></span>
+            <div><b>Планы и память</b><span>Напоминания, календарь и факты о вас</span></div>
+          </li>
+          <li>
+            <span class="feat-ic"><svg class="ic"><use href="#i-cpu"/></svg></span>
+            <div><b>Агент и файлы</b><span>Долгие задачи и готовые документы</span></div>
+          </li>
+        </ul>
+        <button class="btn btn-primary btn-block btn-tg" data-action="login">
+          <svg class="ic"><use href="#i-telegram"/></svg>
+          Войти через Telegram
+        </button>
+        <div class="auth-divider"><span>или по коду из бота</span></div>
+        <form class="auth-code" data-form="code">
+          <input class="input" inputmode="numeric" autocomplete="one-time-code" placeholder="Код из бота" aria-label="Код из бота">
+          <button class="btn" type="submit">Войти</button>
+        </form>
+        <p class="auth-note">
+          <svg class="ic"><use href="#i-shield"/></svg>
+          Доступ только по вашему Telegram-аккаунту. Данные остаются на tenkrol.ru.
+        </p>
+        <div class="auth-foot">tenkrol.ru · v1.0</div>
+      </div>
+    </section>
+
+    <!-- ================= ЧАТ ================= -->
+    <section class="screen" data-screen="chat" hidden>
+      <header class="topbar chat-head">
+        <div class="avatar avatar-bot">
+          <svg class="ic"><use href="#i-spark"/></svg>
+          <span class="presence"></span>
+        </div>
+        <div class="chat-head-text">
+          <div class="chat-head-name">Ассистент</div>
+          <div class="chat-head-status"><span class="dot"></span>онлайн · deepseek-flash</div>
+        </div>
+        <button class="icon-btn" aria-label="Меню чата" data-action="chat-menu">
+          <svg class="ic"><use href="#i-more"/></svg>
+        </button>
+      </header>
+
+      <div class="scroll chat-scroll" id="chat-scroll">
+        <div class="day-chip">Сегодня, 18 октября</div>
+
+        <article class="msg msg-bot">
+          <div class="msg-avatar"><svg class="ic"><use href="#i-spark"/></svg></div>
+          <div class="msg-stack">
+            <div class="bubble bubble-bot">Доброе утро! Собрал главное на сегодня 👇</div>
+            <div class="digest-card">
+              <div class="digest-head">
+                <span class="digest-badge"><svg class="ic"><use href="#i-sun"/></svg></span>
+                <div><b>Утренний дайджест</b><span>18 октября · 08:00</span></div>
+              </div>
+              <div class="digest-row">
+                <svg class="ic"><use href="#i-weather"/></svg>
+                <div><b>Москва, +12°</b><span>Днём +16°, дождь после 15:00</span></div>
+              </div>
+              <div class="digest-row">
+                <svg class="ic"><use href="#i-cake"/></svg>
+                <div><b>24 октября — день рождения Маши</b><span>через 6 дней</span></div>
+              </div>
+              <div class="digest-row">
+                <svg class="ic"><use href="#i-bell"/></svg>
+                <div><b>2 напоминания на сегодня</b><span>клиника в 9:00, продукты в 19:30</span></div>
+              </div>
+            </div>
+          </div>
+        </article>
+
+        <article class="msg msg-user">
+          <div class="bubble bubble-user">Напомни завтра в 9:00 позвонить в клинику</div>
+        </article>
+
+        <article class="msg msg-bot">
+          <div class="msg-avatar"><svg class="ic"><use href="#i-spark"/></svg></div>
+          <div class="msg-stack">
+            <div class="bubble bubble-bot">Готово — напомню завтра в 9:00.</div>
+            <div class="result-card">
+              <div class="result-head">
+                <span class="result-ic"><svg class="ic"><use href="#i-bell"/></svg></span>
+                <div><b>Позвонить в клинику</b><span>завтра, 9:00 · разово</span></div>
+              </div>
+              <div class="result-actions">
+                <button class="pill-btn" data-action="snooze">Отложить</button>
+                <button class="pill-btn danger" data-action="cancel-reminder">Отменить</button>
+              </div>
+            </div>
+          </div>
+        </article>
+
+        <div class="quick-row" id="quick-row">
+          <button class="chip" data-quick="Какая сегодня погода?"><svg class="ic"><use href="#i-weather"/></svg>Погода</button>
+          <button class="chip" data-quick="Пришли утренний дайджест"><svg class="ic"><use href="#i-sun"/></svg>Сводка</button>
+          <button class="chip" data-quick="Напомни "><svg class="ic"><use href="#i-bell"/></svg>Напомни</button>
+          <button class="chip" data-quick="Что в этом файле? "><svg class="ic"><use href="#i-file"/></svg>Файл</button>
+        </div>
+
+        <div class="typing" id="typing" hidden><i></i><i></i><i></i></div>
+      </div>
+
+      <div class="composer" id="composer">
+        <button class="composer-add" aria-label="Прикрепить" data-action="attach">
+          <svg class="ic"><use href="#i-plus"/></svg>
+        </button>
+        <div class="composer-field">
+          <input id="chat-input" placeholder="Написать ассистенту…" autocomplete="off" aria-label="Сообщение ассистенту">
+          <button class="composer-mic" id="mic-btn" aria-label="Записать голосовое">
+            <svg class="ic"><use href="#i-mic"/></svg>
+          </button>
+          <button class="composer-send" id="send-btn" aria-label="Отправить" hidden>
+            <svg class="ic"><use href="#i-send"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="recorder" id="recorder" hidden>
+        <span class="rec-dot"></span>
+        <span class="rec-time" id="rec-time">0:00</span>
+        <div class="rec-wave" id="rec-wave" aria-hidden="true"></div>
+        <button class="rec-cancel" id="rec-cancel" type="button">Отмена</button>
+        <button class="rec-send" id="rec-send" type="button" aria-label="Отправить голосовое">
+          <svg class="ic"><use href="#i-send"/></svg>
+        </button>
+      </div>
+    </section>
+
+    <!-- ================= ПЛАНЫ ================= -->
+    <section class="screen" data-screen="plans" hidden>
+      <header class="topbar title-head">
+        <div>
+          <h1>Планы</h1>
+          <p class="sub" id="plans-sub">4 напоминания · 2 события</p>
+        </div>
+        <button class="icon-btn accent" id="plans-add" aria-label="Добавить">
+          <svg class="ic"><use href="#i-plus"/></svg>
+        </button>
+      </header>
+
+      <div class="segmented" role="tablist" aria-label="Вид планов">
+        <button class="seg is-active" role="tab" aria-selected="true" data-plans-view="reminders">Напоминания</button>
+        <button class="seg" role="tab" aria-selected="false" data-plans-view="calendar">Календарь</button>
+      </div>
+
+      <div class="scroll screen-scroll" id="plans-scroll">
+        <div data-plans-panel="reminders" id="plans-reminders"></div>
+
+        <div data-plans-panel="calendar" id="plans-calendar" hidden>
+          <div class="cal-head">
+            <button class="cal-nav" id="cal-prev" aria-label="Предыдущий месяц"><svg class="ic"><use href="#i-chevron-left"/></svg></button>
+            <div><b id="cal-month">Октябрь 2026</b><span id="cal-selected-label">18 октября, воскресенье</span></div>
+            <button class="cal-nav" id="cal-next" aria-label="Следующий месяц"><svg class="ic"><use href="#i-chevron-right"/></svg></button>
+          </div>
+          <div class="weekdays" aria-hidden="true">
+            <span>Пн</span><span>Вт</span><span>Ср</span><span>Чт</span><span>Пт</span><span>Сб</span><span>Вс</span>
+          </div>
+          <div class="cal-grid" id="cal-grid"></div>
+          <div class="cal-legend">
+            <span><i class="legend-dot"></i>напоминание</span>
+            <span><i class="legend-dot event"></i>событие</span>
+          </div>
+          <div class="group-head"><span id="cal-day-title">18 октября</span><span class="group-count" id="cal-day-count">2</span></div>
+          <div id="cal-day-list"></div>
+          <div class="group-head"><span>Ближайшие события</span></div>
+          <div id="cal-upcoming"></div>
+        </div>
+      </div>
+
+      <button class="fab" id="fab-add" aria-label="Добавить запись">
+        <svg class="ic"><use href="#i-plus"/></svg>
+      </button>
+    </section>
+
+    <!-- ================= ПАМЯТЬ ================= -->
+    <section class="screen" data-screen="memory" hidden>
+      <header class="topbar title-head">
+        <div>
+          <h1>Память</h1>
+          <p class="sub" id="memory-sub">7 фактов · город Москва</p>
+        </div>
+        <button class="icon-btn" id="memory-search-toggle" aria-label="Поиск по фактам">
+          <svg class="ic"><use href="#i-search"/></svg>
+        </button>
+      </header>
+
+      <div class="search-row" id="memory-search" hidden>
+        <input class="input" id="memory-search-input" placeholder="Поиск по фактам" aria-label="Поиск по фактам">
+      </div>
+
+      <div class="scroll screen-scroll" id="memory-scroll">
+        <button class="city-card" data-action="city">
+          <span class="city-ic"><svg class="ic"><use href="#i-pin"/></svg></span>
+          <span>
+            <b>Москва</b>
+            <span>Город для погоды и дайджеста</span>
+          </span>
+          <span class="link">Изменить</span>
+        </button>
+
+        <div class="group-head"><span>Факты</span><span class="group-count" id="facts-count">7</span></div>
+        <div id="facts-list"></div>
+        <p class="hint">Память раздельная: в Telegram и VK бот знает разное. Личные факты не попадают в группы.</p>
+      </div>
+
+      <div class="composer">
+        <div class="composer-field">
+          <input id="fact-input" placeholder="Добавить факт…" autocomplete="off" aria-label="Новый факт">
+          <button class="composer-send" id="fact-add" aria-label="Запомнить">
+            <svg class="ic"><use href="#i-plus"/></svg>
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= АГЕНТ ================= -->
+    <section class="screen" data-screen="agent" hidden>
+      <header class="topbar title-head">
+        <div>
+          <h1>Агент</h1>
+          <p class="sub">Длинные задачи · песочница</p>
+        </div>
+        <span class="status-pill"><span class="dot"></span>на связи</span>
+      </header>
+
+      <div class="scroll screen-scroll" id="agent-scroll">
+        <div class="new-task card">
+          <label for="task-input">Новая задача</label>
+          <textarea id="task-input" placeholder="Что поручить агенту? Например: собери отчёт по расходам за сентябрь"></textarea>
+          <div class="task-actions">
+            <div class="chip-row small">
+              <button class="chip" data-task-template="Перевести статью на русский">Перевести статью</button>
+              <button class="chip" data-task-template="Проверить сайт tenkrol.ru">Проверить сайт</button>
+            </div>
+            <button class="btn btn-primary btn-sm" id="task-send">Отправить</button>
+          </div>
+        </div>
+
+        <div class="group-head"><span>В работе</span><span class="group-count" id="tasks-active-count">1</span></div>
+        <div id="tasks-active"></div>
+
+        <div class="group-head"><span>Завершены</span><span class="group-count" id="tasks-done-count">3</span></div>
+        <div id="tasks-done"></div>
+        <p class="hint">Агент живёт на «Финляндии», работает в песочнице и присылает результат в чат. Долгую задачу можно закрыть вручную.</p>
+      </div>
+    </section>
+
+    <!-- ================= ФАЙЛЫ ================= -->
+    <section class="screen" data-screen="files" hidden>
+      <header class="topbar sub-head">
+        <button class="icon-btn" data-back="more" aria-label="Назад">
+          <svg class="ic"><use href="#i-chevron-left"/></svg>
+        </button>
+        <div>
+          <h2>Файлы</h2>
+          <p class="sub" id="files-sub">4 файла · 386 КБ</p>
+        </div>
+        <button class="icon-btn" id="files-search-toggle" aria-label="Поиск по файлам">
+          <svg class="ic"><use href="#i-search"/></svg>
+        </button>
+      </header>
+
+      <div class="search-row" id="files-search" hidden>
+        <input class="input" id="files-search-input" placeholder="Поиск по файлам" aria-label="Поиск по файлам">
+      </div>
+
+      <div class="scroll screen-scroll">
+        <div class="chip-row filters" id="files-filters">
+          <button class="chip is-active" data-filter="all">Все</button>
+          <button class="chip" data-filter="pdf">PDF</button>
+          <button class="chip" data-filter="xlsx">XLSX</button>
+          <button class="chip" data-filter="docx">DOCX</button>
+          <button class="chip" data-filter="csv">CSV</button>
+        </div>
+        <div id="files-list"></div>
+        <div class="export-card">
+          <span class="file-badge export"><svg class="ic"><use href="#i-download"/></svg></span>
+          <div><b>Экспорт всех данных</b><span>Память, планы, настройки и история</span></div>
+          <button class="btn btn-ghost btn-sm" data-action="export">Скачать</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= ЕЩЁ ================= -->
+    <section class="screen" data-screen="more" hidden>
+      <header class="topbar title-head">
+        <div>
+          <h1>Ещё</h1>
+          <p class="sub">Настройки и данные</p>
+        </div>
+      </header>
+
+      <div class="scroll screen-scroll">
+        <button class="profile-card" data-go="settings">
+          <span class="avatar avatar-user">В</span>
+          <span>
+            <b>Вячеслав</b>
+            <span>Telegram · личный аккаунт</span>
+          </span>
+          <svg class="ic"><use href="#i-chevron-right"/></svg>
+        </button>
+
+        <div class="tile-grid">
+          <button class="tile" data-go="files">
+            <span class="tile-ic blue"><svg class="ic"><use href="#i-folder"/></svg></span>
+            <b>Файлы</b><span>4 файла · 386 КБ</span>
+          </button>
+          <button class="tile" data-go="stats">
+            <span class="tile-ic green"><svg class="ic"><use href="#i-chart"/></svg></span>
+            <b>Статистика</b><span>42 180 токенов</span>
+          </button>
+          <button class="tile" data-go="settings">
+            <span class="tile-ic violet"><svg class="ic"><use href="#i-users"/></svg></span>
+            <b>Проекты</b><span>2 · доступ у Маши</span>
+          </button>
+          <button class="tile" data-action="help">
+            <span class="tile-ic amber"><svg class="ic"><use href="#i-help"/></svg></span>
+            <b>Помощь</b><span>Команды и советы</span>
+          </button>
+        </div>
+
+        <div class="list-group">
+          <div class="group-head"><span>Состояние</span></div>
+          <button class="list-row" data-go="stats">
+            <span class="server-dot"></span>
+            <b>Испания</b>
+            <span>бот · работает</span>
+            <svg class="ic"><use href="#i-chevron-right"/></svg>
+          </button>
+          <button class="list-row" data-go="stats">
+            <span class="server-dot"></span>
+            <b>Финляндия</b>
+            <span>агент · работает</span>
+            <svg class="ic"><use href="#i-chevron-right"/></svg>
+          </button>
+        </div>
+
+        <div class="list-group">
+          <div class="group-head"><span>Аккаунт</span></div>
+          <button class="list-row" data-go="settings">
+            <span class="row-ic"><svg class="ic"><use href="#i-settings"/></svg></span>
+            <b>Настройки</b>
+            <span>характер, тема, язык</span>
+            <svg class="ic"><use href="#i-chevron-right"/></svg>
+          </button>
+          <button class="list-row" data-action="invite">
+            <span class="row-ic"><svg class="ic"><use href="#i-user"/></svg></span>
+            <b>Приглашения</b>
+            <span class="badge">1</span>
+            <svg class="ic"><use href="#i-chevron-right"/></svg>
+          </button>
+          <button class="list-row" data-action="about">
+            <span class="row-ic"><svg class="ic"><use href="#i-spark"/></svg></span>
+            <b>О приложении</b>
+            <span>v1.0 · tenkrol.ru</span>
+            <svg class="ic"><use href="#i-chevron-right"/></svg>
+          </button>
+        </div>
+        <p class="hint center">tenkrol.ru · сделано для двоих</p>
+      </div>
+    </section>
+
+    <!-- ================= НАСТРОЙКИ ================= -->
+    <section class="screen" data-screen="settings" hidden>
+      <header class="topbar sub-head">
+        <button class="icon-btn" data-back="more" aria-label="Назад">
+          <svg class="ic"><use href="#i-chevron-left"/></svg>
+        </button>
+        <div>
+          <h2>Настройки</h2>
+          <p class="sub">Применяются к боту сразу</p>
+        </div>
+      </header>
+
+      <div class="scroll screen-scroll settings-scroll">
+        <div class="settings-group">
+          <div class="group-head"><span>Ассистент</span></div>
+          <button class="setting-row" data-picker="character">
+            <span class="row-ic"><svg class="ic"><use href="#i-spark"/></svg></span>
+            <span><b>Характер</b><span>манера речи</span></span>
+            <span class="setting-value" id="set-character">Дружелюбный</span>
+            <svg class="ic"><use href="#i-chevron-right"/></svg>
+          </button>
+          <button class="setting-row" data-picker="mode">
+            <span class="row-ic"><svg class="ic"><use href="#i-chat"/></svg></span>
+            <span><b>Режим ответов</b><span>длина и стиль</span></span>
+            <span class="setting-value" id="set-mode">Кратко</span>
+            <svg class="ic"><use href="#i-chevron-right"/></svg>
+          </button>
+          <div class="setting-row">
+            <span class="row-ic"><svg class="ic"><use href="#i-volume"/></svg></span>
+            <span><b>Голосовые ответы</b><span>озвучивать ответы в чате</span></span>
+            <button class="switch" data-toggle="voice" aria-label="Голосовые ответы"></button>
+          </div>
+          <button class="setting-row" data-picker="model">
+            <span class="row-ic"><svg class="ic"><use href="#i-cpu"/></svg></span>
+            <span><b>Модель</b><span>для этого аккаунта</span></span>
+            <span class="setting-value" id="set-model">deepseek-flash</span>
+            <svg class="ic"><use href="#i-chevron-right"/></svg>
+          </button>
+        </div>
+
+        <div class="settings-group">
+          <div class="group-head"><span>Уведомления</span></div>
+          <div class="setting-row">
+            <span class="row-ic"><svg class="ic"><use href="#i-sun"/></svg></span>
+            <span><b>Дайджест</b><span>каждое утро в 08:00</span></span>
+            <button class="switch is-on" data-toggle="digest" aria-label="Дайджест"></button>
+          </div>
+          <div class="setting-row">
+            <span class="row-ic"><svg class="ic"><use href="#i-moon"/></svg></span>
+            <span><b>Тихие часы</b><span>23:00–08:00, не будить</span></span>
+            <button class="switch is-on" data-toggle="quiet" aria-label="Тихие часы"></button>
+          </div>
+          <div class="setting-row">
+            <span class="row-ic"><svg class="ic"><use href="#i-weather"/></svg></span>
+            <span><b>Погодные предупреждения</b><span>дождь, мороз, ветер</span></span>
+            <button class="switch is-on" data-toggle="weather" aria-label="Погодные предупреждения"></button>
+          </div>
+        </div>
+
+        <div class="settings-group">
+          <div class="group-head"><span>Интерфейс</span></div>
+          <button class="setting-row" data-picker="language">
+            <span class="row-ic"><svg class="ic"><use href="#i-globe"/></svg></span>
+            <span><b>Язык</b><span>интерфейс и ответы</span></span>
+            <span class="setting-value" id="set-language">Русский</span>
+            <svg class="ic"><use href="#i-chevron-right"/></svg>
+          </button>
+          <div class="setting-row column">
+            <span><b>Тема</b><span>оформление интерфейса</span></span>
+            <div class="segmented small" id="theme-seg">
+              <button class="seg" data-theme-mode="auto">Авто</button>
+              <button class="seg is-active" data-theme-mode="dark">Тёмная</button>
+              <button class="seg" data-theme-mode="light">Светлая</button>
+            </div>
+          </div>
+          <div class="setting-row">
+            <span class="row-ic"><svg class="ic"><use href="#i-eye"/></svg></span>
+            <span><b>Крупный текст</b><span>больше шрифт в списках</span></span>
+            <button class="switch" data-toggle="large-text" aria-label="Крупный текст"></button>
+          </div>
+        </div>
+
+        <div class="settings-group">
+          <div class="group-head"><span>Доступ и данные</span></div>
+          <button class="setting-row" data-action="projects">
+            <span class="row-ic"><svg class="ic"><use href="#i-users"/></svg></span>
+            <span><b>Проекты и приглашения</b><span>2 проекта · 1 приглашение</span></span>
+            <svg class="ic"><use href="#i-chevron-right"/></svg>
+          </button>
+          <button class="setting-row" data-action="sessions">
+            <span class="row-ic"><svg class="ic"><use href="#i-device"/></svg></span>
+            <span><b>Устройства и сеансы</b><span>этот телефон · ещё 1</span></span>
+            <svg class="ic"><use href="#i-chevron-right"/></svg>
+          </button>
+          <button class="setting-row" data-go="files">
+            <span class="row-ic"><svg class="ic"><use href="#i-download"/></svg></span>
+            <span><b>Экспорт данных</b><span>скачать всё одним файлом</span></span>
+            <svg class="ic"><use href="#i-chevron-right"/></svg>
+          </button>
+        </div>
+
+        <button class="btn btn-danger-ghost btn-block" data-action="logout">
+          <svg class="ic"><use href="#i-logout"/></svg>
+          Выйти из аккаунта
+        </button>
+        <p class="hint center">Версия 1.0 · tenkrol.ru · ноль зависимостей</p>
+      </div>
+    </section>
+
+    <!-- ================= СТАТИСТИКА ================= -->
+    <section class="screen" data-screen="stats" hidden>
+      <header class="topbar sub-head">
+        <button class="icon-btn" data-back="more" aria-label="Назад">
+          <svg class="ic"><use href="#i-chevron-left"/></svg>
+        </button>
+        <div>
+          <h2>Статистика</h2>
+          <p class="sub">сегодня · 18 октября</p>
+        </div>
+      </header>
+
+      <div class="scroll screen-scroll">
+        <div class="stat-hero">
+          <span class="stat-label">Токенов за сегодня</span>
+          <div class="stat-value">42 180</div>
+          <div class="stat-delta"><svg class="ic" style="width:14px;height:14px"><use href="#i-arrow-up-right"/></svg>+12% к вчера</div>
+          <div class="stat-split">
+            <div><b>24 600</b><span>токенов запроса</span></div>
+            <div><b>17 580</b><span>токенов ответа</span></div>
+            <div><b>128</b><span>запросов</span></div>
+          </div>
+        </div>
+
+        <div class="card chart-card">
+          <div class="card-head"><b>За неделю</b><span>токены</span></div>
+          <div class="chart" id="chart" aria-hidden="true"></div>
+          <div class="chart-labels" id="chart-labels"></div>
+        </div>
+
+        <div class="card limit-card">
+          <div class="card-head"><b>Дневной лимит</b><span>42 180 из 100 000</span></div>
+          <div class="progress"><span style="width:42%"></span></div>
+          <p class="hint" style="padding-top:8px">Лимит мягкий: бот предупредит при 80% и не отключится без спроса.</p>
+        </div>
+
+        <div class="group-head"><span>Серверы</span></div>
+
+        <div class="card server-card">
+          <div class="server-head"><span class="server-dot"></span><b>Испания</b><span>бот · 12 дней</span></div>
+          <div class="meter"><span>CPU</span><div class="progress"><span style="width:12%"></span></div><b>12%</b></div>
+          <div class="meter"><span>Память</span><div class="progress"><span style="width:38%"></span></div><b>38%</b></div>
+          <div class="meter"><span>Диск</span><div class="progress"><span class="warn" style="width:72%"></span></div><b>72%</b></div>
+        </div>
+
+        <div class="card server-card">
+          <div class="server-head"><span class="server-dot"></span><b>Финляндия</b><span>агент · 41 день</span></div>
+          <div class="meter"><span>CPU</span><div class="progress"><span style="width:8%"></span></div><b>8%</b></div>
+          <div class="meter"><span>Память</span><div class="progress"><span style="width:24%"></span></div><b>24%</b></div>
+          <div class="meter"><span>Диск</span><div class="progress"><span style="width:41%"></span></div><b>41%</b></div>
+        </div>
+        <p class="hint center">Обновляется каждые 30 секунд</p>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Нижняя навигация -->
+  <nav class="tabbar" aria-label="Разделы">
+    <button class="tab is-active" data-go="chat" aria-label="Чат">
+      <span class="tab-ic"><svg class="ic"><use href="#i-chat"/></svg></span>
+      <span>Чат</span>
+    </button>
+    <button class="tab" data-go="plans" aria-label="Планы">
+      <span class="tab-ic"><svg class="ic"><use href="#i-calendar"/></svg></span>
+      <span>Планы</span>
+    </button>
+    <button class="tab" data-go="memory" aria-label="Память">
+      <span class="tab-ic"><svg class="ic"><use href="#i-book"/></svg></span>
+      <span>Память</span>
+    </button>
+    <button class="tab" data-go="agent" aria-label="Агент">
+      <span class="tab-ic"><svg class="ic"><use href="#i-cpu"/></svg></span>
+      <span>Агент</span>
+    </button>
+    <button class="tab" data-go="more" aria-label="Ещё">
+      <span class="tab-ic"><svg class="ic"><use href="#i-grid"/></svg></span>
+      <span>Ещё</span>
+    </button>
+  </nav>
+
+  <!-- Шторка и затемнение -->
+  <div class="sheet-backdrop" id="sheet-backdrop" hidden></div>
+  <div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title" hidden>
+    <div class="sheet-grab"></div>
+    <div class="sheet-head">
+      <h2 id="sheet-title">Новое напоминание</h2>
+      <button class="icon-btn" id="sheet-close" aria-label="Закрыть">
+        <svg class="ic"><use href="#i-close"/></svg>
+      </button>
+    </div>
+    <div class="sheet-body" id="sheet-body"></div>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

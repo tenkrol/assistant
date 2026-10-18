@@ -92,6 +92,7 @@
 | 17.10 | `extract-domain` | `6f9f42b` | правила вынесены из ядра, 780 тестов, задеплоено | `extract-integrations` |
 | 17.10 | PLB-004 `extract-integrations` | `33eb7b1` | подключения в `src/integrations/`, сеть вне слоя отсутствует, 785 тестов, задеплоено | `extract-tools` |
 | 17.10 | PLB-005 `extract-tools` | `a094315` | инструменты в `src/tools/` с реестром и единым контрактом, 798 тестов, задеплоено | PLB-007 `core` |
+| 18.10 | PLB-026: макет мобильного пульта (сайт для телефона) | ветка `mobile-web` | 13 экранов, дизайн-борд и интерактив, 951 тест зелёный | согласование макета с владельцем |
 
 ## 9. Секреты и окружение
 **Значения здесь не хранятся.** Имена переменных: `TELEGRAM_BOT_TOKEN`, `MODEL_API_KEY` / `MODEL_BASE_URL`, `VK_TOKEN`, `YANDEX_*` (речь и Диск), `OUTBOX_TOKEN`, `BACKUP_PASSPHRASE`, `AGENT_BRIDGE_TOKEN`, `OWNER_NAME`, `ALLOWED_USER_IDS[_VK|_TELEGRAM]`, `MINIAPP_*`, `SERVER_*`.

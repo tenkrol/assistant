@@ -1,0 +1,629 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PLB-026 — мобильный пульт ассистента · дизайн-борд</title>
+<style>
+  :root {
+    --bg: #0a0f16;
+    --panel: #111923;
+    --panel-2: #16212d;
+    --fg: #eaf3fb;
+    --fg-2: #c3d2e0;
+    --muted: #8d9eb0;
+    --faint: #5f7183;
+    --line: rgba(255, 255, 255, 0.09);
+    --line-2: rgba(255, 255, 255, 0.16);
+    --accent: #2ea6ff;
+    --accent-2: #6cc4ff;
+    --violet: #a78bfa;
+    --green: #3ddc97;
+    --amber: #ffc857;
+    --danger: #ff6b6b;
+    --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto,
+      "Helvetica Neue", Arial, sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background:
+      radial-gradient(900px 600px at 8% -5%, rgba(46, 166, 255, 0.16), transparent 60%),
+      radial-gradient(800px 500px at 95% 10%, rgba(124, 92, 240, 0.12), transparent 60%),
+      var(--bg);
+    color: var(--fg);
+    font-family: var(--font);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  h1, h2, h3, p { margin: 0; }
+  a { color: inherit; }
+  code {
+    font-family: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+    font-size: 12px;
+    color: var(--accent-2);
+    background: rgba(46, 166, 255, 0.09);
+    border: 1px solid rgba(46, 166, 255, 0.16);
+    border-radius: 6px;
+    padding: 1px 5px;
+  }
+
+  .page { max-width: 1460px; margin: 0 auto; padding: 48px 34px 80px; }
+
+  /* Шапка */
+  .hero { position: relative; padding: 8px 0 10px; }
+  .eyebrow {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 6px 12px; border-radius: 999px;
+    background: rgba(46, 166, 255, 0.1);
+    border: 1px solid rgba(46, 166, 255, 0.24);
+    color: var(--accent-2);
+    font-size: 12px; font-weight: 650; letter-spacing: 0.06em; text-transform: uppercase;
+  }
+  .eyebrow i { width: 7px; height: 7px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 3px rgba(61, 220, 151, 0.16); }
+  .hero h1 {
+    margin: 22px 0 16px;
+    font-size: clamp(40px, 6.4vw, 78px);
+    line-height: 0.98;
+    letter-spacing: -0.045em;
+    font-weight: 780;
+  }
+  .hero h1 span {
+    background: linear-gradient(100deg, var(--accent) 10%, #8f7bff 60%, #6cc4ff);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .lead { max-width: 660px; color: var(--fg-2); font-size: 17px; }
+  .badges { display: flex; flex-wrap: wrap; gap: 8px; margin: 24px 0 28px; }
+  .badge {
+    padding: 7px 12px; border-radius: 999px;
+    background: var(--panel); border: 1px solid var(--line);
+    color: var(--muted); font-size: 12px; font-weight: 600;
+  }
+  .badge b { color: var(--fg); font-weight: 700; }
+  .hero-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 8px;
+    min-height: 46px; padding: 0 20px; border-radius: 13px;
+    font-size: 14px; font-weight: 650; text-decoration: none;
+    transition: transform 0.15s ease, filter 0.15s ease, background 0.15s ease;
+  }
+  .btn:hover { transform: translateY(-2px); }
+  .btn-primary {
+    background: linear-gradient(135deg, #2ea6ff, #4f8cff);
+    color: #fff;
+    box-shadow: 0 14px 32px rgba(46, 166, 255, 0.24);
+  }
+  .btn-ghost { background: var(--panel); border: 1px solid var(--line-2); color: var(--fg); }
+  .hero-note { margin-top: 14px; color: var(--faint); font-size: 12.5px; }
+
+  /* Секции */
+  .section { margin-top: 74px; }
+  .section-head { display: flex; align-items: flex-start; gap: 16px; margin-bottom: 26px; }
+  .section-num {
+    flex: 0 0 auto;
+    display: flex; align-items: center; justify-content: center;
+    width: 38px; height: 38px; border-radius: 11px;
+    background: var(--panel); border: 1px solid var(--line);
+    color: var(--accent); font-size: 12px; font-weight: 750; letter-spacing: 0.04em;
+  }
+  .section-head h2 { font-size: 27px; line-height: 1.15; letter-spacing: -0.025em; font-weight: 740; }
+  .section-head p { color: var(--muted); font-size: 14px; margin-top: 4px; max-width: 720px; }
+
+  .principles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .principle {
+    padding: 20px; border-radius: 18px;
+    background: linear-gradient(150deg, rgba(255, 255, 255, 0.035), transparent 60%), var(--panel);
+    border: 1px solid var(--line);
+  }
+  .principle .p-ic {
+    display: flex; align-items: center; justify-content: center;
+    width: 38px; height: 38px; border-radius: 11px;
+    background: rgba(46, 166, 255, 0.12); color: var(--accent);
+    margin-bottom: 13px;
+  }
+  .principle .p-ic svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  .principle b { display: block; font-size: 15px; font-weight: 680; }
+  .principle p { color: var(--muted); font-size: 13px; margin-top: 5px; }
+
+  /* Рамки экранов */
+  .screens {
+    display: flex; flex-wrap: wrap; gap: 34px 30px; align-items: flex-start;
+  }
+  .screen-card { width: 312px; }
+  .screen-card .device {
+    position: relative;
+    width: 312px; height: 657px;
+    padding: 8px;
+    border-radius: 42px;
+    background: linear-gradient(160deg, #2a3542, #0c121a 45%, #1b2633);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    box-shadow:
+      0 30px 60px rgba(0, 0, 0, 0.55),
+      inset 0 1px 0 rgba(255, 255, 255, 0.14);
+    transition: transform 0.22s ease, box-shadow 0.22s ease;
+  }
+  .screen-card:hover .device {
+    transform: translateY(-5px);
+    box-shadow: 0 38px 70px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(46, 166, 255, 0.28);
+  }
+  .device-screen {
+    position: relative;
+    width: 296px; height: 641px;
+    border-radius: 35px;
+    overflow: hidden;
+    background: #101923;
+  }
+  .device iframe {
+    width: 390px; height: 844px;
+    border: 0;
+    display: block;
+    transform: scale(0.759);
+    transform-origin: top left;
+  }
+  .island {
+    position: absolute; z-index: 3;
+    top: 16px; left: 50%; transform: translateX(-50%);
+    width: 84px; height: 23px; border-radius: 20px;
+    background: #000;
+    pointer-events: none;
+  }
+  .screen-card figcaption { padding: 15px 4px 0; }
+  .caption-top { display: flex; align-items: baseline; gap: 9px; }
+  .caption-num { color: var(--faint); font-size: 11px; font-weight: 700; letter-spacing: 0.08em; }
+  .caption-name { font-size: 15px; font-weight: 680; letter-spacing: -0.01em; }
+  .caption-tag {
+    margin-left: auto;
+    padding: 2px 7px; border-radius: 999px;
+    background: rgba(46, 166, 255, 0.1);
+    color: var(--accent-2);
+    font-size: 10px; font-weight: 650; letter-spacing: 0.03em;
+  }
+  .caption-tag.dark {
+    background: rgba(167, 139, 250, 0.12);
+    color: #c4b2ff;
+  }
+  .screen-card figcaption p { color: var(--muted); font-size: 12.5px; margin-top: 5px; }
+
+  /* Токены */
+  .tokens { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+  .token {
+    padding: 18px; border-radius: 18px;
+    background: var(--panel); border: 1px solid var(--line);
+  }
+  .token h3 { font-size: 13px; font-weight: 680; letter-spacing: 0.02em; margin-bottom: 12px; }
+  .swatches { display: flex; flex-direction: column; gap: 7px; }
+  .swatch { display: flex; align-items: center; gap: 9px; color: var(--muted); font-size: 11.5px; }
+  .swatch i { width: 24px; height: 24px; border-radius: 7px; border: 1px solid var(--line-2); flex: 0 0 auto; }
+  .swatch b { color: var(--fg-2); font-weight: 600; }
+  .type-row { display: flex; align-items: baseline; gap: 10px; margin-bottom: 9px; }
+  .type-row span { color: var(--faint); font-size: 10px; min-width: 56px; letter-spacing: 0.04em; }
+  .type-row b { color: var(--fg); line-height: 1.1; letter-spacing: -0.02em; }
+  .radius-demo { display: flex; align-items: center; gap: 9px; margin-bottom: 8px; color: var(--muted); font-size: 11.5px; }
+  .radius-demo i { display: block; width: 34px; height: 26px; border: 1px solid var(--line-2); background: var(--panel-2); }
+  .components { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .demo-btn {
+    display: inline-flex; align-items: center; min-height: 34px; padding: 0 13px;
+    border-radius: 10px; background: linear-gradient(135deg, #2ea6ff, #4f8cff);
+    color: #fff; font-size: 11.5px; font-weight: 650;
+  }
+  .demo-btn.ghost { background: var(--panel-2); border: 1px solid var(--line-2); color: var(--fg); }
+  .demo-chip {
+    display: inline-flex; align-items: center; min-height: 30px; padding: 0 11px;
+    border-radius: 999px; background: rgba(46, 166, 255, 0.1);
+    border: 1px solid rgba(46, 166, 255, 0.22); color: var(--accent-2);
+    font-size: 11px; font-weight: 600;
+  }
+  .demo-switch { width: 40px; height: 24px; border-radius: 999px; background: var(--accent); position: relative; }
+  .demo-switch::after { content: ""; position: absolute; top: 3px; right: 3px; width: 18px; height: 18px; border-radius: 50%; background: #fff; }
+  .demo-bubble {
+    padding: 7px 11px; border-radius: 12px 12px 12px 4px;
+    background: var(--panel-2); border: 1px solid var(--line-2);
+    color: var(--fg-2); font-size: 11.5px; max-width: 100%;
+  }
+
+  /* Таблица */
+  .table-wrap { border: 1px solid var(--line); border-radius: 18px; overflow: hidden; background: var(--panel); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th {
+    text-align: left; padding: 12px 16px;
+    background: rgba(255, 255, 255, 0.03);
+    color: var(--faint); font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase;
+    border-bottom: 1px solid var(--line);
+  }
+  td { padding: 12px 16px; border-bottom: 1px solid var(--line); color: var(--fg-2); vertical-align: top; }
+  tr:last-child td { border-bottom: 0; }
+  td b { color: var(--fg); font-weight: 620; }
+  .tag {
+    display: inline-block; padding: 3px 8px; border-radius: 999px;
+    font-size: 10.5px; font-weight: 650; white-space: nowrap;
+  }
+  .tag.done { background: rgba(61, 220, 151, 0.12); color: var(--green); }
+  .tag.new { background: rgba(167, 139, 250, 0.14); color: #c4b2ff; }
+  .tag.part { background: rgba(255, 200, 87, 0.12); color: var(--amber); }
+
+  .notes { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+  .note {
+    padding: 17px 18px; border-radius: 16px;
+    background: var(--panel); border: 1px solid var(--line);
+    color: var(--muted); font-size: 13px;
+  }
+  .note b { display: block; color: var(--fg); font-size: 13.5px; margin-bottom: 4px; }
+
+  .footer {
+    margin-top: 76px; padding-top: 26px;
+    border-top: 1px solid var(--line);
+    display: flex; flex-wrap: wrap; gap: 14px; align-items: center;
+    color: var(--faint); font-size: 12px;
+  }
+  .footer .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); }
+  .footer a { color: var(--accent-2); text-decoration: none; }
+
+  @media (max-width: 1100px) {
+    .principles { grid-template-columns: repeat(2, 1fr); }
+    .tokens { grid-template-columns: repeat(2, 1fr); }
+  }
+  @media (max-width: 720px) {
+    .page { padding: 30px 18px 60px; }
+    .principles, .tokens, .notes { grid-template-columns: 1fr; }
+    .screens { gap: 28px; justify-content: center; }
+    .section { margin-top: 54px; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; }
+    html { scroll-behavior: auto; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <header class="hero">
+    <div class="eyebrow"><i></i>PLB-026 · макет · 18.10.2026</div>
+    <h1>Мобильный пульт<br><span>ассистента</span></h1>
+    <p class="lead">
+      Сайт для телефона, через который можно говорить с ботом и управлять им:
+      планы, память, задачи агента, файлы и настройки. Пять разделов вместо
+      шпаргалки команд — и всё в нижней трети экрана, под большой палец.
+    </p>
+    <div class="badges">
+      <span class="badge"><b>13</b> экранов</span>
+      <span class="badge"><b>390×844</b> iPhone 14</span>
+      <span class="badge">тёмная и светлая темы</span>
+      <span class="badge">safe-area и 44 px</span>
+      <span class="badge"><b>0</b> зависимостей</span>
+    </div>
+    <div class="hero-actions">
+      <a class="btn btn-primary" href="index.html" target="_blank" rel="noopener">Открыть интерактив →</a>
+      <a class="btn btn-ghost" href="README.md" target="_blank" rel="noopener">README макета</a>
+      <a class="btn btn-ghost" href="../proposal.md" target="_blank" rel="noopener">Зачем это</a>
+    </div>
+    <p class="hero-note">Экраны ниже живые: нажимайте навигацию, пишите боту, создавайте напоминания и переключайте тему.</p>
+  </header>
+
+  <section class="section">
+    <div class="section-head">
+      <div class="section-num">01</div>
+      <div><h2>Принципы</h2><p>Что решает макет и почему он выглядит именно так.</p></div>
+    </div>
+    <div class="principles">
+      <article class="principle">
+        <div class="p-ic"><svg viewBox="0 0 24 24"><path d="M12 3v18M5 8h14M5 16h14"/></svg></div>
+        <b>Одной рукой</b>
+        <p>Навигация, отправка и главные действия — в нижней трети. Всё остальное выше и не мешает.</p>
+      </article>
+      <article class="principle">
+        <div class="p-ic"><svg viewBox="0 0 24 24"><path d="M21 11.6a8.4 8.4 0 0 1-8.4 8.4H7l-4 3v-8.8A8.4 8.4 0 1 1 21 11.6Z"/></svg></div>
+        <b>Чат — вход, а не список команд</b>
+        <p>Слева разговор, справа управление. Не надо помнить «/reminders»: нужно просто сказать словами.</p>
+      </article>
+      <article class="principle">
+        <div class="p-ic"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M8 3v4M16 3v4M3 10h18"/></svg></div>
+        <b>Данные видно</b>
+        <p>Планы, память, файлы и агент читаются без команд — и меняются в пару касаний.</p>
+      </article>
+      <article class="principle">
+        <div class="p-ic"><svg viewBox="0 0 24 24"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4 8.5 8.5 0 1 0 20 14.5Z"/></svg></div>
+        <b>Спокойный тёмный</b>
+        <p>Палитра Telegram, мягкий акцент, крупные карточки и тихая светлая тема для дневного света.</p>
+      </article>
+      <article class="principle">
+        <div class="p-ic"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg></div>
+        <b>Честные состояния</b>
+        <p>Пустые списки, прогресс агента, «осталось 2 минуты» и понятные ошибки — без ложной уверенности.</p>
+      </article>
+      <article class="principle">
+        <div class="p-ic"><svg viewBox="0 0 24 24"><path d="M13 2 4 14h6l-1 8 9-12h-6l1-8Z"/></svg></div>
+        <b>Без зависимостей</b>
+        <p>Системные шрифты, инлайн-SVG, чистые HTML/CSS/JS. Открывается локально и работает офлайн.</p>
+      </article>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="section-head">
+      <div class="section-num">02</div>
+      <div><h2>Вход и чат</h2><p>Сайт открывается в браузере телефона, а внутри Telegram — сразу, без повторного входа.</p></div>
+    </div>
+    <div class="screens">
+
+      <figure class="screen-card">
+        <div class="device">
+          <div class="device-screen"><iframe src="index.html?screen=auth&frame=1" title="Экран входа" loading="lazy"></iframe></div>
+          <span class="island"></span>
+        </div>
+        <figcaption>
+          <div class="caption-top"><span class="caption-num">01</span><span class="caption-name">Вход</span><span class="caption-tag">браузер</span></div>
+          <p>Telegram или код из бота. Сразу объясняет, зачем приложение и что данные остаются на tenkrol.ru.</p>
+        </figcaption>
+      </figure>
+
+      <figure class="screen-card">
+        <div class="device">
+          <div class="device-screen"><iframe src="index.html?screen=chat&frame=1" title="Экран чата" loading="lazy"></iframe></div>
+          <span class="island"></span>
+        </div>
+        <figcaption>
+          <div class="caption-top"><span class="caption-num">02</span><span class="caption-name">Чат</span><span class="caption-tag">главный</span></div>
+          <p>Дайджест, быстрые действия, карточки результатов прямо в переписке, вложения и голосовой ввод.</p>
+        </figcaption>
+      </figure>
+
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="section-head">
+      <div class="section-num">03</div>
+      <div><h2>Планы</h2><p>Напоминания и календарь в одном разделе: список по дням и месяц с точками.</p></div>
+    </div>
+    <div class="screens">
+
+      <figure class="screen-card">
+        <div class="device">
+          <div class="device-screen"><iframe src="index.html?screen=plans&frame=1" title="Экран планов" loading="lazy"></iframe></div>
+          <span class="island"></span>
+        </div>
+        <figcaption>
+          <div class="caption-top"><span class="caption-num">03</span><span class="caption-name">Планы</span><span class="caption-tag">данные</span></div>
+          <p>Сегодня / завтра / позже, повтор и отметка выполнения. Кнопка «+» открывает шторку.</p>
+        </figcaption>
+      </figure>
+
+      <figure class="screen-card">
+        <div class="device">
+          <div class="device-screen"><iframe src="index.html?screen=plans&view=calendar&frame=1" title="Экран календаря" loading="lazy"></iframe></div>
+          <span class="island"></span>
+        </div>
+        <figcaption>
+          <div class="caption-top"><span class="caption-num">04</span><span class="caption-name">Календарь</span><span class="caption-tag">данные</span></div>
+          <p>Месяц с точками напоминаний и событий, выбранный день и ближайшие события.</p>
+        </figcaption>
+      </figure>
+
+      <figure class="screen-card">
+        <div class="device">
+          <div class="device-screen"><iframe src="index.html?screen=plans&sheet=reminder&frame=1" title="Шторка нового напоминания" loading="lazy"></iframe></div>
+          <span class="island"></span>
+        </div>
+        <figcaption>
+          <div class="caption-top"><span class="caption-num">05</span><span class="caption-name">Новое напоминание</span><span class="caption-tag">шторка</span></div>
+          <p>Текст, быстрые даты, повтор и тихие часы. Ни одного обязательного поля со сложным вводом.</p>
+        </figcaption>
+      </figure>
+
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="section-head">
+      <div class="section-num">04</div>
+      <div><h2>Память, агент и файлы</h2><p>То, что раньше жило только в командах и в переписке.</p></div>
+    </div>
+    <div class="screens">
+
+      <figure class="screen-card">
+        <div class="device">
+          <div class="device-screen"><iframe src="index.html?screen=memory&frame=1" title="Экран памяти" loading="lazy"></iframe></div>
+          <span class="island"></span>
+        </div>
+        <figcaption>
+          <div class="caption-top"><span class="caption-num">06</span><span class="caption-name">Память</span><span class="caption-tag">данные</span></div>
+          <p>Город, факты с источником, добавление в одну строку и удаление через меню факта.</p>
+        </figcaption>
+      </figure>
+
+      <figure class="screen-card">
+        <div class="device">
+          <div class="device-screen"><iframe src="index.html?screen=agent&frame=1" title="Экран агента" loading="lazy"></iframe></div>
+          <span class="island"></span>
+        </div>
+        <figcaption>
+          <div class="caption-top"><span class="caption-num">07</span><span class="caption-name">Агент</span><span class="caption-tag">новое</span></div>
+          <p>Новая задача, прогресс и шаги, завершённые задачи с результатом. Агент — на «Финляндии».</p>
+        </figcaption>
+      </figure>
+
+      <figure class="screen-card">
+        <div class="device">
+          <div class="device-screen"><iframe src="index.html?screen=files&frame=1" title="Экран файлов" loading="lazy"></iframe></div>
+          <span class="island"></span>
+        </div>
+        <figcaption>
+          <div class="caption-top"><span class="caption-num">08</span><span class="caption-name">Файлы</span><span class="caption-tag">новое</span></div>
+          <p>Тип, размер и дата, фильтры по формату, поиск и экспорт всех данных одним архивом.</p>
+        </figcaption>
+      </figure>
+
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="section-head">
+      <div class="section-num">05</div>
+      <div><h2>Ещё: настройки и статистика</h2><p>Управление характером бота, уведомлениями и серверами — без команд и шпаргалок.</p></div>
+    </div>
+    <div class="screens">
+
+      <figure class="screen-card">
+        <div class="device">
+          <div class="device-screen"><iframe src="index.html?screen=more&frame=1" title="Хаб Ещё" loading="lazy"></iframe></div>
+          <span class="island"></span>
+        </div>
+        <figcaption>
+          <div class="caption-top"><span class="caption-num">09</span><span class="caption-name">Ещё</span><span class="caption-tag">хаб</span></div>
+          <p>Профиль, плитки разделов, состояние «Испании» и «Финляндии», приглашения.</p>
+        </figcaption>
+      </figure>
+
+      <figure class="screen-card">
+        <div class="device">
+          <div class="device-screen"><iframe src="index.html?screen=settings&frame=1" title="Экран настроек" loading="lazy"></iframe></div>
+          <span class="island"></span>
+        </div>
+        <figcaption>
+          <div class="caption-top"><span class="caption-num">10</span><span class="caption-name">Настройки</span><span class="caption-tag">новое</span></div>
+          <p>Характер, режим, модель, озвучка, дайджест, тихие часы, тема, язык и доступ.</p>
+        </figcaption>
+      </figure>
+
+      <figure class="screen-card">
+        <div class="device">
+          <div class="device-screen"><iframe src="index.html?screen=stats&frame=1" title="Экран статистики" loading="lazy"></iframe></div>
+          <span class="island"></span>
+        </div>
+        <figcaption>
+          <div class="caption-top"><span class="caption-num">11</span><span class="caption-name">Статистика</span><span class="caption-tag">данные</span></div>
+          <p>Токены за сегодня и неделю, лимит, нагрузка серверов. Обновление раз в 30 секунд.</p>
+        </figcaption>
+      </figure>
+
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="section-head">
+      <div class="section-num">06</div>
+      <div><h2>Светлая тема</h2><p>Не отдельный дизайн, а тот же интерфейс с другими токенами — переключается в настройках и следует системе.</p></div>
+    </div>
+    <div class="screens">
+
+      <figure class="screen-card">
+        <div class="device">
+          <div class="device-screen"><iframe src="index.html?screen=chat&theme=light&frame=1" title="Чат в светлой теме" loading="lazy"></iframe></div>
+          <span class="island"></span>
+        </div>
+        <figcaption>
+          <div class="caption-top"><span class="caption-num">12</span><span class="caption-name">Чат</span><span class="caption-tag dark">light</span></div>
+          <p>Та же композиция, мягкий фон и читаемый контраст. Тема — из системы или из настроек.</p>
+        </figcaption>
+      </figure>
+
+      <figure class="screen-card">
+        <div class="device">
+          <div class="device-screen"><iframe src="index.html?screen=plans&theme=light&frame=1" title="Планы в светлой теме" loading="lazy"></iframe></div>
+          <span class="island"></span>
+        </div>
+        <figcaption>
+          <div class="caption-top"><span class="caption-num">13</span><span class="caption-name">Планы</span><span class="caption-tag dark">light</span></div>
+          <p>Светлые карточки не теряют иерархию: акцент остаётся синим, опасные действия — красными.</p>
+        </figcaption>
+      </figure>
+
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="section-head">
+      <div class="section-num">07</div>
+      <div><h2>Дизайн-система</h2><p>Минимальный набор токенов, из которого собираются все экраны.</p></div>
+    </div>
+    <div class="tokens">
+      <article class="token">
+        <h3>Цвета</h3>
+        <div class="swatches">
+          <div class="swatch"><i style="background:#101923"></i><b>#101923</b> фон</div>
+          <div class="swatch"><i style="background:#182431"></i><b>#182431</b> карточка</div>
+          <div class="swatch"><i style="background:#2ea6ff"></i><b>#2ea6ff</b> акцент</div>
+          <div class="swatch"><i style="background:#3ddc97"></i><b>#3ddc97</b> успех</div>
+          <div class="swatch"><i style="background:#a78bfa"></i><b>#a78bfa</b> событие</div>
+          <div class="swatch"><i style="background:#ff6b6b"></i><b>#ff6b6b</b> опасное</div>
+        </div>
+      </article>
+      <article class="token">
+        <h3>Типографика</h3>
+        <div class="type-row"><span>28 / 750</span><b style="font-size:24px">Планы</b></div>
+        <div class="type-row"><span>17 / 700</span><b style="font-size:17px">Настройки</b></div>
+        <div class="type-row"><span>14.5 / 400</span><b style="font-size:14px">Напомнить завтра</b></div>
+        <div class="type-row"><span>11.5 / 600</span><b style="font-size:11px;color:var(--muted)">СЕГОДНЯ · 18 ОКТЯБРЯ</b></div>
+      </article>
+      <article class="token">
+        <h3>Радиусы</h3>
+        <div class="radius-demo"><i style="border-radius:22px"></i>22 — карточка</div>
+        <div class="radius-demo"><i style="border-radius:16px"></i>16 — блок</div>
+        <div class="radius-demo"><i style="border-radius:12px"></i>12 — поле</div>
+        <div class="radius-demo"><i style="border-radius:999px"></i>999 — чип</div>
+      </article>
+      <article class="token">
+        <h3>Компоненты</h3>
+        <div class="components">
+          <span class="demo-btn">Добавить</span>
+          <span class="demo-btn ghost">Отмена</span>
+          <span class="demo-chip">Завтра 9:00</span>
+          <span class="demo-switch"></span>
+          <span class="demo-bubble">Готово — напомню завтра в 9:00.</span>
+        </div>
+      </article>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="section-head">
+      <div class="section-num">08</div>
+      <div><h2>Что за макетом</h2><p>Какие данные уже есть в боте, а какие эндпоинты появятся при реализации.</p></div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Экран</th><th>Источник данных</th><th>Статус</th></tr></thead>
+        <tbody>
+          <tr><td><b>Планы</b></td><td><code>/api/reminders</code>, <code>/api/events</code></td><td><span class="tag done">API готово</span></td></tr>
+          <tr><td><b>Память</b></td><td><code>/api/memory</code></td><td><span class="tag done">API готово</span></td></tr>
+          <tr><td><b>Статистика</b></td><td><code>/api/state</code></td><td><span class="tag done">API готово</span></td></tr>
+          <tr><td><b>Вход</b></td><td><code>initData</code> в Telegram; Login Widget или код из бота в браузере</td><td><span class="tag part">расширить</span></td></tr>
+          <tr><td><b>Чат</b></td><td>история Telegram → <code>GET/POST /api/chat</code></td><td><span class="tag new">новый API</span></td></tr>
+          <tr><td><b>Агент</b></td><td>мост и outbox → <code>GET/POST /api/agent/tasks</code></td><td><span class="tag new">новый API</span></td></tr>
+          <tr><td><b>Файлы</b></td><td>каталог результатов → <code>GET /api/files</code>, <code>GET /api/files/:id</code></td><td><span class="tag new">новый API</span></td></tr>
+          <tr><td><b>Настройки</b></td><td>профиль и конфиг → <code>GET/PATCH /api/settings</code></td><td><span class="tag new">новый API</span></td></tr>
+          <tr><td><b>Установка</b></td><td>PWA-манифест и service worker для оболочки</td><td><span class="tag new">новое</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="section-head">
+      <div class="section-num">09</div>
+      <div><h2>Честные ограничения</h2><p>Что в макете демонстрационное и что решается на этапе кода.</p></div>
+    </div>
+    <div class="notes">
+      <div class="note"><b>Данные — демонстрационные</b>Сеть не используется: списки и цифры зашиты в JS, чтобы проверять компоновку и сценарии.</div>
+      <div class="note"><b>Скачивание и экспорт — тосты</b>Настоящие файлы и архивы появятся вместе с API; сейчас важно проверить места действий.</div>
+      <div class="note"><b>Английский — после переноса словарей</b>Выбор языка в настройках есть, строки переедут в словари на этапе реализации.</div>
+      <div class="note"><b>Проекты и сеансы — только просмотр</b>Состав виден, управление появится после одобрения модели доступа (PLB-024).</div>
+    </div>
+  </section>
+
+  <footer class="footer">
+    <span>PLB-026 · макет мобильного пульта</span>
+    <span class="dot"></span>
+    <span><a href="index.html" target="_blank" rel="noopener">index.html</a> · <a href="README.md" target="_blank" rel="noopener">README</a> · <a href="../specs/miniapp/spec.md" target="_blank" rel="noopener">дельта-спека</a></span>
+    <span style="margin-left:auto">tenkrol.ru · сделано для двоих</span>
+  </footer>
+
+</div>
+</body>
+</html>
