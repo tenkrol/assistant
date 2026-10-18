@@ -309,8 +309,20 @@ export class Assistant {
    * @param {object} input - `userId`, `chatId`, `text`, `name`.
    * @returns {Promise<{sends: object[], files: object[]}>} ответы для сайта.
    */
-  async handleWebMessage({ userId, chatId, text, name, chatType = 'private', chatTitle, replyTo } = {}) {
+  async handleWebMessage({ userId, chatId, text, name, chatType = 'private', chatTitle, replyTo, attachments = [] } = {}) {
     const delivery = { sends: [], files: [], chatId: Number(chatId ?? userId) }
+    const normalizedAttachments = (Array.isArray(attachments) ? attachments : [])
+      .filter((item) => item && Buffer.isBuffer(item.bytes) && item.bytes.length > 0)
+      .slice(0, 4)
+      .map((item) => ({
+        kind: item.kind === 'video' ? 'video' : 'photo',
+        bytes: item.bytes,
+        name: String(item.name || (item.kind === 'video' ? 'video.mp4' : 'photo.jpg')).slice(0, 120),
+        mime: String(item.mime || (item.kind === 'video' ? 'video/mp4' : 'image/jpeg')).slice(0, 100),
+        id: item.id,
+        url: item.url,
+        size: item.size ?? item.bytes.length,
+      }))
     const message = {
       kind: 'message',
       id: `web-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -321,7 +333,7 @@ export class Assistant {
         ...(chatTitle ? { title: String(chatTitle) } : {}),
       },
       text: String(text ?? ''),
-      attachments: [],
+      attachments: normalizedAttachments,
       addressed: true,
       web: true,
       ...(replyTo && typeof replyTo.text === 'string' && replyTo.text.trim() !== ''
@@ -336,11 +348,33 @@ export class Assistant {
       const quoted = message.replyTo
         ? `↪ ${message.replyTo.author ? message.replyTo.author + ': ' : ''}${message.replyTo.text.slice(0, 300)}\n`
         : ''
-      const relayed = await this.platform.sendText({
-        chatId: message.chat.id,
-        markdown: `💬 ${message.from.name} (с сайта):\n${quoted}${message.text}`,
-      }).catch((error) => this.logger.warn('web message relay failed', { error }))
-      relayedMessageId = relayed?.messageId
+      const caption = [`💬 ${message.from.name} (с сайта):`, quoted.trim(), message.text.trim()].filter(Boolean).join('\n')
+      if (message.attachments.length > 0) {
+        for (const [index, attachment] of message.attachments.entries()) {
+          const method = attachment.kind === 'video' ? 'sendVideo' : 'sendPhoto'
+          const relay = typeof this.platform[method] === 'function'
+            ? await this.platform[method]({
+              chatId: message.chat.id,
+              bytes: attachment.bytes,
+              fileName: attachment.name,
+              mime: attachment.mime,
+              caption: index === 0 ? caption.slice(0, 1024) : undefined,
+            })
+            : await this.platform.sendDocument({
+              chatId: message.chat.id,
+              bytes: attachment.bytes,
+              fileName: attachment.name,
+              caption: index === 0 ? caption.slice(0, 1024) : undefined,
+            })
+          if (index === 0) relayedMessageId = relay?.messageId
+        }
+      } else if (caption.trim() !== '') {
+        const relayed = await this.platform.sendText({
+          chatId: message.chat.id,
+          markdown: caption,
+        }).catch((error) => this.logger.warn('web message relay failed', { error }))
+        relayedMessageId = relayed?.messageId
+      }
     }
     // В группе бот отвечает только на упоминание или ответ на своё сообщение,
     // как и в Telegram. Иначе сообщение просто уходит в общий чат.
@@ -355,6 +389,9 @@ export class Assistant {
           content: message.text,
           ...(message.from.name ? { author: message.from.name } : {}),
           ...(message.replyTo ? { replyTo: message.replyTo } : {}),
+          ...(Array.isArray(message.attachments) && message.attachments.length > 0
+            ? { attachments: message.attachments.filter((item) => item && item.url).map((item) => ({ id: item.id, kind: item.kind, name: item.name, mime: item.mime, size: item.size, url: item.url })) }
+            : {}),
         },
         {},
       )

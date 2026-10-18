@@ -3494,3 +3494,109 @@ html.large-text .setting-row span {
   border-radius: 50%;
   display: block;
 }
+
+/* ---------- Фото и видео как в Telegram ---------- */
+
+.attach-preview {
+  display: flex;
+  gap: 7px;
+  padding: 8px 12px 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.attach-preview::-webkit-scrollbar {
+  display: none;
+}
+
+.attach-thumb {
+  position: relative;
+  width: 64px;
+  height: 64px;
+  flex: 0 0 auto;
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--card);
+  border: 1px solid var(--border);
+}
+
+.attach-thumb img,
+.attach-thumb video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.attach-thumb .attach-kind {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.25);
+  pointer-events: none;
+}
+
+.attach-thumb .attach-remove {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  display: grid;
+  place-items: center;
+}
+
+.attach-thumb .attach-remove svg.ic {
+  width: 12px;
+  height: 12px;
+}
+
+.bubble.has-media {
+  padding: 5px;
+}
+
+.chat-media {
+  display: block;
+  width: 100%;
+  max-height: 320px;
+  object-fit: cover;
+  border-radius: 14px;
+  background: #000;
+}
+
+.chat-media + .bubble-text {
+  padding: 6px 7px 2px;
+}
+
+.bubble-text {
+  white-space: pre-wrap;
+}
+
+.media-viewer {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: rgba(0, 0, 0, 0.92);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.media-viewer img,
+.media-viewer video {
+  max-width: 100%;
+  max-height: 100%;
+  border-radius: 8px;
+}
+
+.chat-media-box {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 320px;
+}

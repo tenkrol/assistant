@@ -141,6 +141,8 @@
         </div>
       </div>
       <div class="composer-wrap">
+        <div class="attach-preview" id="attach-preview" hidden></div>
+        <input type="file" id="chat-files" accept="image/*,video/*" multiple hidden>
         <div class="reply-bar" id="reply-bar" hidden>
           <svg class="ic reply-bar-ic"><use href="#i-repeat"/></svg>
           <div class="reply-bar-body">
@@ -152,6 +154,9 @@
           </button>
         </div>
         <div class="composer">
+          <button class="composer-add" id="chat-attach" type="button" aria-label="Прикрепить фото или видео">
+            <svg class="ic"><use href="#i-paperclip"/></svg>
+          </button>
           <div class="composer-field">
             <textarea id="chat-input" rows="1" placeholder="Написать ассистенту…" autocomplete="off" maxlength="4000" aria-label="Сообщение ассистенту" enterkeyhint="send"></textarea>
             <button class="composer-send" id="chat-send" aria-label="Отправить" disabled>

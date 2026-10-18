@@ -179,6 +179,7 @@ async function createHarness(t, options = {}) {
     pushPublicKey: options.pushPublicKey ?? '',
     pushTest: options.pushTest,
     avatarProvider: options.avatarProvider,
+    mediaStore: options.mediaStore,
     chatResponder: options.chatResponder,
     agentResponder: options.agentResponder,
     agentStatus: options.agentStatus,
@@ -703,6 +704,63 @@ test('настройки: чтение, смена и проверка знач�
     body: { persona: 'инопланетный' },
   })
   assert.equal(invalid.status, 400)
+})
+
+test('медиа: загрузка фото, отдача и отправка с вложением', async (t) => {
+  const { MobileMediaStore } = await import('../src/mobile-media.mjs')
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'tg-media-api-'))
+  const mediaStore = new MobileMediaStore({ file: path.join(dir, 'media.json'), dir: path.join(dir, 'files'), logger: silentLogger })
+  await mediaStore.load()
+  t.after(async () => { await fs.rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }) })
+  const seen = []
+  const { base, history } = await createHarness(t, {
+    mediaStore,
+    chatResponder: async (input) => {
+      seen.push(input)
+      return { sends: [{ text: 'фото принято' }], files: [] }
+    },
+  })
+  const cookies = jar()
+  await request(base, '/api/auth/login', { method: 'POST', body: { password: PASSWORD }, cookieJar: cookies })
+
+  const upload = await fetch(`${base}/api/chat/upload`, {
+    method: 'POST',
+    headers: {
+      cookie: cookies.cookie,
+      'X-Mobile-Client': '1',
+      'X-File-Name': encodeURIComponent('photo.png'),
+      'Content-Type': 'image/png',
+    },
+    body: Buffer.from([137, 80, 78, 71]),
+  })
+  assert.equal(upload.status, 201)
+  const uploaded = await upload.json()
+  assert.equal(uploaded.kind, 'photo')
+  assert.equal(uploaded.url, `/api/media/${uploaded.id}`)
+
+  const media = await fetch(`${base}${uploaded.url}`, { headers: { cookie: cookies.cookie } })
+  assert.equal(media.status, 200)
+  assert.equal(media.headers.get('content-type'), 'image/png')
+  assert.equal(Buffer.from(await media.arrayBuffer()).toString('hex'), '89504e47')
+
+  const sent = await request(base, '/api/chat/message', {
+    method: 'POST',
+    cookieJar: cookies,
+    headers: { 'X-Mobile-Client': '1' },
+    body: { text: 'смотри', attachments: [{ id: uploaded.id }] },
+  })
+  assert.equal(sent.status, 200)
+  assert.equal(sent.json.messages[0].text, 'фото принято')
+  assert.equal(Buffer.from(seen[0].attachments[0].bytes).toString('hex'), '89504e47')
+
+  await history.append(USER_ID, {
+    role: 'user',
+    content: 'смотри',
+    attachments: [uploaded],
+  }, { userId: USER_ID })
+  await history.flush()
+  const chat = await request(base, '/api/chat/history', { cookieJar: cookies })
+  assert.equal(chat.json.messages.at(-1).attachments[0].id, uploaded.id)
 })
 
 test('аватар: отдаётся только своим, история ссылается на него', async (t) => {

@@ -551,6 +551,13 @@ export function createConversation(bot) {
           ...(message.replyTo && typeof message.replyTo.text === 'string' && message.replyTo.text.trim() !== ''
             ? { replyTo: { text: message.replyTo.text.trim().slice(0, 600), ...(message.replyTo.author ? { author: String(message.replyTo.author).slice(0, 80) } : {}) } }
             : {}),
+          ...(Array.isArray(message.attachments) && message.attachments.length > 0
+            ? {
+              attachments: message.attachments
+                .filter((item) => item && item.url)
+                .map((item) => ({ id: item.id, kind: item.kind, name: item.name, mime: item.mime, size: item.size, url: item.url })),
+            }
+            : {}),
         },
         { userId: isGroup ? undefined : userId },
       )

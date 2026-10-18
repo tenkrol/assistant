@@ -31,6 +31,7 @@ import { createEventTool } from './event-tool.mjs'
 import { createMiniApp } from './miniapp.mjs'
 import { MobileUserStore } from './mobile-users.mjs'
 import { MobilePushStore, createVapidConfig, sendPush } from './mobile-push.mjs'
+import { MobileMediaStore } from './mobile-media.mjs'
 import { createOutbox } from './outbox.mjs'
 import { createAgentEventsStore } from './storage/agent-events.mjs'
 import { createAgentLink } from './agent-link/index.mjs'
@@ -718,6 +719,18 @@ export async function createInstance({ config, logger, instance, shared, platfor
           mobileUsers = undefined
         }
       }
+      let mobileMedia
+      try {
+        mobileMedia = new MobileMediaStore({
+          file: stateFile(botConfig.dataDir, 'mobile-media', instance.namespace),
+          dir: `${botConfig.dataDir}/mobile-media`,
+          logger,
+        })
+        await mobileMedia.load()
+      } catch (error) {
+        logger.warn('mobile media failed to load', { error: error?.message ?? error })
+        mobileMedia = undefined
+      }
       let mobilePush
       const pushVapid = createVapidConfig({
         publicKey: config.miniapp.mobile.vapidPublicKey,
@@ -778,6 +791,7 @@ export async function createInstance({ config, logger, instance, shared, platfor
         pushStore: mobilePush,
         pushPublicKey: pushVapid ? pushVapid.publicKey : '',
         avatarProvider: (userId) => (typeof bot.platform.getUserAvatar === 'function' ? bot.platform.getUserAvatar(userId) : null),
+        mediaStore: mobileMedia,
         pushTest: async ({ userId }) => {
           if (!mobilePush || !pushVapid) return { sent: 0, failed: 0, subscribed: 0, error: 'VAPID не настроен' }
           const subscriptions = mobilePush.listForUsers([userId])

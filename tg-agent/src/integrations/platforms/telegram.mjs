@@ -207,6 +207,16 @@ export class TelegramPlatform {
   }
 
   /** Аватар пользователя из Telegram; null, если фото нет или оно скрыто. */
+  async sendPhoto({ chatId, bytes, fileName, mime, caption, replyToMessageId }) {
+    const message = await this.client.sendPhoto({ chatId, bytes, fileName, mime, caption, replyToMessageId })
+    return { messageId: message?.message_id }
+  }
+
+  async sendVideo({ chatId, bytes, fileName, mime, caption, replyToMessageId }) {
+    const message = await this.client.sendVideo({ chatId, bytes, fileName, mime, caption, replyToMessageId })
+    return { messageId: message?.message_id }
+  }
+
   async getUserAvatar(userId, { maxBytes = 2_000_000 } = {}) {
     if (typeof this.client?.call !== 'function' || typeof this.client?.downloadFile !== 'function') return null
     try {

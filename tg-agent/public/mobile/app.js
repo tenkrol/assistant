@@ -155,6 +155,7 @@ const state = {
   chat: null,
   chatReply: null,
   chatSending: false,
+  pendingMedia: [],
   chats: [],
   chatTarget: null,
   factQuery: '',
@@ -610,6 +611,7 @@ function selectChat(chat) {
   state.chatTarget = chat
   state.chat = null
   clearChatReply()
+  clearPendingMedia()
   state.loaded.chat = false
   hideChatTyping()
   renderChatSwitch()
@@ -634,7 +636,8 @@ function sameMessages(left, right) {
     && item.text === right[index].text
     && item.author === right[index].author
     && (item.replyTo && item.replyTo.text ? item.replyTo.text : '') === (right[index].replyTo && right[index].replyTo.text ? right[index].replyTo.text : '')
-    && (item.avatar || '') === (right[index].avatar || ''))
+    && (item.avatar || '') === (right[index].avatar || '')
+    && JSON.stringify((item.attachments || []).map((a) => a.id)) === JSON.stringify((right[index].attachments || []).map((a) => a.id)))
 }
 
 async function refreshChatHistory() {
@@ -719,7 +722,7 @@ function renderChat() {
   }
   const day = h('div', 'day-chip', state.chatTarget && state.chatTarget.type !== 'private' ? state.chatTarget.title : 'Диалог с ассистентом')
   box.append(day)
-  messages.forEach((message) => box.append(chatMessageNode(message.role, message.text, message.author, message.replyTo, message.avatar)))
+  messages.forEach((message) => box.append(chatMessageNode(message.role, message.text, message.author, message.replyTo, message.avatar, message.attachments)))
   chatScrollToBottom()
 }
 
@@ -853,7 +856,58 @@ function bindMessageGesture(bubble, message) {
   })
 }
 
-function chatMessageNode(role, text, author, replyTo, avatar) {
+function openMediaViewer(attachment) {
+  const viewer = h('div', 'media-viewer')
+  if (attachment.kind === 'video') {
+    const video = document.createElement('video')
+    video.src = attachment.url
+    video.controls = true
+    video.autoplay = true
+    video.playsInline = true
+    viewer.append(video)
+  } else {
+    const image = document.createElement('img')
+    image.src = attachment.url
+    image.alt = attachment.name || ''
+    viewer.append(image)
+  }
+  const close = () => viewer.remove()
+  viewer.addEventListener('click', close)
+  document.addEventListener('keydown', function onKey(event) {
+    if (event.key === 'Escape') {
+      close()
+      document.removeEventListener('keydown', onKey)
+    }
+  })
+  document.body.append(viewer)
+}
+
+function chatMediaNode(attachments) {
+  const box = h('div', 'chat-media-box')
+  attachments.forEach((attachment) => {
+    if (!attachment || !attachment.url) return
+    if (attachment.kind === 'video') {
+      const video = document.createElement('video')
+      video.className = 'chat-media'
+      video.src = attachment.url
+      video.controls = true
+      video.playsInline = true
+      video.preload = 'metadata'
+      box.append(video)
+    } else {
+      const image = document.createElement('img')
+      image.className = 'chat-media'
+      image.src = attachment.url
+      image.alt = attachment.name || 'фото'
+      image.loading = 'lazy'
+      image.addEventListener('click', () => openMediaViewer(attachment))
+      box.append(image)
+    }
+  })
+  return box
+}
+
+function chatMessageNode(role, text, author, replyTo, avatar, attachments) {
   const ownName = state.session && state.session.user ? state.session.user.telegramName : ''
   const otherAuthor = role === 'user' && author && ownName && author !== ownName
   const article = h('article', 'msg ' + (role === 'assistant' || otherAuthor ? 'msg-bot' : 'msg-user'))
@@ -877,21 +931,27 @@ function chatMessageNode(role, text, author, replyTo, avatar) {
       avatarBox.append(icon('spark'))
     }
     const stack = h('div', 'msg-stack')
-    bubble = h('div', 'bubble bubble-bot', text)
-    if (otherAuthor) bubble.prepend(h('div', 'row-meta', author))
+    bubble = h('div', 'bubble bubble-bot')
     stack.append(bubble)
     article.append(avatarBox, stack)
   } else {
-    bubble = h('div', 'bubble bubble-user', text)
+    bubble = h('div', 'bubble bubble-user')
     article.append(bubble)
   }
   if (replyTo && replyTo.text) {
     const quote = h('div', 'reply-quote')
     quote.append(h('b', null, replyTo.author || (replyTo.role === 'assistant' ? 'Ассистент' : 'Вы')))
     quote.append(h('span', null, String(replyTo.text).slice(0, 300)))
-    bubble.prepend(quote)
+    bubble.append(quote)
   }
-  bindMessageGesture(bubble, { role, text, author })
+  const media = Array.isArray(attachments) ? attachments.filter((item) => item && item.url) : []
+  if (media.length > 0) {
+    bubble.classList.add('has-media')
+    bubble.append(chatMediaNode(media))
+  }
+  if (text) bubble.append(h('div', 'bubble-text', text))
+  const replyText = text || (media.length > 0 ? (media[0].kind === 'video' ? '[видео]' : '[фото]') : '')
+  bindMessageGesture(bubble, { role, text: replyText, author })
   return article
 }
 
@@ -900,11 +960,11 @@ function chatScrollToBottom() {
   if (scroller) scroller.scrollTop = scroller.scrollHeight
 }
 
-function appendChatMessage(role, text, author, replyTo) {
+function appendChatMessage(role, text, author, replyTo, attachments) {
   const box = $('chat-messages')
   const empty = box.querySelector('.chat-empty')
   if (empty) empty.remove()
-  box.append(chatMessageNode(role, text, author, replyTo))
+  box.append(chatMessageNode(role, text, author, replyTo, undefined, attachments))
   chatScrollToBottom()
 }
 
@@ -982,28 +1042,136 @@ function updateChatSend() {
   const input = $('chat-input')
   const button = $('chat-send')
   if (!input || !button) return
-  button.disabled = input.value.trim() === ''
+  button.disabled = input.value.trim() === '' && state.pendingMedia.length === 0
   resizeChatInput()
+}
+
+function mediaKind(file) {
+  return String(file.type || '').startsWith('video/') ? 'video' : 'photo'
+}
+
+function renderAttachPreview() {
+  const box = $('attach-preview')
+  box.replaceChildren()
+  if (state.pendingMedia.length === 0) {
+    box.hidden = true
+    return
+  }
+  box.hidden = false
+  state.pendingMedia.forEach((item, index) => {
+    const thumb = h('div', 'attach-thumb')
+    if (item.kind === 'video') {
+      const video = document.createElement('video')
+      video.src = item.url
+      video.muted = true
+      video.playsInline = true
+      thumb.append(video)
+      const kind = h('span', 'attach-kind')
+      kind.append(icon('play'))
+      thumb.append(kind)
+    } else {
+      const image = document.createElement('img')
+      image.src = item.url
+      image.alt = ''
+      thumb.append(image)
+    }
+    const remove = h('button', 'attach-remove')
+    remove.type = 'button'
+    remove.setAttribute('aria-label', 'Убрать вложение')
+    remove.append(icon('close'))
+    remove.addEventListener('click', () => removePendingMedia(index))
+    thumb.append(remove)
+    box.append(thumb)
+  })
+}
+
+function addPendingMedia(files) {
+  const accepted = [...(files || [])]
+  for (const file of accepted) {
+    if (state.pendingMedia.length >= 4) {
+      toast('Можно прикрепить до 4 файлов')
+      break
+    }
+    if (!String(file.type || '').startsWith('image/') && !String(file.type || '').startsWith('video/')) {
+      toast('Можно прикрепить только фото или видео')
+      continue
+    }
+    if (file.size > 20 * 1024 * 1024) {
+      toast('Файл больше 20 МБ')
+      continue
+    }
+    state.pendingMedia.push({ file, kind: mediaKind(file), url: URL.createObjectURL(file) })
+  }
+  renderAttachPreview()
+  updateChatSend()
+}
+
+function removePendingMedia(index) {
+  const [removed] = state.pendingMedia.splice(index, 1)
+  if (removed) URL.revokeObjectURL(removed.url)
+  renderAttachPreview()
+  updateChatSend()
+}
+
+function clearPendingMedia() {
+  state.pendingMedia.forEach((item) => URL.revokeObjectURL(item.url))
+  state.pendingMedia = []
+  renderAttachPreview()
+  updateChatSend()
+}
+
+async function uploadMediaFile(item) {
+  const response = await fetch('/api/chat/upload', {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: {
+      'X-Mobile-Client': '1',
+      'X-File-Name': encodeURIComponent(item.file.name || (item.kind === 'video' ? 'video.mp4' : 'photo.jpg')),
+      'Content-Type': item.file.type || (item.kind === 'video' ? 'video/mp4' : 'image/jpeg'),
+    },
+    body: item.file,
+  })
+  const data = await response.json().catch(() => ({}))
+  if (!response.ok) {
+    if (response.status === 401) throw new ApiError('Сессия истекла', 401)
+    throw new Error(data.error || 'Не удалось загрузить файл')
+  }
+  return data
+}
+
+async function uploadPendingMedia() {
+  const uploaded = []
+  for (const item of state.pendingMedia) uploaded.push(await uploadMediaFile(item))
+  return uploaded
 }
 
 async function sendSiteMessage() {
   const input = $('chat-input')
   const button = $('chat-send')
   const text = input.value.trim()
-  if (text === '' || button.disabled) return
+  if ((text === '' && state.pendingMedia.length === 0) || button.disabled) return
   const group = state.chatTarget && state.chatTarget.type !== 'private'
   const reply = state.chatReply
-  appendChatMessage('user', text, group ? ((state.session && state.session.user && state.session.user.telegramName) || 'Вы') : undefined, reply)
-  clearChatReply()
-  input.value = ''
-  input.style.height = 'auto'
-  updateChatSend()
   button.disabled = true
   state.chatSending = true
   showChatTyping()
   try {
+    const uploaded = state.pendingMedia.length > 0 ? await uploadPendingMedia() : []
+    appendChatMessage(
+      'user',
+      text,
+      group ? ((state.session && state.session.user && state.session.user.telegramName) || 'Вы') : undefined,
+      reply,
+      uploaded,
+    )
+    clearChatReply()
+    clearPendingMedia()
+    input.value = ''
+    input.style.height = 'auto'
+    updateChatSend()
     const data = await api('POST', '/api/chat/message', {
       text,
+      ...(uploaded.length > 0 ? { attachments: uploaded.map((item) => ({ id: item.id })) } : {}),
       ...(state.chatTarget && state.chatTarget.id !== null && state.chatTarget.id !== undefined
         ? { chatId: state.chatTarget.id }
         : {}),
@@ -1021,7 +1189,7 @@ async function sendSiteMessage() {
     }
     ;(Array.isArray(data.files) ? data.files : []).forEach(appendChatFile)
     if (state.chat && Array.isArray(state.chat.messages)) {
-      state.chat.messages.push({ role: 'user', text, ...(reply ? { replyTo: reply } : {}) })
+      state.chat.messages.push({ role: 'user', text, ...(reply ? { replyTo: reply } : {}), ...(uploaded.length > 0 ? { attachments: uploaded } : {}) })
       if (!silent) messages.forEach((message) => state.chat.messages.push({ role: 'assistant', text: message.text }))
     }
   } catch (error) {
@@ -2390,6 +2558,11 @@ function bind() {
     }
   })
   $('chat-send').addEventListener('click', () => void sendSiteMessage())
+  $('chat-attach').addEventListener('click', () => $('chat-files').click())
+  $('chat-files').addEventListener('change', (event) => {
+    addPendingMedia(event.target.files)
+    event.target.value = ''
+  })
   updateChatSend()
 
   document.querySelectorAll('[data-agent-template]').forEach((button) => {

@@ -61,6 +61,11 @@
 копирование идёт через Clipboard API с fallback на `execCommand`. Поле ввода —
 `textarea`, которое растёт до 120 px; Enter отправляет, Shift+Enter переносит строку.
 
+**Медиа.** `POST /api/chat/upload` принимает сырые байты фото/видео (до 20 МБ),
+`MobileMediaStore` пишет файл и метаданные; `/api/media/:id` отдаёт с Range для `<video>`.
+Вложения передаются в конвейер с готовыми байтами и сохраняются в истории; в Telegram
+уходят через `sendPhoto`/`sendVideo` (fallback — документ).
+
 **Аватары.** `GET /api/avatar/:userId` отдаёт фото профиля Telegram, полученное через
 `getUserProfilePhotos` и `getFile`; кэш 1 час, только для допущенных пользователей.
 История добавляет ссылку `avatar` для автора, клиент показывает фото вместо буквы.

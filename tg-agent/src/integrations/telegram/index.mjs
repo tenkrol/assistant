@@ -235,6 +235,32 @@ export class TelegramClient {
     return payload.result
   }
 
+  async sendMedia(method, field, { chatId, bytes, fileName, mime, caption, replyToMessageId }, options = {}) {
+    const form = new FormData()
+    form.append('chat_id', String(chatId))
+    form.append(field, new Blob([bytes], { type: mime || (field === 'photo' ? 'image/jpeg' : 'video/mp4') }),
+      fileName || (field === 'photo' ? 'photo.jpg' : 'video.mp4'))
+    if (caption) form.append('caption', caption.slice(0, 1024))
+    if (replyToMessageId !== undefined) form.append('reply_to_message_id', String(replyToMessageId))
+    const signal = deadlineSignal(this.timeoutMs, options.signal)
+    const response = await this.fetchImpl(`${this.apiBase}/bot${this.token}/${method}`, { method: 'POST', body: form, signal })
+    const payload = await parseJson(response)
+    if (!payload?.ok) {
+      throw new TelegramError(`Telegram ${method} failed: ${payload?.description ?? response.status}`, { method, status: response.status })
+    }
+    return payload.result
+  }
+
+  /** Отправить фото инлайн, как обычное фото Telegram. */
+  sendPhoto({ chatId, bytes, fileName, mime, caption, replyToMessageId }, options = {}) {
+    return this.sendMedia('sendPhoto', 'photo', { chatId, bytes, fileName, mime, caption, replyToMessageId }, options)
+  }
+
+  /** Отправить видео инлайн. */
+  sendVideo({ chatId, bytes, fileName, mime, caption, replyToMessageId }, options = {}) {
+    return this.sendMedia('sendVideo', 'video', { chatId, bytes, fileName, mime, caption, replyToMessageId }, options)
+  }
+
   /** React to a message; an empty emoji removes the reaction. */
   setMessageReaction({ chatId, messageId, emoji }, options) {
     return this.call('setMessageReaction', {

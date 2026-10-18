@@ -309,6 +309,44 @@ function readJsonBody(request, limit) {
   })
 }
 
+/** Бинарное тело с жёстким лимитом; для загрузки фото/видео. */
+function readBinaryBody(request, limit) {
+  return new Promise((resolve) => {
+    const declared = Number(request.headers['content-length'])
+    if (Number.isFinite(declared) && declared > limit) {
+      request.resume()
+      resolve({ ok: false, status: 413, error: 'Файл больше 20 МБ' })
+      return
+    }
+    const chunks = []
+    let size = 0
+    let settled = false
+    const finish = (result) => {
+      if (settled) return
+      settled = true
+      request.removeListener('data', onData)
+      request.removeListener('end', onEnd)
+      request.removeListener('error', onError)
+      resolve(result)
+    }
+    const onData = (chunk) => {
+      size += chunk.length
+      if (size > limit) {
+        request.resume()
+        finish({ ok: false, status: 413, error: 'Файл больше 20 МБ' })
+        return
+      }
+      chunks.push(chunk)
+    }
+    const onEnd = () => finish({ ok: true, bytes: Buffer.concat(chunks) })
+    const onError = () => finish({ ok: false, status: 400, error: 'Не удалось прочитать файл' })
+    request.on('data', onData)
+    request.on('end', onEnd)
+    request.on('error', onError)
+  })
+}
+
+
 /** `decodeURIComponent` that reports malformed input as `undefined`. */
 function safeDecode(value) {
   try {
@@ -383,6 +421,8 @@ export function createMiniApp({
   pushPublicKey = '',
   pushTest,
   avatarProvider,
+  mediaStore,
+  maxMediaBytes = 20 * 1024 * 1024,
   chatResponder,
   agentResponder,
   agentStatus,
@@ -969,7 +1009,19 @@ export function createMiniApp({
       })
     }
     const text = typeof body.value?.text === 'string' ? body.value.text.trim() : ''
-    if (text === '') return badRequest(response, 'Введите сообщение')
+    const requestedAttachments = Array.isArray(body.value?.attachments)
+      ? body.value.attachments.map((item) => String(item?.id ?? item)).filter(Boolean).slice(0, 4)
+      : []
+    const attachments = []
+    if (requestedAttachments.length > 0) {
+      if (!mediaStore || typeof mediaStore.read !== 'function') return missingStore(response, 'медиа')
+      for (const id of requestedAttachments) {
+        const entry = await mediaStore.read(id).catch(() => null)
+        if (!entry) return badRequest(response, 'Вложение не найдено или устарело')
+        attachments.push({ ...mediaStore.publicItem(entry.item), bytes: entry.bytes })
+      }
+    }
+    if (text === '' && attachments.length === 0) return badRequest(response, 'Введите сообщение')
     if (text.length > CHAT_INPUT_MAX) return badRequest(response, `Сообщение длиннее ${CHAT_INPUT_MAX} символов`)
     const rawReply = body.value?.replyTo
     const replyTo = rawReply && typeof rawReply === 'object' && typeof rawReply.text === 'string' && rawReply.text.trim() !== ''
@@ -989,6 +1041,7 @@ export function createMiniApp({
         chatTitle: target.title,
         text,
         ...(replyTo ? { replyTo } : {}),
+        ...(attachments.length > 0 ? { attachments } : {}),
         name: displayNameFor(userId) || String(auth.user?.first_name ?? mobileUserName),
         login: auth.login ?? null,
       })
@@ -1016,6 +1069,64 @@ export function createMiniApp({
   }
 
   const avatarCache = new Map()
+
+  /** POST /api/chat/upload — принять фото или видео с телефона. */
+  async function uploadMedia(request, response, { userId }) {
+    if (!mediaStore || typeof mediaStore.add !== 'function') {
+      request.resume()
+      return missingStore(response, 'медиа')
+    }
+    const mime = String(request.headers['content-type'] ?? '').toLowerCase()
+    if (!mime.startsWith('image/') && !mime.startsWith('video/')) {
+      request.resume()
+      return badRequest(response, 'Можно прикреплять только фото и видео')
+    }
+    const rawName = request.headers['x-file-name']
+    const name = typeof rawName === 'string' ? safeDecode(rawName) : undefined
+    const body = await readBinaryBody(request, maxMediaBytes)
+    if (!body.ok) return sendError(response, body.status, ERROR_CODES.tooLarge, body.error)
+    try {
+      const item = await mediaStore.add({ userId, bytes: body.bytes, name, mime })
+      sendJson(response, 201, mediaStore.publicItem(item))
+    } catch (error) {
+      logger?.warn?.('media upload failed', { error: error?.message ?? error, userId })
+      badRequest(response, String(error?.message ?? 'Не удалось сохранить файл'))
+    }
+  }
+
+  /** GET /api/media/:id — отдать фото/видео с Range для <video>. */
+  async function getMedia(request, response, { params }) {
+    if (!mediaStore || typeof mediaStore.read !== 'function') {
+      request.resume()
+      return notFound(response)
+    }
+    const entry = await mediaStore.read(params?.[0]).catch(() => null)
+    if (!entry) return notFound(response)
+    const { item, bytes } = entry
+    const range = String(request.headers.range ?? '')
+    const baseHeaders = {
+      'content-type': item.mime || 'application/octet-stream',
+      'accept-ranges': 'bytes',
+      'cache-control': 'private, max-age=3600',
+    }
+    const match = /^bytes=(\d+)-(\d*)$/.exec(range)
+    if (match) {
+      const start = Number(match[1])
+      const end = match[2] === '' ? bytes.length - 1 : Math.min(Number(match[2]), bytes.length - 1)
+      if (!Number.isFinite(start) || start > end || start >= bytes.length) {
+        response.writeHead(416, { ...baseHeaders, 'content-range': `bytes */${bytes.length}` })
+        return response.end()
+      }
+      response.writeHead(206, {
+        ...baseHeaders,
+        'content-range': `bytes ${start}-${end}/${bytes.length}`,
+        'content-length': String(end - start + 1),
+      })
+      return response.end(bytes.subarray(start, end + 1))
+    }
+    response.writeHead(200, { ...baseHeaders, 'content-length': String(bytes.length) })
+    response.end(bytes)
+  }
 
   /** GET /api/avatar/:userId — фото профиля Telegram для автора сообщения. */
   async function getAvatar(request, response, { params }) {
@@ -1089,6 +1200,17 @@ export function createMiniApp({
                 text: safeText(message.replyTo.text, 600),
                 ...(message.replyTo.author ? { author: safeText(message.replyTo.author, 80) } : {}),
               },
+            }
+            : {}),
+          ...(Array.isArray(message.attachments) && message.attachments.length > 0
+            ? {
+              attachments: message.attachments
+                .filter((item) => item && typeof item.url === 'string' && item.url.startsWith('/api/media/'))
+                .map((item) => ({
+                  id: String(item.id ?? ''), kind: item.kind === 'video' ? 'video' : 'photo',
+                  name: safeText(item.name, 120), mime: safeText(item.mime, 100),
+                  size: Number(item.size) || 0, url: item.url,
+                })),
             }
             : {}),
         }
@@ -1453,6 +1575,8 @@ export function createMiniApp({
     { method: 'DELETE', pattern: /^\/api\/memory\/([^/]+)$/, handler: deleteFact },
     { method: 'GET', pattern: /^\/api\/chats$/, handler: listChats },
     { method: 'GET', pattern: /^\/api\/avatar\/(\d+)$/, handler: getAvatar },
+    { method: 'POST', pattern: /^\/api\/chat\/upload$/, handler: uploadMedia },
+    { method: 'GET', pattern: /^\/api\/media\/([^/]+)$/, handler: getMedia },
     { method: 'GET', pattern: /^\/api\/chat\/history$/, handler: chatHistory },
     { method: 'POST', pattern: /^\/api\/chat\/message$/, handler: sendChatMessage },
     { method: 'GET', pattern: /^\/api\/push\/config$/, handler: getPushConfig },

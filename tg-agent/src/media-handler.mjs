@@ -55,6 +55,11 @@ export async function prepareAttachments({ platform, attachments = [], caption =
       parts.push({ type: 'image_url', image_url: { url: `data:${mime};base64,${file.bytes.toString('base64')}` } })
       continue
     }
+    if (attachment.kind === 'video') {
+      // Видео моделью не анализируем: показываем в чате и пересылаем в Telegram.
+      parts.push({ type: 'text', text: `Пользователь прислал видео «${attachment.name ?? 'видео'}».` })
+      continue
+    }
     if (attachment.kind === 'voice' || attachment.kind === 'audio') {
       if (!media?.transcribe) {
         notes.push('Голосовые пока не подключены: нужен ключ сервиса распознавания (STT).')
@@ -135,6 +140,10 @@ function defaultQuestion(attachments) {
 
 /** Download without throwing; a failed download is a note, not a failed turn. */
 async function safeDownload(platform, attachment, maxBytes, logger) {
+  // Веб-загрузка уже принесла байты: скачивать нечего.
+  if (Buffer.isBuffer(attachment?.bytes) && attachment.bytes.length > 0) {
+    return { bytes: attachment.bytes, fileName: attachment.name, size: attachment.bytes.length }
+  }
   if (typeof platform?.downloadFile !== 'function') return undefined
   try {
     return await platform.downloadFile({
