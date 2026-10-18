@@ -63,3 +63,8 @@ node tools/deploy-safe.mjs --notify --test-timeout 900000   # деплой с а
 
 Секреты — только в `../secrets/prod.env.enc` (шифртекст), пароль вне репозитория.
 Расшифровка: `bash tools/secrets.sh decrypt`. Имена ключей — `../secrets/keys.md`.
+
+
+## Оценка
+
+Независимой приёмки не было; моя честная оценка с оглядкой на рынок — **7 из 10**, разбор по критериям и что даст +1: [docs/RATING.md](docs/RATING.md).
