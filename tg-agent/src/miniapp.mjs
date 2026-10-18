@@ -53,6 +53,7 @@ const DEFAULT_LOGIN_BLOCK_MS = 15 * 60 * 1000
 const MAX_LOGIN_TRACKED_IPS = 10_000
 const CHAT_HISTORY_LIMIT = 60
 const CHAT_MESSAGE_MAX = 4_000
+const CHAT_INPUT_MAX = 4_000
 const MOBILE_CLIENT_HEADER = 'x-mobile-client'
 /** Мобильный клиент — единственная страница, для которой включается CSP. */
 const MOBILE_PATH_PREFIX = '/mobile'
@@ -375,6 +376,7 @@ export function createMiniApp({
   defaultModel = '',
   modelOptions = [],
   telegramUrl = '',
+  chatResponder,
   timeZone = '',
   now = () => Date.now(),
 } = {}) {
@@ -777,6 +779,59 @@ export function createMiniApp({
 
   const safeText = (value, limit = CHAT_MESSAGE_MAX) => String(value ?? '').slice(0, limit)
 
+  const chatInFlight = new Set()
+
+  /** POST /api/chat/message — сообщение с сайта через тот же конвейер бота. */
+  async function sendChatMessage(request, response, { userId, chatId, auth }) {
+    if (typeof chatResponder !== 'function') {
+      request.resume()
+      return missingStore(response, 'чат')
+    }
+    if (chatInFlight.has(String(userId))) {
+      request.resume()
+      return sendJson(response, 429, {
+        error: 'Ассистент ещё отвечает на предыдущее сообщение',
+        code: 'too_many_requests',
+      })
+    }
+    const body = await readJsonBody(request, bodyLimit)
+    if (!body.ok) return sendError(response, body.status, body.code, body.error)
+    const text = typeof body.value?.text === 'string' ? body.value.text.trim() : ''
+    if (text === '') return badRequest(response, 'Введите сообщение')
+    if (text.length > CHAT_INPUT_MAX) return badRequest(response, `Сообщение длиннее ${CHAT_INPUT_MAX} символов`)
+
+    chatInFlight.add(String(userId))
+    try {
+      const delivery = await chatResponder({
+        userId,
+        chatId,
+        text,
+        name: String(auth.user?.first_name ?? mobileUserName),
+        login: auth.login ?? null,
+      })
+      const messages = (delivery?.sends ?? [])
+        .filter((entry) => entry && typeof entry.text === 'string' && entry.text !== '')
+        .map((entry) => ({
+          role: 'assistant',
+          text: entry.text,
+          ...(entry.keyboard ? { keyboard: entry.keyboard } : {}),
+        }))
+      const files = (delivery?.files ?? []).map((file) => ({
+        fileName: String(file.fileName ?? 'file'),
+        caption: String(file.caption ?? ''),
+        size: file.bytes?.length ?? 0,
+        // Файл до 2 МиБ отдаём сразу data-URL-ом; больший предложим забрать в Telegram.
+        data: file.bytes && file.bytes.length <= 2 * 1024 * 1024 ? file.bytes.toString('base64') : null,
+      }))
+      sendJson(response, 200, { messages, files })
+    } catch (error) {
+      logger?.warn?.('web chat failed', { error: error?.message ?? error, userId })
+      sendError(response, 500, ERROR_CODES.internal, 'Не удалось получить ответ от ассистента')
+    } finally {
+      chatInFlight.delete(String(userId))
+    }
+  }
+
   function chatHistory(request, response, { userId, chatId, url }) {
     if (!history || typeof history.messages !== 'function') {
       return missingStore(response, 'история чата')
@@ -1151,6 +1206,7 @@ export function createMiniApp({
     { method: 'POST', pattern: /^\/api\/memory$/, handler: createFact },
     { method: 'DELETE', pattern: /^\/api\/memory\/([^/]+)$/, handler: deleteFact },
     { method: 'GET', pattern: /^\/api\/chat\/history$/, handler: chatHistory },
+    { method: 'POST', pattern: /^\/api\/chat\/message$/, handler: sendChatMessage },
     { method: 'GET', pattern: /^\/api\/settings$/, handler: getSettings },
     { method: 'PATCH', pattern: /^\/api\/settings$/, handler: updateSettings },
     { method: 'GET', pattern: /^\/api\/stats$/, handler: getStats },

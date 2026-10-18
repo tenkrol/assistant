@@ -3099,3 +3099,8 @@ html.large-text .setting-row span {
     padding-top: calc(8px + env(safe-area-inset-top, 0px));
   }
 }
+
+.composer-send:disabled {
+  opacity: 0.45;
+  cursor: default;
+}

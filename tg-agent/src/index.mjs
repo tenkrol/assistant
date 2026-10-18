@@ -730,6 +730,7 @@ export async function createInstance({ config, logger, instance, shared, platfor
         },
         history,
         mobileUsers,
+        chatResponder: (input) => bot.handleWebMessage(input),
         mobilePasswordHash: config.miniapp.mobile.passwordHash,
         mobileSessionSecret: config.miniapp.mobile.sessionSecret,
         mobileUserId: config.miniapp.mobile.userId || [...botConfig.access.allowedUserIds][0],

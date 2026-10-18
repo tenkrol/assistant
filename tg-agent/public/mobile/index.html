@@ -128,7 +128,7 @@
         </div>
         <div class="chat-head-text">
           <div class="chat-head-name">Ассистент</div>
-          <div class="chat-head-status"><span class="dot"></span>Telegram · история переписки</div>
+          <div class="chat-head-status"><span class="dot"></span>онлайн · можно писать</div>
         </div>
         <button class="icon-btn" id="chat-refresh" aria-label="Обновить историю">
           <svg class="ic"><use href="#i-refresh"/></svg>
@@ -139,11 +139,13 @@
           <div class="loading-inline"><span class="spinner"></span>Загружаю историю…</div>
         </div>
       </div>
-      <div class="cta-bar">
-        <a class="btn btn-primary btn-block" id="open-telegram" href="https://t.me/Tenkrol_bot" target="_blank" rel="noopener">
-          <svg class="ic"><use href="#i-telegram"/></svg>
-          Продолжить в Telegram
-        </a>
+      <div class="composer">
+        <div class="composer-field">
+          <input id="chat-input" placeholder="Написать ассистенту…" autocomplete="off" maxlength="4000" aria-label="Сообщение ассистенту">
+          <button class="composer-send" id="chat-send" aria-label="Отправить" disabled>
+            <svg class="ic"><use href="#i-send"/></svg>
+          </button>
+        </div>
       </div>
     </section>
 

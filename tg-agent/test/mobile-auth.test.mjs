@@ -175,6 +175,7 @@ async function createHarness(t, options = {}) {
     stores: { reminders, events, profiles, usage },
     history,
     mobileUsers,
+    chatResponder: options.chatResponder,
     publicDir,
     logger: silentLogger,
     mobilePasswordHash: options.mobilePasswordHash ?? HASH,
@@ -448,6 +449,56 @@ test('аккаунт: неверный текущий пароль не меня
     method: 'POST',
     body: { username: 'tenkrol', password: PASSWORD },
   })).status, 200)
+})
+
+test('чат с сайта: сообщение проходит через responder и возвращает ответ', async (t) => {
+  const seen = []
+  const { base } = await createHarness(t, {
+    accounts: true,
+    chatResponder: async (input) => {
+      seen.push(input)
+      return {
+        sends: [{ text: 'ответ ассистента' }],
+        files: [{ fileName: 'file.txt', caption: 'файл', bytes: Buffer.from('hi') }],
+      }
+    },
+  })
+  const cookies = jar()
+  await request(base, '/api/auth/login', {
+    method: 'POST',
+    body: { username: 'tenkrol', password: PASSWORD },
+    cookieJar: cookies,
+  })
+
+  const noCsrf = await request(base, '/api/chat/message', {
+    method: 'POST',
+    cookieJar: cookies,
+    body: { text: 'привет' },
+  })
+  assert.equal(noCsrf.status, 403)
+
+  const reply = await request(base, '/api/chat/message', {
+    method: 'POST',
+    cookieJar: cookies,
+    headers: { 'X-Mobile-Client': '1' },
+    body: { text: 'привет' },
+  })
+  assert.equal(reply.status, 200)
+  assert.equal(reply.json.messages[0].text, 'ответ ассистента')
+  assert.equal(reply.json.files[0].fileName, 'file.txt')
+  assert.equal(Buffer.from(reply.json.files[0].data, 'base64').toString(), 'hi')
+  assert.equal(seen.length, 1)
+  assert.equal(seen[0].userId, USER_ID)
+  assert.equal(seen[0].chatId, USER_ID)
+  assert.equal(seen[0].text, 'привет')
+
+  const empty = await request(base, '/api/chat/message', {
+    method: 'POST',
+    cookieJar: cookies,
+    headers: { 'X-Mobile-Client': '1' },
+    body: { text: '   ' },
+  })
+  assert.equal(empty.status, 400)
 })
 
 test('настройки: чтение, смена и проверка значений', async (t) => {

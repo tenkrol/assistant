@@ -1858,3 +1858,42 @@ test('an explicit creation request still forces the tool', async () => {
     await fs.rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 })
   }
 })
+
+test('веб-сообщение проходит через конвейер и не уходит в Telegram', async () => {
+  const ctx = await setup({ responses: [{ content: 'ответ с сайта' }] })
+  try {
+    const result = await ctx.bot.handleWebMessage({
+      userId: ALLOWED,
+      chatId: ALLOWED,
+      text: 'привет с сайта',
+      name: 'Вячеслав',
+    })
+    assert.ok(result.sends.length >= 1, 'сайт получил ответ')
+    assert.match(result.sends.map((entry) => entry.text).join('\n'), /ответ с сайта/)
+    assert.equal(ctx.telegramStub.state.sends.length, 0, 'в Telegram ничего не отправлено')
+    await ctx.history.flush()
+    const history = await historyFile(ctx.dir)
+    const chat = history.chats[String(ALLOWED)] ?? history.chats[ALLOWED]
+    assert.ok(chat, 'история чата записана')
+    assert.equal(chat.messages.at(-2).content, 'привет с сайта')
+    assert.equal(chat.messages.at(-1).content, 'ответ с сайта')
+  } finally {
+    await ctx.cleanup()
+  }
+})
+
+test('веб-команда возвращает ответ на сайт, а не в Telegram', async () => {
+  const ctx = await setup({ updates: [] })
+  try {
+    const result = await ctx.bot.handleWebMessage({
+      userId: ALLOWED,
+      chatId: ALLOWED,
+      text: '/whoami',
+      name: 'Вячеслав',
+    })
+    assert.ok(result.sends.some((entry) => entry.text.includes(String(ALLOWED))))
+    assert.equal(ctx.telegramStub.state.sends.length, 0)
+  } finally {
+    await ctx.cleanup()
+  }
+})

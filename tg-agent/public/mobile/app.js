@@ -525,8 +525,8 @@ async function loadChat() {
     renderChat()
     const telegramUrl = data.telegramUrl || (state.session && state.session.telegramUrl)
     if (telegramUrl) {
-      $('open-telegram').href = telegramUrl
-      $('agent-telegram').href = telegramUrl
+      const link = $('agent-telegram')
+      if (link) link.href = telegramUrl
     }
   } catch (error) {
     if (error.status !== 401) {
@@ -548,35 +548,148 @@ function renderChat() {
     const empty = h('div', 'chat-empty')
     const iconBox = h('div', 'chat-empty-icon')
     iconBox.append(icon('chat'))
-    empty.append(iconBox, h('b', null, 'Здесь появится переписка'), h('span', null, 'Напишите боту в Telegram — история подтянется сюда. Отправка сообщений с сайта появится в следующем шаге.'))
+    empty.append(iconBox, h('b', null, 'Напишите ассистенту'), h('span', null, 'Сообщение уйдёт в тот же диалог, что и в Telegram. Ответ появится здесь.'))
     box.append(empty)
     return
   }
-  const day = h('div', 'day-chip', 'История переписки')
+  const day = h('div', 'day-chip', 'Диалог с ассистентом')
   box.append(day)
-  const intro = h('p', 'hint', 'Только чтение: продолжать диалог — в Telegram.')
-  intro.style.textAlign = 'center'
-  intro.style.paddingTop = '0'
-  intro.style.paddingBottom = '10px'
-  box.append(intro)
-  messages.forEach((message) => {
-    const article = h('article', 'msg ' + (message.role === 'assistant' ? 'msg-bot' : 'msg-user'))
-    if (message.role === 'assistant') {
-      const avatar = h('div', 'msg-avatar')
-      avatar.append(icon('spark'))
-      const stack = h('div', 'msg-stack')
-      const bubble = h('div', 'bubble bubble-bot', message.text)
-      stack.append(bubble)
-      article.append(avatar, stack)
+  messages.forEach((message) => box.append(chatMessageNode(message.role, message.text, message.author)))
+}
+
+function chatMessageNode(role, text, author) {
+  const article = h('article', 'msg ' + (role === 'assistant' ? 'msg-bot' : 'msg-user'))
+  if (role === 'assistant') {
+    const avatar = h('div', 'msg-avatar')
+    avatar.append(icon('spark'))
+    const stack = h('div', 'msg-stack')
+    stack.append(h('div', 'bubble bubble-bot', text))
+    article.append(avatar, stack)
+    return article
+  }
+  const bubble = h('div', 'bubble bubble-user', text)
+  if (author) bubble.prepend(h('div', 'row-meta', author))
+  article.append(bubble)
+  return article
+}
+
+function chatScrollToBottom() {
+  const scroller = $('chat-scroll')
+  if (scroller) scroller.scrollTop = scroller.scrollHeight
+}
+
+function appendChatMessage(role, text, author) {
+  const box = $('chat-messages')
+  const empty = box.querySelector('.chat-empty')
+  if (empty) empty.remove()
+  box.append(chatMessageNode(role, text, author))
+  chatScrollToBottom()
+}
+
+function showChatTyping() {
+  let node = $('chat-typing')
+  if (node) return node
+  node = h('article', 'msg msg-bot')
+  node.id = 'chat-typing'
+  const avatar = h('div', 'msg-avatar')
+  avatar.append(icon('spark'))
+  const stack = h('div', 'msg-stack')
+  const typing = h('div', 'typing')
+  typing.append(h('i'), h('i'), h('i'))
+  stack.append(typing)
+  node.append(avatar, stack)
+  $('chat-messages').append(node)
+  chatScrollToBottom()
+  return node
+}
+
+function hideChatTyping() {
+  const node = $('chat-typing')
+  if (node) node.remove()
+}
+
+function fileMime(name) {
+  const ext = String(name).toLowerCase().split('.').pop()
+  return ({
+    pdf: 'application/pdf',
+    xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    csv: 'text/csv',
+    txt: 'text/plain',
+    md: 'text/markdown',
+    json: 'application/json',
+    png: 'image/png',
+    jpg: 'image/jpeg',
+    jpeg: 'image/jpeg'
+  })[ext] || 'application/octet-stream'
+}
+
+function appendChatFile(file) {
+  const card = h('div', 'result-card')
+  const head = h('div', 'result-head')
+  const ic = h('span', 'result-ic')
+  ic.append(icon('file'))
+  const text = h('div')
+  text.append(h('b', null, file.fileName || 'Файл'), h('span', null, file.caption || (file.size ? Math.ceil(file.size / 1024) + ' КБ' : '')))
+  head.append(ic, text)
+  card.append(head)
+  if (file.data) {
+    const link = h('a', 'pill-btn', 'Скачать')
+    link.href = 'data:' + fileMime(file.fileName) + ';base64,' + file.data
+    link.download = file.fileName || 'file'
+    link.style.display = 'inline-flex'
+    link.style.alignItems = 'center'
+    link.style.justifyContent = 'center'
+    link.style.textDecoration = 'none'
+    card.append(link)
+  } else {
+    card.append(h('p', 'hint', 'Файл больше 2 МБ — заберите его в Telegram.'))
+  }
+  $('chat-messages').append(card)
+  chatScrollToBottom()
+}
+
+function updateChatSend() {
+  const input = $('chat-input')
+  const button = $('chat-send')
+  if (!input || !button) return
+  button.disabled = input.value.trim() === ''
+}
+
+async function sendSiteMessage() {
+  const input = $('chat-input')
+  const button = $('chat-send')
+  const text = input.value.trim()
+  if (text === '' || button.disabled) return
+  appendChatMessage('user', text)
+  input.value = ''
+  updateChatSend()
+  button.disabled = true
+  showChatTyping()
+  try {
+    const data = await api('POST', '/api/chat/message', { text })
+    hideChatTyping()
+    const messages = Array.isArray(data.messages) ? data.messages : []
+    if (messages.length === 0) {
+      appendChatMessage('assistant', 'Ассистент не вернул текст. Попробуйте ещё раз.')
     } else {
-      const bubble = h('div', 'bubble bubble-user', message.text)
-      if (message.author) {
-        bubble.prepend(h('div', 'row-meta', message.author))
-      }
-      article.append(bubble)
+      messages.forEach((message) => appendChatMessage('assistant', message.text))
     }
-    box.append(article)
-  })
+    ;(Array.isArray(data.files) ? data.files : []).forEach(appendChatFile)
+    if (state.chat && Array.isArray(state.chat.messages)) {
+      state.chat.messages.push({ role: 'user', text })
+      messages.forEach((message) => state.chat.messages.push({ role: 'assistant', text: message.text }))
+    }
+  } catch (error) {
+    hideChatTyping()
+    if (error instanceof ApiError && error.status === 401) {
+      showLogin('Сессия истекла — войдите заново.')
+      return
+    }
+    appendChatMessage('assistant', '⚠️ ' + (error && error.message ? error.message : 'Не удалось получить ответ'))
+  } finally {
+    updateChatSend()
+  }
 }
 
 /* ============================ Планы ============================ */
@@ -1487,6 +1600,16 @@ function bind() {
     state.loaded.chat = false
     void loadChat()
   })
+  const chatInput = $('chat-input')
+  chatInput.addEventListener('input', updateChatSend)
+  chatInput.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault()
+      void sendSiteMessage()
+    }
+  })
+  $('chat-send').addEventListener('click', () => void sendSiteMessage())
+  updateChatSend()
 
   $('memory-search-toggle').addEventListener('click', () => {
     const row = $('memory-search')

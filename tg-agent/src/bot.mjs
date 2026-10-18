@@ -12,6 +12,7 @@
  */
 import fs from 'node:fs/promises'
 import path from 'node:path'
+import { AsyncLocalStorage } from 'node:async_hooks'
 import { dayKey } from './usage.mjs'
 import { rulesOfProfiles } from './domain/profiles.mjs'
 import { rulesOfReminders } from './domain/reminders.mjs'
@@ -78,6 +79,9 @@ export class Assistant {
     this.contacts = createContactStore({ file: this.config.dataDir ? `${this.config.dataDir}/contacts.json` : undefined, logger, access })
     // Ядро общается только с одним адаптером; см. src/platforms/port.mjs.
     this.platform = platform
+    // Контекст веб-запроса: ответы, файлы и стриминг складываются сюда, а не
+    // уходят в Telegram. AsyncLocalStorage не смешивает параллельные запросы.
+    this.delivery = new AsyncLocalStorage()
     this.model = model
     this.history = history
 
@@ -279,11 +283,42 @@ export class Assistant {
     })
     this.inFlight.add(tracked)
     this.chains.set(key, tracked)
+    return tracked
   }
 
   /** Шаги 1–2: разбор, доступ, команда или текст — в `core/conversation.mjs`. */
   async handleMessage(message) {
     return this.conversation.handleMessage(message)
+  }
+
+  /**
+   * Сообщение с сайта: прогнать через тот же конвейер, но ответы не отправлять
+   * в Telegram, а вернуть вызывающему.
+   *
+   * Ответы, файлы и стриминг складываются в контекст `AsyncLocalStorage`, поэтому
+   * параллельные Telegram-обновления не перепутаются с веб-запросом. Работа чата
+   * сериализуется тем же `enqueueUpdate`, что и обычные сообщения.
+   *
+   * @param {object} input - `userId`, `chatId`, `text`, `name`.
+   * @returns {Promise<{sends: object[], files: object[]}>} ответы для сайта.
+   */
+  async handleWebMessage({ userId, chatId, text, name } = {}) {
+    const delivery = { sends: [], files: [], chatId: Number(chatId ?? userId) }
+    const message = {
+      kind: 'message',
+      id: `web-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      from: { id: Number(userId), name: String(name || 'Пользователь'), isBot: false },
+      chat: { id: Number(chatId ?? userId), type: 'private' },
+      text: String(text ?? ''),
+      attachments: [],
+      addressed: true,
+    }
+    const task = this.delivery.run(delivery, () => this.enqueueUpdate(message))
+    await task
+    if (delivery.sends.length === 0 && delivery.files.length === 0) {
+      delivery.sends.push({ text: 'Не удалось получить ответ. Попробуйте ещё раз.' })
+    }
+    return delivery
   }
 
   /**
@@ -297,6 +332,7 @@ export class Assistant {
    * @param {object} [options] - `urgent` обходит кулдаун.
    */
   async alertOwner(text, { urgent = false } = {}) {
+    if (this.delivery.getStore()) return
     const chatId = this.config.alerts?.chatId ?? [...(this.config.access?.allowedUserIds ?? [])][0]
     if (chatId === undefined) return
     const now = Date.now()
@@ -330,6 +366,16 @@ export class Assistant {
    * @returns {object} стример из модуля доставки.
    */
   createStreamer(chatId) {
+    const delivery = this.delivery.getStore()
+    if (delivery) {
+      return {
+        onDelta() {},
+        async finish(text, keyboard) {
+          delivery.sends.push({ text: String(text ?? ''), ...(keyboard ? { keyboard } : {}) })
+          return true
+        },
+      }
+    }
     return createStreamer({
       platform: this.platform,
       logger: this.logger,
@@ -348,6 +394,7 @@ export class Assistant {
    * @param {object} message - входящее сообщение, для ссылки на ответ.
    */
   async speakAnswer(chatId, text, message) {
+    if (this.delivery.getStore()) return
     if (!this.tts || typeof this.platform.sendVoice !== 'function') return
     if (!this.history.voice(chatId)) return
     try {
@@ -370,6 +417,7 @@ export class Assistant {
    * в них для некоторых чатов и эмодзи.
    */
   async react(message, emoji) {
+    if (this.delivery.getStore()) return
     if (!this.config.reactions?.enabled) return
     if (typeof this.platform.setReaction !== 'function' || message.messageId === undefined) return
     try {
@@ -500,6 +548,11 @@ export class Assistant {
    */
   async sendFile(chatId, { bytes, fileName, caption }, replyToMessageId) {
     if (!bytes || !bytes.length) return false
+    const delivery = this.delivery.getStore()
+    if (delivery && String(chatId) === String(delivery.chatId)) {
+      delivery.files.push({ fileName, caption, bytes: Buffer.from(bytes) })
+      return true
+    }
     if (typeof this.platform.sendDocument !== 'function') {
       this.logger.warn('platform cannot send files', { platform: this.platform.name, fileName })
       await this.send(chatId, `Файл «${fileName}» готов, но эта платформа не умеет отправлять файлы.`).catch(() => {})
@@ -629,6 +682,11 @@ export class Assistant {
    * нейтральную клавиатуру.
    */
   async send(chatId, markdown, replyToMessageId, keyboard) {
+    const delivery = this.delivery.getStore()
+    if (delivery && String(chatId) === String(delivery.chatId)) {
+      delivery.sends.push({ text: String(markdown ?? ''), ...(keyboard ? { keyboard } : {}) })
+      return { messageId: undefined }
+    }
     return this.platform.sendText({ chatId, markdown, replyToMessageId, keyboard })
   }
 
