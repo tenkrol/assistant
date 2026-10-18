@@ -183,6 +183,19 @@ export function createCommandRouter(bot) {
         }
         return
       }
+      case 'agentversion': {
+        if (!bot.agentBridge?.enabled || typeof bot.agentBridge.health !== 'function') {
+          await bot.send(chatId, 'Версия агента недоступна: мост выключен или старый контракт.')
+          return
+        }
+        try {
+          const health = await bot.agentBridge.health()
+          await bot.send(chatId, ['**Агент**', `Сервис: ${health.service ?? '—'}`, `Контракт: ${health.contract ?? '—'}`, `Релиз: ${health.release ?? 'неизвестен'}`].join('\n'))
+        } catch (error) {
+          await bot.send(chatId, `Агент недоступен: ${String(error?.message ?? error).slice(0, 160)}`)
+        }
+        return
+      }
       case 'agentusage': {
         if (!bot.agentBridge?.enabled || typeof bot.agentBridge.usage !== 'function') {
           await bot.send(chatId, 'Расходы агента недоступны: мост выключен или старый контракт.')

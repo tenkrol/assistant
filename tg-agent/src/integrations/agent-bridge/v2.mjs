@@ -126,6 +126,11 @@ export function createAgentBridgeV2({
     return call(`/v1/tasks/${encodeURIComponent(taskId)}`, { method: 'GET' })
   }
 
+  /** Версия/здоровье агента (PLB-016). */
+  async function health() {
+    return call('/v1/health', { method: 'GET' })
+  }
+
   /** Реестр агентов (PLB-015). */
   async function agents() {
     const payload = await call('/v1/agents', { method: 'GET' })
@@ -181,6 +186,7 @@ export function createAgentBridgeV2({
     replyTask,
     cancelTask,
     getTask,
+    health,
     agents,
     activity,
     usage,
