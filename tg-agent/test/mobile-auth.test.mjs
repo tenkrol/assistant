@@ -178,6 +178,7 @@ async function createHarness(t, options = {}) {
     pushStore: options.pushStore,
     pushPublicKey: options.pushPublicKey ?? '',
     pushTest: options.pushTest,
+    avatarProvider: options.avatarProvider,
     chatResponder: options.chatResponder,
     agentResponder: options.agentResponder,
     agentStatus: options.agentStatus,
@@ -702,6 +703,29 @@ test('настройки: чтение, смена и проверка знач�
     body: { persona: 'инопланетный' },
   })
   assert.equal(invalid.status, 400)
+})
+
+test('аватар: отдаётся только своим, история ссылается на него', async (t) => {
+  const { base, profiles, history } = await createHarness(t, {
+    avatarProvider: async (userId) => (Number(userId) === USER_ID ? { bytes: Buffer.from([1, 2, 3]), mime: 'image/png' } : null),
+  })
+  await profiles.touch(USER_ID, { firstName: 'Владелец' })
+  await history.append(USER_ID, { role: 'user', content: 'привет', author: 'Владелец' }, { userId: USER_ID })
+  await history.flush()
+  const cookies = jar()
+  await request(base, '/api/auth/login', { method: 'POST', body: { password: PASSWORD }, cookieJar: cookies })
+
+  const photo = await request(base, `/api/avatar/${USER_ID}`, { cookieJar: cookies })
+  assert.equal(photo.status, 200)
+  assert.equal(photo.response.headers.get('content-type'), 'image/png')
+  assert.equal(photo.text, Buffer.from([1, 2, 3]).toString())
+
+  const foreign = await request(base, `/api/avatar/${MASHA_ID}`, { cookieJar: cookies })
+  assert.equal(foreign.status, 403)
+
+  const chat = await request(base, '/api/chat/history', { cookieJar: cookies })
+  assert.equal(chat.status, 200)
+  assert.equal(chat.json.messages[0].avatar, `/api/avatar/${USER_ID}`)
 })
 
 test('история сохраняет цитату ответа', async (t) => {

@@ -777,6 +777,7 @@ export async function createInstance({ config, logger, instance, shared, platfor
         mobileUsers,
         pushStore: mobilePush,
         pushPublicKey: pushVapid ? pushVapid.publicKey : '',
+        avatarProvider: (userId) => (typeof bot.platform.getUserAvatar === 'function' ? bot.platform.getUserAvatar(userId) : null),
         pushTest: async ({ userId }) => {
           if (!mobilePush || !pushVapid) return { sent: 0, failed: 0, subscribed: 0, error: 'VAPID не настроен' }
           const subscriptions = mobilePush.listForUsers([userId])

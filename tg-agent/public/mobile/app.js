@@ -633,7 +633,8 @@ function sameMessages(left, right) {
   return left.every((item, index) => item.role === right[index].role
     && item.text === right[index].text
     && item.author === right[index].author
-    && (item.replyTo && item.replyTo.text ? item.replyTo.text : '') === (right[index].replyTo && right[index].replyTo.text ? right[index].replyTo.text : ''))
+    && (item.replyTo && item.replyTo.text ? item.replyTo.text : '') === (right[index].replyTo && right[index].replyTo.text ? right[index].replyTo.text : '')
+    && (item.avatar || '') === (right[index].avatar || ''))
 }
 
 async function refreshChatHistory() {
@@ -718,7 +719,7 @@ function renderChat() {
   }
   const day = h('div', 'day-chip', state.chatTarget && state.chatTarget.type !== 'private' ? state.chatTarget.title : 'Диалог с ассистентом')
   box.append(day)
-  messages.forEach((message) => box.append(chatMessageNode(message.role, message.text, message.author, message.replyTo)))
+  messages.forEach((message) => box.append(chatMessageNode(message.role, message.text, message.author, message.replyTo, message.avatar)))
   chatScrollToBottom()
 }
 
@@ -852,23 +853,36 @@ function bindMessageGesture(bubble, message) {
   })
 }
 
-function chatMessageNode(role, text, author, replyTo) {
+function chatMessageNode(role, text, author, replyTo, avatar) {
   const ownName = state.session && state.session.user ? state.session.user.telegramName : ''
   const otherAuthor = role === 'user' && author && ownName && author !== ownName
   const article = h('article', 'msg ' + (role === 'assistant' || otherAuthor ? 'msg-bot' : 'msg-user'))
   let bubble
   if (role === 'assistant' || otherAuthor) {
-    const avatar = h('div', 'msg-avatar')
-    if (otherAuthor) avatar.append(h('span', 'msg-initial', String(author).slice(0, 1).toUpperCase()))
-    else avatar.append(icon('spark'))
+    const avatarBox = h('div', 'msg-avatar')
+    if (otherAuthor) {
+      const fallback = h('span', 'msg-initial', String(author).slice(0, 1).toUpperCase())
+      if (avatar) {
+        const image = document.createElement('img')
+        image.className = 'msg-avatar-img'
+        image.src = avatar
+        image.alt = ''
+        image.loading = 'lazy'
+        image.addEventListener('error', () => image.replaceWith(fallback), { once: true })
+        avatarBox.append(image)
+      } else {
+        avatarBox.append(fallback)
+      }
+    } else {
+      avatarBox.append(icon('spark'))
+    }
     const stack = h('div', 'msg-stack')
     bubble = h('div', 'bubble bubble-bot', text)
     if (otherAuthor) bubble.prepend(h('div', 'row-meta', author))
     stack.append(bubble)
-    article.append(avatar, stack)
+    article.append(avatarBox, stack)
   } else {
     bubble = h('div', 'bubble bubble-user', text)
-    if (author) bubble.prepend(h('div', 'row-meta', author))
     article.append(bubble)
   }
   if (replyTo && replyTo.text) {

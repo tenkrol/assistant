@@ -206,6 +206,23 @@ export class TelegramPlatform {
     return this.client.downloadFile({ fileId, maxBytes })
   }
 
+  /** Аватар пользователя из Telegram; null, если фото нет или оно скрыто. */
+  async getUserAvatar(userId, { maxBytes = 2_000_000 } = {}) {
+    if (typeof this.client?.call !== 'function' || typeof this.client?.downloadFile !== 'function') return null
+    try {
+      const result = await this.client.call('getUserProfilePhotos', { user_id: Number(userId), limit: 1 })
+      const sizes = result?.photos?.[0]
+      const largest = Array.isArray(sizes) ? sizes[sizes.length - 1] : undefined
+      if (!largest?.file_id) return null
+      const file = await this.client.downloadFile({ fileId: largest.file_id, maxBytes })
+      if (!Buffer.isBuffer(file?.bytes) || file.bytes.length === 0) return null
+      return { bytes: file.bytes, mime: 'image/jpeg' }
+    } catch (error) {
+      this.logger?.debug?.('avatar unavailable', { userId, error: error?.message ?? error })
+      return null
+    }
+  }
+
   /** Put an emoji reaction on a message; a no-op when Telegram refuses. */
   async setReaction({ chatId, messageId, emoji }) {
     try {

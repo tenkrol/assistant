@@ -382,6 +382,7 @@ export function createMiniApp({
   pushStore,
   pushPublicKey = '',
   pushTest,
+  avatarProvider,
   chatResponder,
   agentResponder,
   agentStatus,
@@ -1014,6 +1015,47 @@ export function createMiniApp({
     }
   }
 
+  const avatarCache = new Map()
+
+  /** GET /api/avatar/:userId — фото профиля Telegram для автора сообщения. */
+  async function getAvatar(request, response, { params }) {
+    request.resume()
+    const target = Number(params?.[0])
+    if (!Number.isInteger(target) || !allowed.has(String(target))) {
+      return sendError(response, 403, ERROR_CODES.forbidden, 'Нет доступа')
+    }
+    if (typeof avatarProvider !== 'function') return notFound(response)
+    const now = timeNow()
+    const cached = avatarCache.get(target)
+    if (cached && now - cached.at < 60 * 60 * 1000) {
+      if (!cached.avatar) return notFound(response)
+      response.writeHead(200, {
+        'content-type': cached.avatar.mime || 'image/jpeg',
+        'content-length': String(cached.avatar.bytes.length),
+        'cache-control': 'private, max-age=3600',
+      })
+      return response.end(cached.avatar.bytes)
+    }
+    let avatar
+    try {
+      avatar = await avatarProvider(target)
+    } catch (error) {
+      logger?.warn?.('avatar fetch failed', { userId: target, error: error?.message ?? error })
+    }
+    avatarCache.set(target, { at: now, avatar })
+    if (avatarCache.size > 30) {
+      const oldest = [...avatarCache.entries()].sort((a, b) => a[1].at - b[1].at)[0]
+      if (oldest) avatarCache.delete(oldest[0])
+    }
+    if (!avatar || !Buffer.isBuffer(avatar.bytes) || avatar.bytes.length === 0) return notFound(response)
+    response.writeHead(200, {
+      'content-type': avatar.mime || 'image/jpeg',
+      'content-length': String(avatar.bytes.length),
+      'cache-control': 'private, max-age=3600',
+    })
+    response.end(avatar.bytes)
+  }
+
   function chatHistory(request, response, { userId, chatId, auth, url }) {
     if (!history || typeof history.messages !== 'function') {
       return missingStore(response, 'история чата')
@@ -1024,21 +1066,33 @@ export function createMiniApp({
     const limit = Number.isInteger(rawLimit) && rawLimit > 0
       ? Math.min(rawLimit, CHAT_HISTORY_LIMIT)
       : CHAT_HISTORY_LIMIT
+    const authorIds = new Map()
+    if (stores.profiles && stores.profiles.users) {
+      for (const profileId of stores.profiles.users.keys()) {
+        const name = displayNameFor(profileId)
+        if (name) authorIds.set(String(name), Number(profileId))
+      }
+    }
     const messages = history.messages(target.chatId, target.type === 'private' ? userId : undefined)
       .slice(-limit)
-      .map((message) => ({
-        role: message.role === 'assistant' ? 'assistant' : 'user',
-        text: safeText(message.content),
-        ...(typeof message.author === 'string' && message.author !== '' ? { author: safeText(message.author, 80) } : {}),
-        ...(message.replyTo && typeof message.replyTo.text === 'string' && message.replyTo.text !== ''
-          ? {
-            replyTo: {
-              text: safeText(message.replyTo.text, 600),
-              ...(message.replyTo.author ? { author: safeText(message.replyTo.author, 80) } : {}),
-            },
-          }
-          : {}),
-      }))
+      .map((message) => {
+        const author = typeof message.author === 'string' && message.author !== '' ? safeText(message.author, 80) : undefined
+        const authorId = author ? authorIds.get(String(author)) : undefined
+        return {
+          role: message.role === 'assistant' ? 'assistant' : 'user',
+          text: safeText(message.content),
+          ...(author ? { author } : {}),
+          ...(authorId ? { avatar: `/api/avatar/${authorId}` } : {}),
+          ...(message.replyTo && typeof message.replyTo.text === 'string' && message.replyTo.text !== ''
+            ? {
+              replyTo: {
+                text: safeText(message.replyTo.text, 600),
+                ...(message.replyTo.author ? { author: safeText(message.replyTo.author, 80) } : {}),
+              },
+            }
+            : {}),
+        }
+      })
     sendJson(response, 200, { messages, telegramUrl, chat: target })
   }
 
@@ -1398,6 +1452,7 @@ export function createMiniApp({
     { method: 'POST', pattern: /^\/api\/memory$/, handler: createFact },
     { method: 'DELETE', pattern: /^\/api\/memory\/([^/]+)$/, handler: deleteFact },
     { method: 'GET', pattern: /^\/api\/chats$/, handler: listChats },
+    { method: 'GET', pattern: /^\/api\/avatar\/(\d+)$/, handler: getAvatar },
     { method: 'GET', pattern: /^\/api\/chat\/history$/, handler: chatHistory },
     { method: 'POST', pattern: /^\/api\/chat\/message$/, handler: sendChatMessage },
     { method: 'GET', pattern: /^\/api\/push\/config$/, handler: getPushConfig },
