@@ -23,6 +23,8 @@ import { parseCommand } from './commands.mjs'
 import { MODES } from './modes.mjs'
 
 const DENY_COOLDOWN_MS = 10 * 60 * 1000
+/** Вопрос «почему это пришло»: короткое объяснение без обращения к модели. */
+const PROACTIVE_WHY = /(?:почему|откуда|зачем)\s+(?:это\s+)?(?:пришл|пришло|уведомлен|напоминание)|почему\s+уведомление/iu
 
 /** Список напоминаний — это не просьба создать новое, и насильно звать remind нельзя. */
 const REMINDER_LIST = /(покажи|какие|какой|список|что|все|мои)\s+[^.!?]{0,24}?напомин/iu
@@ -147,6 +149,11 @@ export function createConversation(bot) {
       await bot.runCommand(command, message)
       return
     }
+    // «Почему это пришло» — объяснение причины и источника из журнала решений.
+    if (bot.proactive && PROACTIVE_WHY.test(text)) {
+      await bot.send(message.chat.id, bot.proactive.explainLast(from.id))
+      return
+    }
     // Если бот ждёт ответа агента, обычное сообщение — этот ответ.
     const agentAnswer = await bot.agentLink?.handleOwnerMessage?.({ chatId: message.chat.id, text })
     if (agentAnswer?.handled) {
@@ -210,6 +217,20 @@ export function createConversation(bot) {
         const result = await bot.domain.reminders.snooze({ chatId, userId: from.id, id, minutes: minutesRaw })
         toast = result.toast
         outcome = result.outcome
+      } else if (action === 'pro') {
+        const [proAction, ...keyParts] = rest
+        if (!bot.proactive) {
+          toast = 'Проактивность недоступна'
+        } else {
+          const result = await bot.proactive.handleAction({
+            action: proAction,
+            key: keyParts.join(':'),
+            userId: from.id,
+            chatId,
+          })
+          toast = result.toast
+          outcome = result.outcome
+        }
       }
     } catch (error) {
       bot.logger.error('callback action failed', { error, action, chatId })

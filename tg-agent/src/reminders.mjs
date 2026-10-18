@@ -231,14 +231,17 @@ export class ReminderScheduler {
    * @param {number} [options.intervalMs] - poll period.
    * @param {() => number} [options.now] - clock, injected by tests.
    * @param {boolean} [options.lateNotice] - mark reminders that were overdue at startup.
+   * @param {(info: {now: number}) => Promise<*>} [options.onTick] - дополнительная
+   *   работа на том же таймере (проактивность). Второй `setInterval` не создаётся.
    */
-  constructor({ store, deliver, logger, intervalMs = 20_000, now = () => Date.now(), lateNotice = true }) {
+  constructor({ store, deliver, logger, intervalMs = 20_000, now = () => Date.now(), lateNotice = true, onTick }) {
     this.store = store
     this.deliver = deliver
     this.logger = logger
     this.intervalMs = intervalMs
     this.now = now
     this.lateNotice = lateNotice
+    this.onTick = onTick
     this.timer = undefined
     this.firing = false
   }
@@ -289,6 +292,14 @@ export class ReminderScheduler {
         else this.store.advance(reminder.id, now)
       }
       if (delivered > 0) await this.store.flush()
+      // Проактивность живёт на этом же таймере: отдельного интервала нет.
+      if (this.onTick) {
+        try {
+          await this.onTick({ now })
+        } catch (error) {
+          this.logger?.error('scheduler extra tick failed', { error })
+        }
+      }
     } finally {
       this.firing = false
     }

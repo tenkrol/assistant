@@ -35,6 +35,7 @@ import { createAgentLink } from './agent-link/index.mjs'
 import { createProfileTool } from './profile-tool.mjs'
 import { UsageStore } from './usage.mjs'
 import { DigestService } from './digest.mjs'
+import { ProactiveService, ProactiveStore } from './proactive.mjs'
 import { createTranscriber } from './stt.mjs'
 import { createSynthesizer } from './tts.mjs'
 import { createFileTool } from './file-tool.mjs'
@@ -190,6 +191,7 @@ export async function main({ env, platformFactory } = {}) {
       reminders: bot.reminders ? bot.reminders.store.list().length : 'off',
       profiles: bot.profiles ? bot.profiles.store.size : 'off',
       digest: bot.digest ? `${config.digest.time} ${config.time.timeZone || 'system'}` : 'off',
+      proactive: bot.proactive ? (bot.config.proactive?.enabled ? 'on' : 'dry-run') : 'off',
       dailyTokenLimit: config.usage.dailyLimit || 'off',
       media: [config.stt.provider !== 'none' && config.stt.apiKey ? 'voice' : '', 'photo', 'documents'].filter(Boolean).join('+'),
     })
@@ -462,6 +464,50 @@ export async function createInstance({ config, logger, instance, shared, platfor
     throw error
   }
 
+  // Проактивность: один файл состояния и один планировщик. Сервис не создаёт
+  // свой таймер — его тик зовёт существующий `ReminderScheduler`. Флаг
+  // `PROACTIVE_ENABLED=false` оставляет только журнал решений (dry-run).
+  const proactiveStore = new ProactiveStore({
+    file: stateFile(botConfig.dataDir, 'proactive', instance.namespace),
+    logger,
+    timeZone: botConfig.time?.timeZone ?? '',
+    quiet: botConfig.quiet,
+    reviewAt: botConfig.proactive?.reviewAt ?? '09:00',
+    dayLimit: botConfig.proactive?.dayLimit ?? 3,
+  })
+  await proactiveStore.load()
+  // Кому доставлять: люди этой платформы, как у утреннего дайджеста.
+  const proactivePlatformIds = botConfig.access.allowedByPlatform?.[instance.platform] ?? new Set()
+  const proactiveTargetIds = proactivePlatformIds.size > 0 ? proactivePlatformIds : botConfig.access.allowedUserIds
+  const proactiveTargets = [...proactiveTargetIds].map((id) => ({ userId: id, chatId: id }))
+  // Поручения приходят из моста агента. Ответ кэшируется, чтобы минутный
+  // планировщик не дёргал мост каждую минуту.
+  let taskCache
+  const taskSource = bot.agentBridge?.enabled && typeof bot.agentBridge.activity === 'function'
+    ? async () => {
+      const now = Date.now()
+      if (taskCache && now - taskCache.at < 5 * 60_000) return taskCache.value
+      const value = await bot.agentBridge.activity({ limit: 20 })
+      taskCache = { at: now, value: Array.isArray(value) ? value : [] }
+      return taskCache.value
+    }
+    : undefined
+  const proactive = new ProactiveService({
+    store: proactiveStore,
+    sources: {
+      reminders: reminders?.store,
+      events: events?.store,
+      tasks: taskSource,
+    },
+    targets: proactiveTargets,
+    access,
+    logger,
+    enabled: botConfig.proactive?.enabled === true,
+    intervalMs: botConfig.proactive?.checkIntervalMs ?? 60_000,
+    deliver: (chatId, text, keyboard) => bot.send(chatId, text, undefined, keyboard),
+  })
+  bot.proactive = proactive
+
   // The digest needs the bot for delivery and the profile for the city, so it is
   // built after the bot and attached to it.
   if (botConfig.digest.enabled) {
@@ -504,12 +550,18 @@ export async function createInstance({ config, logger, instance, shared, platfor
       logger.warn('digest enabled but there is nobody to send it to')
     }
   }
+  if (!reminders && botConfig.proactive?.enabled) {
+    // Второго таймера нет: без планировщика напоминаний проактивности негде жить.
+    logger.warn('proactive is on but REMINDERS=false: there is no scheduler timer to run it')
+  }
   if (reminders) {
     reminders.scheduler = new ReminderScheduler({
       store: reminders.store,
       deliver: (reminder, info) => bot.deliverReminder(reminder, info),
       logger,
       intervalMs: botConfig.reminders.checkIntervalMs,
+      // Тот же таймер: второго планировщика проактивности нет.
+      onTick: ({ now }) => proactive.tick({ now: new Date(now) }),
     })
   }
 

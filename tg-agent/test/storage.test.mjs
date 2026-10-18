@@ -174,3 +174,29 @@ test('снимок состояния копируется в каталог б�
     await cleanup()
   }
 })
+
+
+test('транзакция читает свежий файл и не меняет его при ошибке', async () => {
+  const { file, cleanup } = await sandbox()
+  try {
+    await fs.writeFile(file, JSON.stringify({ version: 1, value: 1 }))
+    const first = createJsonStore({ file, version: 1, defaults: { value: 0 }, logger: silent })
+    await first.load()
+    await first.transaction((state) => { state.value = 2 })
+    assert.equal(first.state.value, 2)
+    // Второй экземпляр видит запись первого, а не свой старый снимок.
+    const second = createJsonStore({ file, version: 1, defaults: { value: 0 }, logger: silent })
+    await second.load()
+    await second.transaction((state) => { state.value = state.value + 1 })
+    assert.equal(JSON.parse(await fs.readFile(file, 'utf8')).value, 3)
+
+    const before = await fs.readFile(file, 'utf8')
+    await assert.rejects(() => first.transaction((state) => {
+      state.value = 99
+      throw new Error('отмена')
+    }), /отмена/)
+    assert.equal(await fs.readFile(file, 'utf8'), before, 'неудачная транзакция файл не меняет')
+  } finally {
+    await cleanup()
+  }
+})

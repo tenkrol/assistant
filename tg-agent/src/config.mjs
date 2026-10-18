@@ -86,6 +86,12 @@ const DEFAULTS = {
   TTS_SPEED: '1.0',
   TTS_MAX_CHARS: '1200',
   QUIET_HOURS: '23:00-08:00',
+  // Инициативные уведомления: по умолчанию выключены. Пока флаг false, сервис
+  // считает решения и пишет их в журнал, но ничего не отправляет (dry-run).
+  PROACTIVE_ENABLED: 'false',
+  PROACTIVE_REVIEW_AT: '09:00',
+  PROACTIVE_DAY_LIMIT: '3',
+  PROACTIVE_CHECK_SEC: '60',
   WEATHER_ALERTS: 'true',
   EVENTS: 'true',
   MINIAPP: 'true',
@@ -524,6 +530,14 @@ export function loadConfig(env = process.env) {
     // Quiet hours: reminders that would fire inside this window are moved to its
     // end, so nobody is woken up at 03:00. Empty or 'off' disables the window.
     quiet: readQuietHours(env),
+    // Полезная проактивность (BP-04): один планировщик, дневной предел и обзор.
+    // Выключена по умолчанию: при false решения только пишутся в журнал.
+    proactive: {
+      enabled: readBool(env, 'PROACTIVE_ENABLED'),
+      reviewAt: readClockTime(env, 'PROACTIVE_REVIEW_AT', DEFAULTS.PROACTIVE_REVIEW_AT),
+      dayLimit: readInt(env, 'PROACTIVE_DAY_LIMIT', { min: 1, max: 20 }),
+      checkIntervalMs: readInt(env, 'PROACTIVE_CHECK_SEC', { min: 10, max: 3600 }) * 1000,
+    },
     // Local calendar of events (meetings, appointments, birthdays).
     events: { enabled: read(env, 'EVENTS').trim().toLowerCase() !== 'false' },
     // Mini App: панель внутри Telegram. Работает только когда задан публичный
