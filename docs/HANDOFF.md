@@ -224,3 +224,15 @@
 - agent-bridge v2: `agents()`, `activity()`, `usage()`; команды `/agents`, `/activity`,
   `/agentusage`; понятные ответы при выключенном/старом мосте.
 - Тесты: 857. Дельты agent-link влиты, PLB-015 в архиве.
+
+| 18.10 | PLB-016 каркас приёмки BP-07 | — | каталог сценариев 12 шт., acceptance.mjs, тест; деплой не требовался | BP-01+BP-06 (PLB-017, параллельная сессия) |
+
+## 18.10.2026: финальный статус сессии (E2/E3/E4 частично)
+
+Production: `release-20261018-090029`, сервис active, тесты 857.
+
+- E2 (PLB-015): `/agents`, `/activity`, `/agentusage` — установлены.
+- E3: заявки в `tenkrol/assistant-work`; `/request` создаёт draft через агентский API
+  (PLB-017). PR через GitHub API не создаются — deploy key только clone/push.
+- E4: команда `/request` установлена; LLM-анализ компонентов и policy-режим не сделаны.
+- E5–E11 не начинались.
