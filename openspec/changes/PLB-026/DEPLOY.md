@@ -32,6 +32,11 @@ echo 'свой-длинный-пароль' | node tools/mobile-password.mjs --p
 
 ## 2. Переменные в `.env`
 
+`MOBILE_USERNAME` / `MOBILE_PASSWORD_HASH` / `MOBILE_USER_ID` — только стартовый владелец.
+При первом запуске они заводятся в `/var/lib/tg-agent/mobile-accounts.json`; дальше логин,
+пароль и второй пользователь меняются в «Настройки → Безопасность» и `.env` уже не нужен.
+
+
 Добавьте в `/opt/tg-agent/.env` (не в репозиторий):
 
 ```
@@ -44,6 +49,9 @@ MOBILE_SESSION_TTL_SEC=604800
 MOBILE_COOKIE_SECURE=true
 MOBILE_TELEGRAM_URL=https://t.me/Tenkrol_bot
 ```
+
+После первого запуска владелец меняет логин и пароль в настройках сайта, а второго
+человека добавляет в «Пользователи»: Telegram id подставится из `ALLOWED_USER_IDS`.
 
 `deploy-safe` копирует `.env` из текущего релиза в новый, поэтому правки нужно делать в
 `/opt/tg-agent/.env` до деплоя.
