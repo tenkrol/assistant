@@ -96,8 +96,12 @@
           <div class="brand-sub">TenKrol · личный пульт</div>
         </div>
         <h1 class="auth-title">Вход в пульт</h1>
-        <p class="auth-lead">Планы, память, история чата и статистика. Введите пароль, который задан для сайта.</p>
+        <p class="auth-lead">Планы, память, история чата и статистика. Введите логин и пароль, которые заданы для сайта.</p>
         <form id="login-form" autocomplete="on">
+          <label class="field">
+            <span>Логин</span>
+            <input class="input" id="login-username" type="text" autocomplete="username" placeholder="Логин" autocapitalize="off" spellcheck="false" required>
+          </label>
           <label class="field">
             <span>Пароль</span>
             <input class="input" id="login-password" type="password" autocomplete="current-password" placeholder="Пароль" required>
@@ -110,7 +114,7 @@
         <div class="login-error" id="login-error" hidden></div>
         <p class="auth-note">
           <svg class="ic"><use href="#i-shield"/></svg>
-          Доступ только по паролю, который знает владелец. Пароль не сохраняется в браузере.
+          Доступ только по логину и паролю, которые знает владелец. Пароль не сохраняется в браузере.
         </p>
         <div class="auth-foot">tenkrol.ru/mobile · v1.0</div>
       </div>

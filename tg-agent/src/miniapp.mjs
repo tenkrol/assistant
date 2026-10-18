@@ -35,6 +35,7 @@ import {
   signSession,
   verifyPassword,
   verifySession,
+  verifyUsername,
 } from './mobile-auth.mjs'
 
 const JSON_TYPE = 'application/json; charset=utf-8'
@@ -365,6 +366,7 @@ export function createMiniApp({
   mobileSessionSecret,
   mobileUserId,
   mobileUserName = 'Владелец',
+  mobileUsername = '',
   sessionTtlSec = DEFAULT_SESSION_TTL_SEC,
   cookieSecure = true,
   loginRateLimit = {},
@@ -392,6 +394,7 @@ export function createMiniApp({
   const passwordUserNumber = Number(passwordUser)
   const passwordUserValid = Number.isInteger(passwordUserNumber) && passwordUserNumber > 0
   const passwordConfigured = Boolean(passwordUserValid && isPasswordHash(mobilePasswordHash))
+  const usernameExpected = typeof mobileUsername === 'string' ? mobileUsername.trim() : ''
   const passwordAuthEnabled = passwordConfigured && isSessionSecret(mobileSessionSecret)
   const loginLimits = {
     maxFailures: positiveInt(loginRateLimit.maxFailures, DEFAULT_LOGIN_MAX_FAILURES),
@@ -544,11 +547,12 @@ export function createMiniApp({
     const body = await readJsonBody(request, bodyLimit)
     if (!body.ok) return sendError(response, body.status, body.code, body.error)
     const password = body.value?.password
+    const username = typeof body.value?.username === 'string' ? body.value.username.trim() : ''
     if (typeof password !== 'string' || password === '' || password.length > 1024) {
-      return sendError(response, 400, ERROR_CODES.badRequest, 'Введите пароль')
+      return sendError(response, 400, ERROR_CODES.badRequest, 'Введите логин и пароль')
     }
 
-    if (!verifyPassword(password, mobilePasswordHash)) {
+    if (!verifyUsername(username, usernameExpected) || !verifyPassword(password, mobilePasswordHash)) {
       const failed = recordLoginFailure(ip, at)
       logger?.warn?.('mobile login failed', { attempts: failed.failures, blocked: failed.blockedUntil > at })
       const retryAfter = failed.blockedUntil > at
@@ -556,7 +560,7 @@ export function createMiniApp({
         : undefined
       const headers = retryAfter ? { 'retry-after': String(retryAfter) } : {}
       return sendJson(response, 401, {
-        error: 'Неверный пароль',
+        error: 'Неверный логин или пароль',
         code: ERROR_CODES.unauthorized,
         ...(retryAfter ? { retryAfter } : {}),
       }, headers)

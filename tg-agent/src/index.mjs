@@ -707,6 +707,7 @@ export async function createInstance({ config, logger, instance, shared, platfor
         mobileSessionSecret: config.miniapp.mobile.sessionSecret,
         mobileUserId: config.miniapp.mobile.userId || [...botConfig.access.allowedUserIds][0],
         mobileUserName: config.miniapp.mobile.userName,
+        mobileUsername: config.miniapp.mobile.username,
         sessionTtlSec: config.miniapp.mobile.sessionTtlSec,
         cookieSecure: config.miniapp.mobile.cookieSecure,
         defaultModel: config.model.name,
