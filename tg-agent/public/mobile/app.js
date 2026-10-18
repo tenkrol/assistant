@@ -602,7 +602,7 @@ function renderChatSwitch() {
 
 function updateChatHeader() {
   const group = state.chatTarget && state.chatTarget.type !== 'private'
-  $('chat-input').placeholder = group ? 'Написать в общий чат…' : 'Написать ассистенту…'
+  $('chat-input').placeholder = group ? 'В общий чат… (@бот или ответ)' : 'Написать ассистенту…'
 }
 
 function selectChat(chat) {
@@ -711,7 +711,7 @@ function renderChat() {
     const iconBox = h('div', 'chat-empty-icon')
     iconBox.append(icon('chat'))
     const group = state.chatTarget && state.chatTarget.type !== 'private'
-    empty.append(iconBox, h('b', null, group ? 'Напишите в общий чат' : 'Напишите ассистенту'), h('span', null, group ? 'Сообщение увидят участники группы, ответ появится здесь.' : 'Сообщение уйдёт в тот же диалог, что и в Telegram. Ответ появится здесь.'))
+    empty.append(iconBox, h('b', null, group ? 'Напишите в общий чат' : 'Напишите ассистенту'), h('span', null, group ? 'Сообщение увидят участники. Бот ответит, если упомянуть @бота или ответить на его сообщение.' : 'Сообщение уйдёт в тот же диалог, что и в Telegram. Ответ появится здесь.'))
     box.append(empty)
     return
   }
@@ -956,11 +956,19 @@ function appendChatFile(file) {
   chatScrollToBottom()
 }
 
+function resizeChatInput() {
+  const input = $('chat-input')
+  if (!input) return
+  input.style.height = 'auto'
+  input.style.height = Math.min(input.scrollHeight, 120) + 'px'
+}
+
 function updateChatSend() {
   const input = $('chat-input')
   const button = $('chat-send')
   if (!input || !button) return
   button.disabled = input.value.trim() === ''
+  resizeChatInput()
 }
 
 async function sendSiteMessage() {
@@ -973,6 +981,7 @@ async function sendSiteMessage() {
   appendChatMessage('user', text, group ? ((state.session && state.session.user && state.session.user.telegramName) || 'Вы') : undefined, reply)
   clearChatReply()
   input.value = ''
+  input.style.height = 'auto'
   updateChatSend()
   button.disabled = true
   state.chatSending = true
@@ -987,7 +996,10 @@ async function sendSiteMessage() {
     })
     hideChatTyping()
     const messages = Array.isArray(data.messages) ? data.messages : []
-    if (messages.length === 0) {
+    const silent = Boolean(data.silent)
+    if (silent) {
+      toast('Бот ответит, если упомянуть его или ответить на его сообщение')
+    } else if (messages.length === 0) {
       appendChatMessage('assistant', 'Ассистент не вернул текст. Попробуйте ещё раз.')
     } else {
       messages.forEach((message) => appendChatMessage('assistant', message.text))
@@ -995,7 +1007,7 @@ async function sendSiteMessage() {
     ;(Array.isArray(data.files) ? data.files : []).forEach(appendChatFile)
     if (state.chat && Array.isArray(state.chat.messages)) {
       state.chat.messages.push({ role: 'user', text, ...(reply ? { replyTo: reply } : {}) })
-      messages.forEach((message) => state.chat.messages.push({ role: 'assistant', text: message.text }))
+      if (!silent) messages.forEach((message) => state.chat.messages.push({ role: 'assistant', text: message.text }))
     }
   } catch (error) {
     hideChatTyping()
@@ -2251,7 +2263,7 @@ function bind() {
   const chatInput = $('chat-input')
   chatInput.addEventListener('input', updateChatSend)
   chatInput.addEventListener('keydown', (event) => {
-    if (event.key === 'Enter') {
+    if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
       event.preventDefault()
       void sendSiteMessage()
     }

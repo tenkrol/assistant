@@ -988,7 +988,7 @@ export function createMiniApp({
         // Файл до 2 МиБ отдаём сразу data-URL-ом; больший предложим забрать в Telegram.
         data: file.bytes && file.bytes.length <= 2 * 1024 * 1024 ? file.bytes.toString('base64') : null,
       }))
-      sendJson(response, 200, { messages, files })
+      sendJson(response, 200, { messages, files, silent: Boolean(delivery?.silent) })
     } catch (error) {
       logger?.warn?.('web chat failed', { error: error?.message ?? error, userId })
       sendError(response, 500, ERROR_CODES.internal, 'Не удалось получить ответ от ассистента')

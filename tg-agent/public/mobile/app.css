@@ -1326,22 +1326,37 @@ textarea.input {
 .composer-field {
   flex: 1 1 auto;
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   gap: 4px;
   min-width: 0;
   min-height: 44px;
-  padding: 0 6px 0 15px;
+  padding: 4px 6px 4px 15px;
   border-radius: 22px;
   background: var(--input);
   border: 1px solid var(--border);
 }
 
-.composer-field input {
+.composer-field input,
+.composer-field textarea {
   flex: 1 1 auto;
   min-width: 0;
   background: transparent;
   color: var(--fg);
   font-size: 14.5px;
+  font-family: inherit;
+}
+
+.composer-field textarea {
+  display: block;
+  width: 100%;
+  min-height: 34px;
+  max-height: 120px;
+  padding: 8px 0;
+  border: 0;
+  outline: 0;
+  resize: none;
+  line-height: 1.4;
+  overflow-y: auto;
 }
 
 .composer-mic,
@@ -3234,6 +3249,7 @@ html.large-text .setting-row span {
 @media (max-width: 559px) {
   .input,
   .composer-field input,
+  .composer-field textarea,
   .search-row .input,
   .new-task textarea,
   .setting-row select,

@@ -325,7 +325,7 @@ export class Assistant {
       addressed: true,
       web: true,
       ...(replyTo && typeof replyTo.text === 'string' && replyTo.text.trim() !== ''
-        ? { replyTo: { text: replyTo.text.trim().slice(0, 1000), ...(replyTo.author ? { author: String(replyTo.author).slice(0, 80) } : {}) } }
+        ? { replyTo: { text: replyTo.text.trim().slice(0, 1000), ...(replyTo.role ? { role: replyTo.role === 'assistant' ? 'assistant' : 'user' } : {}), ...(replyTo.author ? { author: String(replyTo.author).slice(0, 80) } : {}) } }
         : {}),
     }
     const isGroup = message.chat.type !== 'private'
@@ -339,6 +339,19 @@ export class Assistant {
         chatId: message.chat.id,
         markdown: `💬 ${message.from.name} (с сайта):\n${quoted}${message.text}`,
       }).catch((error) => this.logger.warn('web group message relay failed', { error }))
+    }
+    // В группе бот отвечает только на упоминание или ответ на своё сообщение,
+    // как и в Telegram. Иначе сообщение просто уходит в общий чат.
+    const username = String(this.username ?? '').replace(/^@/, '')
+    const mentioned = username !== '' && new RegExp('@' + username.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?![a-z0-9_])', 'i').test(message.text)
+    const replyToBot = Boolean(message.replyTo && message.replyTo.role === 'assistant')
+    if (isGroup && !mentioned && !replyToBot) {
+      await this.history?.append?.(
+        String(message.chat.id),
+        { role: 'user', content: message.text, ...(message.from.name ? { author: message.from.name } : {}) },
+        {},
+      )
+      return { sends: [], files: [], silent: true }
     }
     const task = this.delivery.run(delivery, () => this.enqueueUpdate(message))
     await task

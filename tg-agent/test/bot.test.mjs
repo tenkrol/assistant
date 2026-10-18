@@ -1974,7 +1974,7 @@ test('веб-сообщение в общий чат пересылается в
       chatTitle: 'TenKrol и Машулечка',
       text: 'привет группе',
       name: 'Вячеслав',
-      replyTo: { text: 'раньше было лучше', author: 'Мария' },
+      replyTo: { text: 'раньше было лучше', role: 'assistant', author: 'Ассистент' },
     })
     assert.match(result.sends.map((entry) => entry.text).join('\n'), /ответ группе/)
     assert.equal(ctx.telegramStub.state.sends.length, 2)
@@ -2008,6 +2008,29 @@ test('ответ агента и входящее сообщение групп�
     }
     await ctx.bot.handleMessage(groupMessage)
     assert.ok(notified.some((item) => String(item.chatId) === '-1001234567890'))
+  } finally {
+    await ctx.cleanup()
+  }
+})
+
+test('в веб-группе бот молчит без упоминания и отвечает на упоминание', async () => {
+  const ctx = await setup({ responses: [{ content: 'ответ на упоминание' }] })
+  try {
+    const silent = await ctx.bot.handleWebMessage({
+      userId: ALLOWED, chatId: -1001234567890, chatType: 'group', chatTitle: 'Общий',
+      text: 'просто сообщение', name: 'Вячеслав',
+    })
+    assert.equal(silent.silent, true)
+    assert.equal(silent.sends.length, 0)
+    assert.equal(ctx.telegramStub.state.sends.length, 1)
+    assert.match(ctx.telegramStub.state.sends[0].text, /просто сообщение/)
+
+    const answered = await ctx.bot.handleWebMessage({
+      userId: ALLOWED, chatId: -1001234567890, chatType: 'group', chatTitle: 'Общий',
+      text: '@test_bot ответь', name: 'Вячеслав',
+    })
+    assert.equal(answered.silent, undefined)
+    assert.match(answered.sends.map((item) => item.text).join('\n'), /ответ на упоминание/)
   } finally {
     await ctx.cleanup()
   }
