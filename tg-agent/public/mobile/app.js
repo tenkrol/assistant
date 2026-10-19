@@ -151,6 +151,12 @@ const state = {
   reminders: [],
   events: [],
   memory: { facts: [], city: null },
+  memoryTab: 'facts',
+  quiz: null,
+  projects: null,
+  dashboard: null,
+  dashboardStale: true,
+  dashboardAt: null,
   stats: null,
   chat: null,
   files: null,
@@ -4306,6 +4312,32 @@ async function ensureProjects() {
   await loadProjects()
 }
 
+async function createDemoProject() {
+  const instructions = [
+    'Это демонстрационный проект TenKrol. Показывай возможности ассистента на примерах.',
+    'Умеешь: вести диалог и помнить контекст, искать в интернете, работать с файлами и документами, составлять планы и напоминания, проверять сервер, искать видео на YouTube, фотографии, генерировать изображения, отвечать по памяти и опросу дня.',
+    'Если пользователь не знает, с чего начать, предложи один из запросов:',
+    '1. Составь план на неделю и добавь напоминания.',
+    '2. Найди три статьи про iOS-дизайн и сделай выжимку.',
+    '3. Проверь состояние сервера и объясни, что не так.',
+    '4. Собери отчёт по моим заметкам из инбокса.',
+    '5. Найди видео про SwiftUI и коротко перескажи.',
+    '6. Придумай изображение для обложки проекта.',
+    '7. Задай мне вопросы для памяти на сегодня.',
+    'Отвечай коротко, по делу и предлагай следующий шаг.',
+  ].join('\n')
+  try {
+    const data = await api('POST', '/api/projects', { name: 'Пример: все возможности', instructions })
+    state.projects = null
+    await loadProjects()
+    await loadChats()
+    toast('Пример проекта создан')
+    if (data.project) await openProjectChat(data.project)
+  } catch (error) {
+    toast(error.message || 'Не удалось создать пример')
+  }
+}
+
 async function loadProjects() {
   try {
     const data = await api('GET', '/api/projects')
@@ -4322,8 +4354,19 @@ function renderProjects() {
   const projects = state.projects || []
   if (projects.length === 0) {
     box.append(h('p', 'hint', 'Проектов пока нет. Создайте первый — у него будет своя история.'))
-    return
   }
+  const demo = h('div', 'plan-card demo-project')
+  const demoIc = h('span', 'plan-ic')
+  demoIc.append(icon('spark'))
+  const demoBody = h('div', 'plan-body')
+  demoBody.append(h('b', null, 'Пример: все возможности'))
+  demoBody.append(h('span', 'plan-meta', 'Готовый проект-шаблон: память, файлы, агент, календарь, почта, YouTube и опрос.'))
+  const demoButton = h('button', 'pill-btn', projects.length === 0 ? 'Создать пример' : 'Создать ещё пример')
+  demoButton.type = 'button'
+  demoButton.addEventListener('click', () => void createDemoProject())
+  demoBody.append(demoButton)
+  demo.append(demoIc, demoBody)
+  box.append(demo)
   projects.forEach((project) => {
     const card = h('div', 'plan-card')
     const ic = h('span', 'plan-ic')
