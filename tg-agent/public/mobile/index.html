@@ -257,11 +257,17 @@
         </button>
       </header>
 
+      <div class="segmented small" id="memory-tabs">
+        <button class="seg is-active" data-memory-tab="facts">Факты</button>
+        <button class="seg" data-memory-tab="quiz">Опрос дня</button>
+      </div>
+
       <div class="search-row" id="memory-search" hidden>
         <input class="input" id="memory-search-input" placeholder="Поиск по фактам" aria-label="Поиск по фактам">
       </div>
 
       <div class="scroll screen-scroll" id="memory-scroll">
+        <div id="memory-facts-panel">
         <button class="city-card" id="city-card">
           <span class="city-ic"><svg class="ic"><use href="#i-pin"/></svg></span>
           <span>
@@ -276,9 +282,19 @@
           <div class="loading-inline"><span class="spinner"></span>Загружаю память…</div>
         </div>
         <p class="hint">Память раздельная: в Telegram и VK бот знает разное. Личные факты не попадают в группы.</p>
+        </div>
+
+        <div id="memory-quiz" hidden>
+          <div class="card info-card">
+            <b>Опрос дня</b>
+            <p>10 новых вопросов каждый день. Ответы сохраняются в память и помогают ассистенту лучше вас знать.</p>
+          </div>
+          <div class="group-head"><span>Вопросы</span><span class="group-count" id="quiz-progress">0/10</span></div>
+          <div id="quiz-list"><p class="hint">Генерирую вопросы…</p></div>
+        </div>
       </div>
 
-      <div class="composer">
+      <div class="composer" id="memory-composer">
         <div class="composer-field">
           <input id="fact-input" placeholder="Добавить факт…" autocomplete="off" aria-label="Новый факт">
           <button class="composer-send" id="fact-add" aria-label="Запомнить">

@@ -187,6 +187,8 @@ async function createHarness(t, options = {}) {
     mobileAuthLog: options.mobileAuthLog,
     mobileAutomations: options.mobileAutomations,
     gmail: options.gmail,
+    mobileQuiz: options.mobileQuiz,
+    quizGenerator: options.quizGenerator,
     automationRunner: options.automationRunner,
     systemStatus: options.systemStatus,
     proactiveSettings: options.proactiveSettings,
@@ -775,6 +777,28 @@ test('агент: отмена задачи', async (t) => {
     method: 'POST', cookieJar: cookies, headers: { 'X-Mobile-Client': '1' }, body: {},
   })
   assert.equal(empty.status, 400)
+})
+
+test('опрос дня: вопросы и ответ в память', async (t) => {
+  const questions = [{ id: 'q1', text: 'Что ты любишь?' }]
+  const answers = {}
+  const { base } = await createHarness(t, {
+    mobileQuiz: {
+      ensure: async () => ({ date: '2026-10-19', questions, answers }),
+      get: () => ({ date: '2026-10-19', questions, answers }),
+      answer: async ({ questionId, text }) => { answers[questionId] = text; return { question: questions[0], answer: text } },
+    },
+    quizGenerator: async () => ['Что ты любишь?'],
+  })
+  const cookies = jar()
+  await request(base, '/api/auth/login', { method: 'POST', body: { password: PASSWORD }, cookieJar: cookies })
+  const quiz = await request(base, '/api/quiz', { cookieJar: cookies })
+  assert.equal(quiz.status, 200)
+  assert.equal(quiz.json.questions.length, 1)
+  const answered = await request(base, '/api/quiz/answer', { method: 'POST', cookieJar: cookies, headers: { 'X-Mobile-Client': '1' }, body: { questionId: 'q1', text: 'кофе' } })
+  assert.equal(answered.status, 200)
+  const memory = await request(base, '/api/memory', { cookieJar: cookies })
+  assert.match(JSON.stringify(memory.json.facts), /кофе/)
 })
 
 test('Gmail: статус без настройки', async (t) => {

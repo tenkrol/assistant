@@ -4700,3 +4700,42 @@ html.large-text .setting-row span {
 .fact-meta .pill-btn {
   margin-left: auto;
 }
+
+.quiz-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 10px;
+  padding: 12px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: var(--card);
+}
+
+.quiz-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.quiz-number {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.quiz-head b {
+  font-size: 13.5px;
+  line-height: 1.4;
+}
+
+.quiz-card.is-done {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+}

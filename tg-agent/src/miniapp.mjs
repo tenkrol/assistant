@@ -432,6 +432,8 @@ export function createMiniApp({
   mobileAutomations,
   automationRunner,
   gmail,
+  mobileQuiz,
+  quizGenerator,
   editChatMessage,
   deleteChatMessage,
   documents,
@@ -2209,6 +2211,45 @@ export function createMiniApp({
     sendJson(response, 200, { ok: true, id: String(removed.id) })
   }
 
+  const mapQuiz = (day) => ({
+    date: day.date,
+    questions: (day.questions ?? []).map((question) => ({
+      id: String(question.id),
+      text: String(question.text),
+      answer: day.answers?.[question.id] ?? null,
+    })),
+  })
+
+  async function getQuiz(request, response, { userId }) {
+    request.resume()
+    if (!mobileQuiz || typeof mobileQuiz.ensure !== 'function') return missingStore(response, 'опрос')
+    try {
+      const day = await mobileQuiz.ensure({ userId, generate: quizGenerator })
+      sendJson(response, 200, mapQuiz(day))
+    } catch (error) {
+      logger?.warn?.('quiz failed', { error: error?.message ?? error })
+      sendError(response, 502, ERROR_CODES.unavailable, 'Не удалось подготовить вопросы')
+    }
+  }
+
+  async function answerQuiz(request, response, { userId }) {
+    if (!mobileQuiz || typeof mobileQuiz.answer !== 'function') return missingStore(response, 'опрос')
+    const body = await readJsonBody(request, bodyLimit)
+    if (!body.ok) return sendError(response, body.status, body.code, body.error)
+    try {
+      const result = await mobileQuiz.answer({ userId, questionId: body.value?.questionId, text: body.value?.text })
+      const profiles = pickStore(stores.profiles)
+      if (profiles && typeof profiles.addFact === 'function') {
+        profiles.addFact(userId, `На вопрос «${result.question.text}» ответил: ${result.answer}`, { confirmationStatus: 'confirmed' })
+        await profiles.flush()
+      }
+      const day = mobileQuiz.get(userId)
+      sendJson(response, 200, { ok: true, quiz: mapQuiz(day) })
+    } catch (error) {
+      return badRequest(response, error?.message || 'Не удалось сохранить ответ')
+    }
+  }
+
   /** GET /api/memory/export — выгрузка памяти в JSON. */
   function exportMemory(request, response, { userId }) {
     request.resume()
@@ -2320,6 +2361,8 @@ export function createMiniApp({
     { method: 'DELETE', pattern: /^\/api\/events\/([^/]+)$/, handler: deleteEvent },
     { method: 'GET', pattern: /^\/api\/memory$/, handler: getMemory },
     { method: 'GET', pattern: /^\/api\/memory\/export$/, handler: exportMemory },
+    { method: 'GET', pattern: /^\/api\/quiz$/, handler: getQuiz },
+    { method: 'POST', pattern: /^\/api\/quiz\/answer$/, handler: answerQuiz },
     { method: 'POST', pattern: /^\/api\/memory$/, handler: createFact },
     { method: 'PATCH', pattern: /^\/api\/memory\/([^/]+)$/, handler: updateFact },
     { method: 'DELETE', pattern: /^\/api\/memory\/([^/]+)$/, handler: deleteFact },

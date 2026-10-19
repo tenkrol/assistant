@@ -38,6 +38,7 @@ import { YandexDisk } from './yandex-disk.mjs'
 import { MobileAuthLogStore } from './mobile-auth-log.mjs'
 import { AutomationStore } from './mobile-automations.mjs'
 import { GmailClient, GmailTokenStore } from './mobile-gmail.mjs'
+import { QuizStore } from './mobile-quiz.mjs'
 import { createOutbox } from './outbox.mjs'
 import { createAgentEventsStore } from './storage/agent-events.mjs'
 import { createAgentLink } from './agent-link/index.mjs'
@@ -820,6 +821,13 @@ export async function createInstance({ config, logger, instance, shared, platfor
       } catch (error) {
         logger.warn('mobile auth log disabled', { error: error?.message ?? error })
       }
+      let mobileQuiz
+      try {
+        mobileQuiz = new QuizStore({ file: stateFile(botConfig.dataDir, 'mobile-quiz', instance.namespace), logger })
+        await mobileQuiz.load()
+      } catch (error) {
+        logger.warn('mobile quiz disabled', { error: error?.message ?? error })
+      }
       let mobileAutomations
       try {
         mobileAutomations = new AutomationStore({ file: stateFile(botConfig.dataDir, 'mobile-automations', instance.namespace), logger })
@@ -872,6 +880,24 @@ export async function createInstance({ config, logger, instance, shared, platfor
         mobileAuthLog,
         mobileAutomations,
         gmail,
+        mobileQuiz,
+        quizGenerator: async ({ previous = [] } = {}) => {
+          const prompt = [
+            'Составь ровно 10 коротких личных вопросов для ежедневного опроса памяти.',
+            'Вопросы должны быть на русском, по одному предложению, без нумерации.',
+            'Они должны помогать узнать привычки, вкусы, планы и важные мелочи человека.',
+            'Не спрашивай пароли, деньги, здоровье, политику и другие чувствительные темы.',
+            'Не повторяй вопросы из списка ниже. Верни только JSON-массив из 10 строк, без пояснений.',
+            previous.length > 0 ? 'Уже задавали: ' + previous.slice(-30).join(' | ') : '',
+          ].filter(Boolean).join('\n')
+          const answer = await bot.model.complete({ messages: [{ role: 'user', content: prompt }] })
+          const text = String(answer?.text ?? '')
+          const start = text.indexOf('[')
+          const end = text.lastIndexOf(']')
+          if (start === -1 || end <= start) return []
+          const parsed = JSON.parse(text.slice(start, end + 1))
+          return Array.isArray(parsed) ? parsed : []
+        },
         automationRunner: async ({ userId, text }) => {
           const targetId = Number(userId)
           if (!botConfig.access.allowedUserIds.has(targetId)) throw new Error('Чужой пользователь')

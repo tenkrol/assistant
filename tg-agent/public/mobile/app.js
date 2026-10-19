@@ -1981,6 +1981,75 @@ async function loadMemory() {
   }
 }
 
+async function loadQuiz() {
+  const box = $('quiz-list')
+  if (!box) return
+  box.replaceChildren(h('p', 'hint', 'Генерирую вопросы…'))
+  try {
+    state.quiz = await api('GET', '/api/quiz')
+    renderQuiz()
+  } catch (error) {
+    box.replaceChildren(h('p', 'hint', error.message || 'Не удалось загрузить опрос'))
+  }
+}
+
+function renderQuiz() {
+  const quiz = state.quiz
+  const box = $('quiz-list')
+  if (!quiz || !Array.isArray(quiz.questions)) return
+  const answered = quiz.questions.filter((question) => question.answer).length
+  $('quiz-progress').textContent = answered + '/' + quiz.questions.length
+  box.replaceChildren()
+  quiz.questions.forEach((question, index) => {
+    const card = h('div', 'quiz-card' + (question.answer ? ' is-done' : ''))
+    const head = h('div', 'quiz-head')
+    head.append(h('span', 'quiz-number', String(index + 1)), h('b', null, question.text))
+    card.append(head)
+    const input = document.createElement('textarea')
+    input.className = 'input'
+    input.rows = 2
+    input.placeholder = 'Ваш ответ…'
+    input.value = question.answer || ''
+    const save = h('button', 'btn btn-ghost btn-sm', question.answer ? 'Изменить ответ' : 'Сохранить')
+    save.type = 'button'
+    save.addEventListener('click', async () => {
+      const text = input.value.trim()
+      if (text === '') return
+      save.disabled = true
+      try {
+        const data = await api('POST', '/api/quiz/answer', { questionId: question.id, text })
+        state.quiz = data.quiz
+        state.loaded.memory = false
+        renderQuiz()
+        void loadMemory()
+        toast('Ответ сохранён в память')
+      } catch (error) {
+        save.disabled = false
+        toast(error.message || 'Не удалось сохранить ответ')
+      }
+    })
+    card.append(input, save)
+    box.append(card)
+  })
+}
+
+function switchMemoryTab(tab) {
+  state.memoryTab = tab
+  document.querySelectorAll('[data-memory-tab]').forEach((button) => {
+    button.classList.toggle('is-active', button.dataset.memoryTab === tab)
+  })
+  const quiz = tab === 'quiz'
+  $('memory-facts-panel').hidden = quiz
+  $('memory-quiz').hidden = !quiz
+  $('memory-composer').hidden = quiz
+  $('memory-search-toggle').hidden = quiz
+  if (quiz) {
+    $('memory-search').hidden = true
+    if (!state.quiz) void loadQuiz()
+    else renderQuiz()
+  }
+}
+
 function renderMemory() {
   const box = $('facts-list')
   box.replaceChildren()
@@ -4282,6 +4351,9 @@ function bind() {
     const row = $('memory-search')
     row.hidden = !row.hidden
     if (!row.hidden) $('memory-search-input').focus()
+  })
+  document.querySelectorAll('[data-memory-tab]').forEach((button) => {
+    button.addEventListener('click', () => switchMemoryTab(button.dataset.memoryTab))
   })
   $('memory-search-input').addEventListener('input', (event) => {
     state.factQuery = event.target.value
