@@ -185,5 +185,12 @@ test('отмена кнопкой и командой дают прежние т
 test('текст доставки называет владельца и помечает пропущенное', () => {
   const rules = rulesOfReminders({ store: makeReminderStore(), timeZone: ZONE })
   assert.equal(rules.deliveryText({ chatId: -1, userId: 7, text: 'чайник' }, { owner: 'Вячеслав' }), '⏰ Напоминание для Вячеслав: чайник')
-  assert.equal(rules.deliveryText({ chatId: 1, text: 'чайник' }, { lateNotice: true }), '⏰ (пропущено, пока бот не работал) Напоминание: чайник')
+  // Пометка догона называет исходный срок, а не момент доставки.
+  assert.equal(
+    rules.deliveryText(
+      { chatId: 1, text: 'чайник', dueAt: '2026-10-19T06:00:00.000Z' },
+      { lateNotice: true, timeZone: ZONE },
+    ),
+    '⏰ пропущено, было на 19.10 09:00 — Напоминание: чайник',
+  )
 })

@@ -81,16 +81,24 @@ export class HistoryStore {
     try {
       const state = await this.storage.load()
       if (state.chats == null || typeof state.chats !== 'object') throw new Error('unexpected file format')
+      let assignedIds = false
       for (const [chatId, record] of Object.entries(state.chats)) {
         const messages = Array.isArray(record?.messages)
           ? record.messages.filter((m) => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string')
           : []
+        for (const message of messages) {
+          if (message.id === undefined) {
+            message.id = crypto.randomUUID()
+            assignedIds = true
+          }
+        }
         this.chats.set(chatId, {
           messages,
           model: typeof record?.model === 'string' ? record.model : undefined,
           ...(typeof record?.scope_id === 'string' ? { scope_id: record.scope_id } : {}),
         })
       }
+      if (assignedIds) await this.storage.flush()
       this.logger?.info('history loaded', { chats: this.chats.size })
     } catch (error) {
       // Старое поведение: чужая версия схемы и ошибки чтения только логируются.

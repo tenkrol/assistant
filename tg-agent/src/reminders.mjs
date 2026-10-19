@@ -19,6 +19,12 @@ const VERSION = 1
 /** Допустимые повторы живут в одном месте — `src/domain/repeats.mjs`. */
 const REPEATS = REPEAT_VALUES
 
+/**
+ * Окно догона: просроченное моложе 12 часов доставляется с пометкой, старше —
+ * снимается. Иначе простой бота на сутки вылился бы в лавину старых сообщений.
+ */
+export const LATE_DELIVERY_WINDOW_MS = 12 * 60 * 60 * 1000
+
 /** Reminder in its stored shape. */
 const isReminder = (value) =>
   value != null
@@ -231,16 +237,21 @@ export class ReminderScheduler {
    * @param {number} [options.intervalMs] - poll period.
    * @param {() => number} [options.now] - clock, injected by tests.
    * @param {boolean} [options.lateNotice] - mark reminders that were overdue at startup.
+   * @param {number} [options.lateWindowMs] - окно догона: старше него просроченное
+   *   снимается и считается, а не доставляется.
    * @param {(info: {now: number}) => Promise<*>} [options.onTick] - дополнительная
    *   работа на том же таймере (проактивность). Второй `setInterval` не создаётся.
    */
-  constructor({ store, deliver, logger, intervalMs = 20_000, now = () => Date.now(), lateNotice = true, onTick }) {
+  constructor({ store, deliver, logger, intervalMs = 20_000, now = () => Date.now(), lateNotice = true, lateWindowMs = LATE_DELIVERY_WINDOW_MS, onTick }) {
     this.store = store
     this.deliver = deliver
     this.logger = logger
     this.intervalMs = intervalMs
     this.now = now
     this.lateNotice = lateNotice
+    this.lateWindowMs = lateWindowMs
+    // Сколько просроченных снято без доставки: значение для журнала и тестов.
+    this.droppedCount = 0
     this.onTick = onTick
     this.timer = undefined
     this.firing = false

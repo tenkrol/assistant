@@ -140,10 +140,37 @@ export function reminderConfirmation({ reminder, due, repeat = 'none', timeZone 
   return `Напоминание №${reminder.id} создано: ${human} (${zone}), ${repeatText}. Текст: «${reminder.text}».`
 }
 
+/**
+ * Пометка догона: «⏰ пропущено, было на DD.MM HH:MM — ».
+ *
+ * Время берётся из сохранённого `dueAt`, а не из момента доставки: человек
+ * должен видеть, когда напоминание должно было сработать.
+ *
+ * @param {string|Date|number} dueAt - исходный срок.
+ * @param {object} [options] - `timeZone`: пояс получателя.
+ * @returns {string} префикс с исходным сроком.
+ */
+export function lateReminderPrefix(dueAt, { timeZone = '' } = {}) {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('ru-RU', {
+    timeZone: resolveZone(timeZone),
+    day: '2-digit',
+    month: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(new Date(dueAt)).map((part) => [part.type, part.value]))
+  const hour = String(Number(parts.hour) % 24).padStart(2, '0')
+  return `⏰ пропущено, было на ${parts.day}.${parts.month} ${hour}:${parts.minute} — `
+}
+
 /** Текст доставленного напоминания. */
-export function reminderDeliveryText(reminder, { lateNotice = false, owner } = {}) {
-  const prefix = lateNotice ? '⏰ (пропущено, пока бот не работал) Напоминание' : '⏰ Напоминание'
-  return `${prefix}${owner ? ` для ${owner}` : ''}: ${reminder.text}`
+export function reminderDeliveryText(reminder, { lateNotice = false, owner, timeZone = '' } = {}) {
+  const text = String(reminder?.text ?? '')
+  if (lateNotice) {
+    return `${lateReminderPrefix(reminder?.dueAt, { timeZone })}${owner ? `Напоминание для ${owner}: ` : 'Напоминание: '}${text}`
+  }
+  const prefix = '⏰ Напоминание'
+  return `${prefix}${owner ? ` для ${owner}` : ''}: ${text}`
 }
 
 /**
