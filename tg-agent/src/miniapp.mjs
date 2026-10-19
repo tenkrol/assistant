@@ -1875,7 +1875,7 @@ export function createMiniApp({
       headers['content-security-policy'] = MOBILE_CSP
       headers['referrer-policy'] = 'no-referrer'
       headers['x-frame-options'] = 'DENY'
-      headers['permissions-policy'] = 'camera=(), microphone=(), geolocation=()'
+      headers['permissions-policy'] = 'camera=(), microphone=(self), geolocation=()'
     }
     response.writeHead(200, headers)
     if (method === 'HEAD') response.end()
