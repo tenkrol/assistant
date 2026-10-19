@@ -1014,7 +1014,8 @@ function chatMessageNode(role, text, author, replyTo, avatar, attachments, at) {
     bubble.classList.add('has-media')
     bubble.append(chatMediaNode(media))
   }
-  if (text) bubble.append(h('div', 'bubble-text', text))
+  const placeholder = /^\[(фото|видео|голосовое)(,\s*(фото|видео|голосовое))*\]$/i.test(String(text || '').trim())
+  if (text && !(media.length > 0 && placeholder)) bubble.append(h('div', 'bubble-text', text))
   if (at) bubble.append(h('span', 'msg-time', formatTime(at)))
   const replyText = text || (media.length > 0 ? (media[0].kind === 'video' ? '[видео]' : media[0].kind === 'voice' ? '[голосовое]' : '[фото]') : '')
   bindMessageGesture(bubble, { role, text: replyText, author })
