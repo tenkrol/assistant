@@ -1802,7 +1802,9 @@ function renderWeekCalendar(itemsByDay) {
     head.append(h('b', null, WEEKDAYS_FULL[date.getDay()]), h('span', null, date.getDate() + ' ' + MONTHS_GEN[date.getMonth()]))
     card.append(head)
     if (items.length === 0) {
-      card.append(h('div', 'cal-week-item', [h('span', null, '—'), h('span', null, 'ничего нет')]))
+      const row = h('div', 'cal-week-item')
+      row.append(h('span', null, '—'), h('span', null, 'ничего нет'))
+      card.append(row)
     } else {
       items.forEach((item) => {
         const row = h('div', 'cal-week-item')
