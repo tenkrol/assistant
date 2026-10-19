@@ -28,6 +28,7 @@
       <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
       <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M16.5 16.5 21 21"/></symbol>
       <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M9 21h6"/></symbol>
+      <symbol id="i-stop" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" stroke="none"/></symbol>
       <symbol id="i-send" viewBox="0 0 24 24"><path d="M21 3 10.5 13.5"/><path d="M21 3l-6.4 18-4.1-7.5L3 9.6 21 3Z"/></symbol>
       <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.6" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.6" fill="currentColor" stroke="none"/></symbol>
       <symbol id="i-bell" viewBox="0 0 24 24"><path d="M18 9a6 6 0 1 0-12 0c0 5-2 6-2 6h16s-2-1-2-6Z"/><path d="M10 19.5a2.2 2.2 0 0 0 4 0"/></symbol>
@@ -179,6 +180,9 @@
           </button>
           <div class="composer-field">
             <textarea id="chat-input" rows="1" placeholder="Написать ассистенту…" autocomplete="off" maxlength="4000" aria-label="Сообщение ассистенту" enterkeyhint="send"></textarea>
+            <button class="composer-stop" id="chat-stop" type="button" hidden aria-label="Остановить ответ">
+              <svg class="ic"><use href="#i-stop"/></svg>
+            </button>
             <button class="composer-send" id="chat-send" aria-label="Отправить" disabled>
               <svg class="ic"><use href="#i-send"/></svg>
             </button>

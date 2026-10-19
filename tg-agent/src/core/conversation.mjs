@@ -411,7 +411,7 @@ export function createConversation(bot) {
       // Стриминг включён по умолчанию: человек видит, как ответ растёт, вместо
       // долгой тишины. Он требует платформы и чата, где правки сообщений
       // надёжны: в беседах VK это не так, и адаптер отвечает на этот вопрос.
-      const streamable = bot.config.stream?.enabled && (typeof bot.platform.canStream !== 'function' || bot.platform.canStream({ chatId }))
+      const streamable = (bot.config.stream?.enabled || message.web) && (typeof bot.platform.canStream !== 'function' || bot.platform.canStream({ chatId }))
       const streamer = streamable ? bot.createStreamer(chatId) : undefined
       // Шаг 4. Список схем и диспетчер приходят из реестра: ядро не знает, какие
       // инструменты бывают и что с ними делать. Дальше нужны только результаты

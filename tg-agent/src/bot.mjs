@@ -309,8 +309,13 @@ export class Assistant {
    * @param {object} input - `userId`, `chatId`, `text`, `name`.
    * @returns {Promise<{sends: object[], files: object[]}>} ответы для сайта.
    */
-  async handleWebMessage({ userId, chatId, text, name, chatType = 'private', chatTitle, replyTo, attachments = [] } = {}) {
-    const delivery = { sends: [], files: [], chatId: Number(chatId ?? userId) }
+  async handleWebMessage({ userId, chatId, text, name, chatType = 'private', chatTitle, replyTo, attachments = [], onDelta } = {}) {
+    const delivery = {
+      sends: [],
+      files: [],
+      chatId: Number(chatId ?? userId),
+      ...(typeof onDelta === 'function' ? { onDelta } : {}),
+    }
     const normalizedAttachments = (Array.isArray(attachments) ? attachments : [])
       .filter((item) => item && Buffer.isBuffer(item.bytes) && item.bytes.length > 0)
       .slice(0, 4)
@@ -498,7 +503,9 @@ export class Assistant {
     const delivery = this.delivery.getStore()
     if (delivery) {
       return {
-        onDelta() {},
+        onDelta(chunk) {
+          delivery.onDelta?.(String(chunk ?? ''))
+        },
         async finish(text, keyboard) {
           delivery.sends.push({ text: String(text ?? ''), ...(keyboard ? { keyboard } : {}) })
           return true

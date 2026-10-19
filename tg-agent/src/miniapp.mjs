@@ -1297,6 +1297,23 @@ export function createMiniApp({
       }
       : undefined
 
+    const streaming = body.value?.stream === true
+    const emit = (event) => {
+      if (!streaming || response.writableEnded) return
+      try { response.write('data: ' + JSON.stringify(event) + '\n\n') } catch { /* клиент ушёл */ }
+    }
+    let heartbeat
+    if (streaming) {
+      response.writeHead(200, {
+        'content-type': 'text/event-stream; charset=utf-8',
+        'cache-control': 'no-cache, no-transform',
+        connection: 'keep-alive',
+        'x-accel-buffering': 'no',
+      })
+      emit({ type: 'start' })
+      heartbeat = setInterval(() => emit({ type: 'ping' }), 15_000)
+      heartbeat.unref?.()
+    }
     chatInFlight.add(String(userId) + ':' + String(target.chatId))
     try {
       const delivery = await chatResponder({
@@ -1309,6 +1326,7 @@ export function createMiniApp({
         ...(attachments.length > 0 ? { attachments } : {}),
         name: displayNameFor(userId) || String(auth.user?.first_name ?? mobileUserName),
         login: auth.login ?? null,
+        ...(streaming ? { onDelta: (chunk) => emit({ type: 'delta', text: chunk }) } : {}),
       })
       const messages = (delivery?.sends ?? [])
         .filter((entry) => entry && typeof entry.text === 'string' && entry.text !== '')
@@ -1335,7 +1353,7 @@ export function createMiniApp({
           ...(readAt ? { readAt } : {}),
         }) || lastUser
       }
-      sendJson(response, 200, {
+      const payload = {
         messages,
         files,
         silent: Boolean(delivery?.silent),
@@ -1346,11 +1364,23 @@ export function createMiniApp({
             status: lastUser.readAt ? 'read' : lastUser.deliveredAt ? 'delivered' : 'sent',
           },
         } : {}),
-      })
+      }
+      if (streaming) {
+        emit({ type: 'done', ...payload })
+        response.end()
+      } else {
+        sendJson(response, 200, payload)
+      }
     } catch (error) {
       logger?.warn?.('web chat failed', { error: error?.message ?? error, userId })
-      sendError(response, 500, ERROR_CODES.internal, 'Не удалось получить ответ от ассистента')
+      if (streaming) {
+        emit({ type: 'error', error: 'Не удалось получить ответ от ассистента' })
+        response.end()
+      } else {
+        sendError(response, 500, ERROR_CODES.internal, 'Не удалось получить ответ от ассистента')
+      }
     } finally {
+      if (heartbeat) clearInterval(heartbeat)
       chatInFlight.delete(String(userId) + ':' + String(target.chatId))
     }
   }

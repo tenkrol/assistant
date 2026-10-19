@@ -1200,8 +1200,10 @@ function appendChatMessage(role, text, author, replyTo, attachments, status) {
   const box = $('chat-messages')
   const empty = box.querySelector('.chat-empty')
   if (empty) empty.remove()
-  box.append(chatMessageNode(role, text, author, replyTo, undefined, attachments, new Date().toISOString(), undefined, undefined, status))
+  const node = chatMessageNode(role, text, author, replyTo, undefined, attachments, new Date().toISOString(), undefined, undefined, status)
+  box.append(node)
   chatScrollToBottom()
+  return node
 }
 
 function showChatTyping() {
@@ -1453,46 +1455,120 @@ function cancelVoiceRecording() {
   $('recorder-bar').hidden = true
 }
 
-async function sendSiteMessage() {
+async function readChatStream(payload, { onDelta } = {}) {
+  const controller = new AbortController()
+  state.chatAbort = controller
+  const headers = { 'Content-Type': 'application/json', 'X-Mobile-Client': '1' }
+  if (INIT_DATA) headers['X-Telegram-Init-Data'] = INIT_DATA
+  let response
+  try {
+    response = await fetch('/api/chat/message', {
+      method: 'POST',
+      headers,
+      credentials: 'same-origin',
+      cache: 'no-store',
+      body: JSON.stringify({ ...payload, stream: true }),
+      signal: controller.signal,
+    })
+  } catch (error) {
+    if (error?.name === 'AbortError') throw error
+    throw new ApiError('Нет связи с сервером. Проверьте интернет.', 0, 'network')
+  }
+  const contentType = response.headers.get('content-type') || ''
+  if (!response.ok || !contentType.includes('text/event-stream') || !response.body) {
+    const text = await response.text()
+    let data = null
+    try { data = text ? JSON.parse(text) : null } catch { data = null }
+    throw new ApiError(data?.error || 'Ошибка ' + response.status, response.status, data?.code)
+  }
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let done = null
+  while (true) {
+    const { value, done: finished } = await reader.read()
+    if (finished) break
+    buffer += decoder.decode(value, { stream: true })
+    let index
+    while ((index = buffer.indexOf('\n\n')) !== -1) {
+      const block = buffer.slice(0, index)
+      buffer = buffer.slice(index + 2)
+      const line = block.split('\n').find((item) => item.startsWith('data: '))
+      if (!line) continue
+      let event
+      try { event = JSON.parse(line.slice(6)) } catch { continue }
+      if (event.type === 'delta') onDelta?.(event.text || '')
+      else if (event.type === 'done') done = event
+      else if (event.type === 'error') throw new ApiError(event.error || 'Не удалось получить ответ', 500, 'stream')
+    }
+  }
+  state.chatAbort = null
+  return done || { messages: [], files: [], silent: false }
+}
+
+async function sendSiteMessage(payload = null) {
   const input = $('chat-input')
   const button = $('chat-send')
-  const text = input.value.trim()
-  if ((text === '' && state.pendingMedia.length === 0) || button.disabled) return
+  const stop = $('chat-stop')
+  const text = payload?.text ?? input.value.trim()
+  if ((text === '' && state.pendingMedia.length === 0 && !payload) || button.disabled) return
   const group = state.chatTarget && state.chatTarget.type !== 'private'
-  const reply = state.chatReply
+  const reply = payload?.replyTo ?? state.chatReply
+  const uploaded = payload?.uploaded ?? (state.pendingMedia.length > 0 ? await uploadPendingMedia() : [])
   button.disabled = true
   state.chatSending = true
+  stop.hidden = false
   showChatTyping()
+  let streamNode = null
+  let streamText = ''
   try {
-    const uploaded = state.pendingMedia.length > 0 ? await uploadPendingMedia() : []
-    appendChatMessage(
-      'user',
-      text,
-      group ? ((state.session && state.session.user && state.session.user.telegramName) || 'Вы') : undefined,
-      reply,
-      uploaded,
-      'sent',
-    )
-    clearChatReply()
-    clearPendingMedia()
-    input.value = ''
-    input.style.height = 'auto'
-    updateChatSend()
-    const data = await api('POST', '/api/chat/message', {
+    if (!payload) {
+      appendChatMessage(
+        'user',
+        text,
+        group ? ((state.session && state.session.user && state.session.user.telegramName) || 'Вы') : undefined,
+        reply,
+        uploaded,
+        'sent',
+      )
+      clearChatReply()
+      clearPendingMedia()
+      input.value = ''
+      input.style.height = 'auto'
+      updateChatSend()
+    }
+    const requestBody = {
       text,
       ...(uploaded.length > 0 ? { attachments: uploaded.map((item) => ({ id: item.id })) } : {}),
       ...(state.chatTarget && state.chatTarget.id !== null && state.chatTarget.id !== undefined
         ? { chatId: state.chatTarget.id }
         : {}),
-      ...(reply ? { replyTo: reply } : {})
+      ...(reply ? { replyTo: reply } : {}),
+    }
+    const data = await readChatStream(requestBody, {
+      onDelta: (chunk) => {
+        if (!chunk) return
+        if (!streamNode) {
+          streamText = chunk
+          streamNode = appendChatMessage('assistant', streamText)
+        } else {
+          streamText += chunk
+          const bubble = streamNode.querySelector('.bubble-text')
+          if (bubble) bubble.textContent = streamText
+          chatScrollToBottom()
+        }
+      },
     })
     hideChatTyping()
+    if (streamNode) streamNode.remove()
     const messages = Array.isArray(data.messages) ? data.messages : []
     const silent = Boolean(data.silent)
     if (silent) {
       toast('Бот ответит, если упомянуть его или ответить на его сообщение')
-    } else if (messages.length === 0) {
+    } else if (messages.length === 0 && !streamText) {
       appendChatMessage('assistant', 'Ассистент не вернул текст. Попробуйте ещё раз.')
+    } else if (streamText && messages.length === 0) {
+      appendChatMessage('assistant', streamText)
     } else {
       messages.forEach((message) => appendChatMessage('assistant', message.text))
     }
@@ -1508,18 +1584,34 @@ async function sendSiteMessage() {
       if (userMessage.id) renderChat()
       if (!silent) messages.forEach((message) => state.chat.messages.push({ role: 'assistant', text: message.text }))
     }
+    state.lastFailedSend = null
   } catch (error) {
     hideChatTyping()
-    if (error instanceof ApiError && error.status === 401) {
-      showLogin('Сессия истекла — войдите заново.')
-      return
+    const stopped = error?.name === 'AbortError'
+    if (streamNode && streamText) {
+      streamNode.remove()
+      appendChatMessage('assistant', streamText + (stopped ? '\n\n— остановлено' : '\n\n⚠️ ' + (error?.message || 'Ошибка')))
+    } else if (!stopped) {
+      if (error instanceof ApiError && error.status === 401) {
+        showLogin('Сессия истекла — войдите заново.')
+        return
+      }
+      appendChatMessage('assistant', '⚠️ ' + (error && error.message ? error.message : 'Не удалось получить ответ'))
     }
-    appendChatMessage('assistant', '⚠️ ' + (error && error.message ? error.message : 'Не удалось получить ответ'))
+    state.lastFailedSend = { text, uploaded, replyTo: reply }
+    if (!stopped) toast(error?.message || 'Не удалось получить ответ')
+    else toast('Остановлено — текст можно отправить снова')
+    input.value = text
+    input.style.height = 'auto'
+    updateChatSend()
   } finally {
     state.chatSending = false
+    state.chatAbort = null
+    stop.hidden = true
     updateChatSend()
   }
 }
+
 
 /* ============================ Планы ============================ */
 
@@ -4299,6 +4391,7 @@ function bind() {
     }
   })
   $('chat-send').addEventListener('click', () => { $('mention-list').hidden = true; void sendSiteMessage() })
+  $('chat-stop').addEventListener('click', () => { state.chatAbort?.abort() })
   $('chat-attach').addEventListener('click', () => $('chat-files').click())
   $('chat-mic').addEventListener('click', () => { if (voiceRecording) stopVoiceRecording(); else void startVoiceRecording() })
   $('recorder-send').addEventListener('click', stopVoiceRecording)
