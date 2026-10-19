@@ -379,7 +379,8 @@ body[data-screen="auth"] .statusbar {
 /* ---------- Нижняя навигация ---------- */
 
 .desktop-brand,
-.desktop-profile {
+.desktop-profile,
+.desktop-chats {
   display: none;
 }
 
@@ -3741,6 +3742,91 @@ html.large-text .setting-row span {
     margin-top: 1px;
   }
 
+  .desktop-chats {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    padding: 0 2px 14px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 14px;
+  }
+
+  .desktop-chats-head {
+    padding: 0 10px 7px;
+    color: var(--faint);
+    font-size: 10.5px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+
+  .desktop-chat {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    width: 100%;
+    min-height: 44px;
+    padding: 6px 9px;
+    border-radius: 11px;
+    text-align: left;
+    color: var(--fg-2);
+  }
+
+  .desktop-chat:hover {
+    background: var(--border);
+  }
+
+  .desktop-chat.is-active {
+    background: var(--accent-soft);
+    color: var(--accent);
+  }
+
+  .desktop-chat-avatar {
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    flex: 0 0 auto;
+    border-radius: 50%;
+    background: var(--card-2);
+    border: 1px solid var(--border);
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--accent);
+  }
+
+  .desktop-chat-body {
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+
+  .desktop-chat-body b,
+  .desktop-chat-body span {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .desktop-chat-body b {
+    font-size: 12.5px;
+    font-weight: 620;
+  }
+
+  .desktop-chat-body span {
+    color: var(--muted);
+    font-size: 11px;
+    margin-top: 1px;
+  }
+
+  .desktop-chat-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--accent);
+    flex: 0 0 auto;
+  }
+
   .tab-list {
     display: flex;
     flex-direction: column;
@@ -4102,4 +4188,14 @@ html.large-text .setting-row span {
 
 .search-results .plan-card {
   cursor: default;
+}
+
+.chat-unread-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  display: inline-block;
+  margin-left: 5px;
+  vertical-align: middle;
 }

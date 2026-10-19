@@ -600,10 +600,57 @@ function renderChatSwitch() {
   }
   box.hidden = false
   box.replaceChildren()
+  renderDesktopChats()
   state.chats.forEach((chat) => {
     const button = h('button', 'chip' + (String(chat.id) === String(state.chatTarget && state.chatTarget.id) ? ' is-active' : ''), chat.title)
     button.type = 'button'
+    if (chatUnread(chat)) {
+      const dot = h('span', 'chat-unread-dot')
+      button.append(dot)
+    }
     button.addEventListener('click', () => selectChat(chat))
+    box.append(button)
+  })
+}
+
+function readKey(chatId) {
+  return 'chat-read:' + String(chatId)
+}
+
+function markChatRead(chatId, at) {
+  if (chatId === null || chatId === undefined) return
+  store.set(readKey(chatId), at || new Date().toISOString())
+  renderDesktopChats()
+}
+
+function chatUnread(chat) {
+  if (!chat || !chat.lastAt) return false
+  const seen = store.get(readKey(chat.id))
+  return !seen || String(chat.lastAt) > String(seen)
+}
+
+function renderDesktopChats() {
+  const box = $('desktop-chats')
+  if (!box) return
+  const chats = state.chats || []
+  if (chats.length === 0) {
+    box.replaceChildren()
+    return
+  }
+  box.replaceChildren(h('div', 'desktop-chats-head', 'Чаты'))
+  chats.forEach((chat) => {
+    const button = h('button', 'desktop-chat' + (String(chat.id) === String(state.chatTarget && state.chatTarget.id) ? ' is-active' : ''))
+    button.type = 'button'
+    const avatar = h('span', 'desktop-chat-avatar', chat.type === 'private' ? 'Л' : 'М')
+    const body = h('span', 'desktop-chat-body')
+    body.append(h('b', null, chat.title))
+    if (chat.lastMessage) body.append(h('span', null, chat.lastMessage))
+    button.append(avatar, body)
+    if (chatUnread(chat)) button.append(h('span', 'desktop-chat-dot'))
+    button.addEventListener('click', () => {
+      go('chat')
+      selectChat(chat)
+    })
     box.append(button)
   })
 }
@@ -614,7 +661,10 @@ function updateChatHeader() {
 }
 
 function selectChat(chat) {
-  if (String(chat.id) === String(state.chatTarget && state.chatTarget.id)) return
+  if (String(chat.id) === String(state.chatTarget && state.chatTarget.id)) {
+    go('chat')
+    return
+  }
   state.chatTarget = chat
   state.chat = null
   clearChatReply()
@@ -697,6 +747,7 @@ async function loadChat() {
       }
     }
     state.loaded.chat = true
+    markChatRead(state.chatTarget && state.chatTarget.id, state.chat && state.chat.messages && state.chat.messages.at(-1)?.at)
     renderChat()
     const telegramUrl = data.telegramUrl || (state.session && state.session.telegramUrl)
     if (telegramUrl) {

@@ -856,19 +856,32 @@ export function createMiniApp({
 
   function listChats(request, response, { auth }) {
     request.resume()
-    const chats = [{
+    const decorate = (chat) => {
+      const messages = history && typeof history.messages === 'function'
+        ? history.messages(chat.id, chat.type === 'private' ? auth.userId : undefined)
+        : []
+      const last = messages.at(-1)
+      return {
+        ...chat,
+        ...(last ? {
+          lastMessage: safeText(last.content, 90),
+          lastAt: typeof last.at === 'string' ? last.at : null,
+        } : {}),
+      }
+    }
+    const chats = [decorate({
       id: String(auth.userId),
       type: 'private',
       title: 'Личный чат',
       subtitle: 'только вы и ассистент',
-    }]
+    })]
     if (groupConfigured) {
-      chats.push({
+      chats.push(decorate({
         id: String(groupIdNumber),
         type: groupType,
         title: groupName,
         subtitle: 'общий чат с Машей',
-      })
+      }))
     }
     sendJson(response, 200, { chats })
   }
