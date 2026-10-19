@@ -3474,18 +3474,18 @@ function renderStats() {
   hero.append(split)
   box.append(hero)
 
-  const chartCard = h('div', 'card chart-card')
-  const chartHead = h('div', 'card-head')
-  chartHead.append(h('b', null, 'За ' + days.length + ' дней'), h('span', null, 'токены'))
-  chartCard.append(chartHead)
-  const chart = h('div', 'chart')
-  const labels = h('div', 'chart-labels')
   const days = Array.isArray(stats.days) ? stats.days : []
   const periodTotal = days.reduce((sum, day) => sum + (day.total || 0), 0)
   const periodRequests = days.reduce((sum, day) => sum + (day.requests || 0), 0)
   const average = days.length > 0 ? Math.round(periodTotal / days.length) : 0
   const best = days.slice().sort((a, b) => (b.total || 0) - (a.total || 0))[0]
   const max = Math.max(1, ...days.map((day) => day.total || 0))
+  const chartCard = h('div', 'card chart-card')
+  const chartHead = h('div', 'card-head')
+  chartHead.append(h('b', null, 'За ' + days.length + ' дней'), h('span', null, 'токены'))
+  chartCard.append(chartHead)
+  const chart = h('div', 'chart')
+  const labels = h('div', 'chart-labels')
   days.forEach((day, index) => {
     const wrap = h('div', 'bar-wrap')
     const bar = h('div', 'bar' + (index === days.length - 1 ? ' today' : ''))
