@@ -255,7 +255,12 @@ export async function runWatchdog(options = {}) {
         '',
         `проверьте: systemctl status ${service}; journalctl -u ${service} -n 50 --no-pager`,
       ].join('\n')
-      const delivered = await notify({ title: `${service}: бот недоступен`, text })
+      let delivered = { ok: false, error: 'notify не вернул результат' }
+      try {
+        delivered = await notify({ title: `${service}: бот недоступен`, text })
+      } catch (error) {
+        logger?.warn?.('watchdog alert failed', { error: String(error?.message ?? error) })
+      }
       if (!delivered?.ok) logger?.warn?.('watchdog alert not delivered', { error: delivered?.error })
       state.lastAlertAt = at
       state.lastAlertKey = reason
@@ -267,10 +272,14 @@ export async function runWatchdog(options = {}) {
     state.lastOkAt = at
     if (state.alertedDown) {
       const notify = options.notify ?? createNotifier({ exec, env, fetchImpl, logger })
-      await notify({
-        title: `${service}: снова в порядке`,
-        text: `✅ ${service}: бот снова отвечает.\n\n${describeChecks(checks)}`,
-      }).catch?.((error) => logger?.warn?.('watchdog recovery not delivered', { error }))
+      try {
+        await notify({
+          title: `${service}: снова в порядке`,
+          text: `✅ ${service}: бот снова отвечает.\n\n${describeChecks(checks)}`,
+        })
+      } catch (error) {
+        logger?.warn?.('watchdog recovery failed', { error: String(error?.message ?? error) })
+      }
       recovered = true
     }
     state.alertedDown = false

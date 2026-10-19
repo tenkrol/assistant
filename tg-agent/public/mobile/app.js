@@ -163,7 +163,7 @@ const state = {
   chatTarget: null,
   factQuery: '',
   plansView: 'reminders',
-  calendar: { year: TODAY.getFullYear(), month: TODAY.getMonth(), selected: TODAY.getDate() },
+  calendar: { year: TODAY.getFullYear(), month: TODAY.getMonth(), selected: TODAY.getDate(), view: 'month' },
   loaded: { plans: false, memory: false, settings: false, stats: false, chat: false, files: false, system: false },
   loading: { plans: false, memory: false, settings: false, stats: false, chat: false }
 }
@@ -1693,6 +1693,14 @@ function renderCalendar() {
     addItemToCalendar(itemsByDay, dayKey(date), { kind: 'event', title: event.title, time: formatTime(event.at) })
   })
 
+  if (state.calendar.view === 'week') {
+    renderWeekCalendar(itemsByDay)
+    return
+  }
+  $('cal-grid').hidden = false
+  document.querySelector('.weekdays')?.removeAttribute('hidden')
+  $('cal-week').hidden = true
+
   for (let index = 0; index < 42; index += 1) {
     const dayNumber = index - startOffset + 1
     let cellYear = year
@@ -1748,22 +1756,69 @@ function renderCalendar() {
   $('cal-month').textContent = MONTHS[month] + ' ' + year
   const selectedDate = new Date(year, month, selected)
   $('cal-selected-label').textContent = selected + ' ' + MONTHS_GEN[month] + ', ' + WEEKDAYS_FULL[selectedDate.getDay()]
-  $('cal-day-title').textContent = selected + ' ' + MONTHS_GEN[month]
+  renderCalendarDay(itemsByDay, selectedDate)
+}
+
+function renderCalendarDay(itemsByDay, selectedDate) {
+  $('cal-day-title').textContent = selectedDate.getDate() + ' ' + MONTHS_GEN[selectedDate.getMonth()]
   const selectedItems = itemsByDay.get(dayKey(selectedDate)) || []
   $('cal-day-count').textContent = String(selectedItems.length)
   const dayList = $('cal-day-list')
   dayList.replaceChildren()
   if (selectedItems.length === 0) {
     dayList.append(h('p', 'empty-day', 'На этот день ничего нет.'))
-  } else {
-    selectedItems.forEach((item) => {
-      dayList.append(planItemCard({
-        title: item.title,
-        meta: [item.time || 'весь день'],
-        kind: item.kind
-      }))
-    })
+    return
   }
+  selectedItems.forEach((item) => {
+    dayList.append(planItemCard({
+      title: item.title,
+      meta: [item.time || 'весь день'],
+      kind: item.kind
+    }))
+  })
+}
+
+function renderWeekCalendar(itemsByDay) {
+  $('cal-grid').hidden = true
+  document.querySelector('.weekdays')?.setAttribute('hidden', '')
+  const week = $('cal-week')
+  week.hidden = false
+  week.replaceChildren()
+  const base = new Date(state.calendar.year, state.calendar.month, state.calendar.selected)
+  const monday = new Date(base)
+  monday.setDate(base.getDate() - ((base.getDay() + 6) % 7))
+  const sunday = new Date(monday)
+  sunday.setDate(monday.getDate() + 6)
+  $('cal-month').textContent = 'Неделя ' + monday.getDate() + ' — ' + sunday.getDate() + ' ' + MONTHS_GEN[sunday.getMonth()]
+  $('cal-selected-label').textContent = 'неделя начинается с понедельника'
+  for (let index = 0; index < 7; index += 1) {
+    const date = new Date(monday)
+    date.setDate(monday.getDate() + index)
+    const key = dayKey(date)
+    const items = itemsByDay.get(key) || []
+    const card = h('button', 'cal-week-day' + (date.toDateString() === base.toDateString() ? ' is-selected' : ''))
+    card.type = 'button'
+    const head = h('div', 'cal-week-head')
+    head.append(h('b', null, WEEKDAYS_FULL[date.getDay()]), h('span', null, date.getDate() + ' ' + MONTHS_GEN[date.getMonth()]))
+    card.append(head)
+    if (items.length === 0) {
+      card.append(h('div', 'cal-week-item', [h('span', null, '—'), h('span', null, 'ничего нет')]))
+    } else {
+      items.forEach((item) => {
+        const row = h('div', 'cal-week-item')
+        row.append(h('span', null, item.time || 'день'), h('span', null, item.title))
+        card.append(row)
+      })
+    }
+    card.addEventListener('click', () => {
+      state.calendar.year = date.getFullYear()
+      state.calendar.month = date.getMonth()
+      state.calendar.selected = date.getDate()
+      renderCalendar()
+    })
+    week.append(card)
+  }
+  renderCalendarDay(itemsByDay, base)
 }
 
 /* ============================ Память ============================ */
@@ -3166,7 +3221,23 @@ function bind() {
     if (state.plansView === 'calendar') openEventSheet()
     else openReminderSheet()
   })
+  document.querySelectorAll('[data-cal-view]').forEach((button) => {
+    button.addEventListener('click', () => {
+      state.calendar.view = button.dataset.calView
+      document.querySelectorAll('[data-cal-view]').forEach((item) => item.classList.toggle('is-active', item === button))
+      renderCalendar()
+    })
+  })
   $('cal-prev').addEventListener('click', () => {
+    if (state.calendar.view === 'week') {
+      const date = new Date(state.calendar.year, state.calendar.month, state.calendar.selected)
+      date.setDate(date.getDate() - 7)
+      state.calendar.year = date.getFullYear()
+      state.calendar.month = date.getMonth()
+      state.calendar.selected = date.getDate()
+      renderCalendar()
+      return
+    }
     state.calendar.month -= 1
     if (state.calendar.month < 0) {
       state.calendar.month = 11
@@ -3176,6 +3247,15 @@ function bind() {
     renderCalendar()
   })
   $('cal-next').addEventListener('click', () => {
+    if (state.calendar.view === 'week') {
+      const date = new Date(state.calendar.year, state.calendar.month, state.calendar.selected)
+      date.setDate(date.getDate() + 7)
+      state.calendar.year = date.getFullYear()
+      state.calendar.month = date.getMonth()
+      state.calendar.selected = date.getDate()
+      renderCalendar()
+      return
+    }
     state.calendar.month += 1
     if (state.calendar.month > 11) {
       state.calendar.month = 0

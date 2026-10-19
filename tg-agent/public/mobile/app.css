@@ -4390,3 +4390,60 @@ html.large-text .setting-row span {
   margin: 10px 0 4px;
   text-decoration: none;
 }
+
+.cal-view-seg {
+  margin: 2px 0 10px;
+}
+
+.cal-week {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cal-week-day {
+  padding: 11px 12px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: var(--card);
+}
+
+.cal-week-day.is-selected {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.cal-week-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 5px;
+}
+
+.cal-week-head b {
+  font-size: 13px;
+}
+
+.cal-week-head span {
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+.cal-week-item {
+  display: flex;
+  gap: 8px;
+  padding: 3px 0;
+  font-size: 12.5px;
+  color: var(--fg-2);
+}
+
+.cal-week-item span:first-child {
+  color: var(--muted);
+  min-width: 42px;
+}
+
+.weekdays[hidden],
+.cal-grid[hidden] {
+  display: none;
+}

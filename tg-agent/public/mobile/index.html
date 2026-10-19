@@ -204,6 +204,10 @@
         </div>
 
         <div data-plans-panel="calendar" id="plans-calendar" hidden>
+          <div class="segmented small cal-view-seg" id="cal-view-seg">
+            <button class="seg is-active" data-cal-view="month">Месяц</button>
+            <button class="seg" data-cal-view="week">Неделя</button>
+          </div>
           <div class="cal-head">
             <button class="cal-nav" id="cal-prev" aria-label="Предыдущий месяц"><svg class="ic"><use href="#i-chevron-left"/></svg></button>
             <div><b id="cal-month">—</b><span id="cal-selected-label">—</span></div>
@@ -213,6 +217,7 @@
             <span>Пн</span><span>Вт</span><span>Ср</span><span>Чт</span><span>Пт</span><span>Сб</span><span>Вс</span>
           </div>
           <div class="cal-grid" id="cal-grid"></div>
+          <div class="cal-week" id="cal-week" hidden></div>
           <div class="cal-legend">
             <span><i class="legend-dot"></i>напоминание</span>
             <span><i class="legend-dot event"></i>событие</span>
