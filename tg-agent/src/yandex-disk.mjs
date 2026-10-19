@@ -74,19 +74,21 @@ export class YandexDisk {
         modified: item.modified || item.created || null,
       })
     }
-    for (const item of top) {
-      if (files.length >= MAX_FILES) break
-      if (item.type === 'file') {
-        push('', item)
-        continue
-      }
-      if (item.type !== 'dir') continue
-      let children = []
+    // Служебную папку бэкапов не показываем и не даём удалить её файлы.
+    const folders = top.filter((item) => item.type === 'dir' && String(item.name).toLowerCase() !== 'backups')
+    const listings = await Promise.all(folders.map(async (item) => {
       try {
-        children = await this.list(item.path)
+        return [item, await this.list(item.path)]
       } catch (error) {
         this.logger?.warn?.('yandex disk folder failed', { path: item.path, error: error?.message ?? error })
+        return [item, []]
       }
+    }))
+    for (const item of top) {
+      if (files.length >= MAX_FILES) break
+      if (item.type === 'file') push('', item)
+    }
+    for (const [item, children] of listings) {
       const task = String(item.name || '')
       for (const child of children) {
         if (child.type === 'file') push(task, child)
