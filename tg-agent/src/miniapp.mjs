@@ -1125,7 +1125,15 @@ export function createMiniApp({
         // Файл до 2 МиБ отдаём сразу data-URL-ом; больший предложим забрать в Telegram.
         data: file.bytes && file.bytes.length <= 2 * 1024 * 1024 ? file.bytes.toString('base64') : null,
       }))
-      sendJson(response, 200, { messages, files, silent: Boolean(delivery?.silent) })
+      const lastUser = history && typeof history.messages === 'function'
+        ? history.messages(String(target.chatId), target.type === 'private' ? userId : undefined).filter((entry) => entry.role === 'user').at(-1)
+        : undefined
+      sendJson(response, 200, {
+        messages,
+        files,
+        silent: Boolean(delivery?.silent),
+        ...(lastUser && typeof lastUser.id === 'string' ? { userMessage: { id: lastUser.id, text: lastUser.content } } : {}),
+      })
     } catch (error) {
       logger?.warn?.('web chat failed', { error: error?.message ?? error, userId })
       sendError(response, 500, ERROR_CODES.internal, 'Не удалось получить ответ от ассистента')

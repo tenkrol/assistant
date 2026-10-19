@@ -1436,7 +1436,9 @@ async function sendSiteMessage() {
     }
     ;(Array.isArray(data.files) ? data.files : []).forEach(appendChatFile)
     if (state.chat && Array.isArray(state.chat.messages)) {
-      state.chat.messages.push({ role: 'user', text, ...(reply ? { replyTo: reply } : {}), ...(uploaded.length > 0 ? { attachments: uploaded } : {}) })
+      const userMessage = { role: 'user', text, ...(reply ? { replyTo: reply } : {}), ...(uploaded.length > 0 ? { attachments: uploaded } : {}) }
+      if (data.userMessage && data.userMessage.id) userMessage.id = data.userMessage.id
+      state.chat.messages.push(userMessage)
       if (!silent) messages.forEach((message) => state.chat.messages.push({ role: 'assistant', text: message.text }))
     }
   } catch (error) {
