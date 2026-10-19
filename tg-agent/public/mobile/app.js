@@ -2721,9 +2721,16 @@ function openYoutubeVideo(video) {
   const wrap = h('div')
   const frame = document.createElement('iframe')
   frame.className = 'youtube-player'
-  frame.src = 'https://www.youtube-nocookie.com/embed/' + encodeURIComponent(video.id) + '?autoplay=1&rel=0'
+  const params = new URLSearchParams({
+    playsinline: '1',
+    rel: '0',
+    modestbranding: '1',
+    origin: location.origin,
+  })
+  frame.src = 'https://www.youtube.com/embed/' + encodeURIComponent(video.id) + '?' + params.toString()
   frame.title = video.title
-  frame.allow = 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share'
+  frame.referrerPolicy = 'strict-origin-when-cross-origin'
+  frame.allow = 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen'
   frame.allowFullscreen = true
   wrap.append(frame)
   const info = h('div', 'plan-body')
