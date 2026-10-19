@@ -2096,6 +2096,29 @@ export function createMiniApp({
     sendJson(response, 200, { ok: true, id: String(removed.id) })
   }
 
+  /** GET /api/memory/export — выгрузка памяти в JSON. */
+  function exportMemory(request, response, { userId }) {
+    request.resume()
+    const profiles = pickStore(stores.profiles)
+    if (!profiles || typeof profiles.facts !== 'function') return missingStore(response, 'память')
+    const body = Buffer.from(JSON.stringify({
+      exportedAt: new Date().toISOString(),
+      city: typeof profiles.city === 'function' ? profiles.city(userId) ?? null : null,
+      facts: profiles.facts(userId).map((fact) => ({
+        text: String(fact.text ?? ''),
+        ...(fact.confirmationStatus ? { confirmationStatus: fact.confirmationStatus } : {}),
+        ...(fact.createdAt ? { createdAt: fact.createdAt } : {}),
+      })),
+    }, null, 2), 'utf8')
+    response.writeHead(200, {
+      'content-type': 'application/json; charset=utf-8',
+      'content-length': String(body.length),
+      'content-disposition': 'attachment; filename="tenkrol-memory.json"',
+      'cache-control': 'private, no-store',
+    })
+    response.end(body)
+  }
+
   async function getMemory(request, response, { userId }) {
     const profiles = pickStore(stores.profiles)
     if (!profiles || typeof profiles.facts !== 'function') return missingStore(response, 'память')
@@ -2166,6 +2189,7 @@ export function createMiniApp({
     { method: 'POST', pattern: /^\/api\/events$/, handler: createEvent },
     { method: 'DELETE', pattern: /^\/api\/events\/([^/]+)$/, handler: deleteEvent },
     { method: 'GET', pattern: /^\/api\/memory$/, handler: getMemory },
+    { method: 'GET', pattern: /^\/api\/memory\/export$/, handler: exportMemory },
     { method: 'POST', pattern: /^\/api\/memory$/, handler: createFact },
     { method: 'PATCH', pattern: /^\/api\/memory\/([^/]+)$/, handler: updateFact },
     { method: 'DELETE', pattern: /^\/api\/memory\/([^/]+)$/, handler: deleteFact },

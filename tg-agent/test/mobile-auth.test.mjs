@@ -952,6 +952,17 @@ test('файлы агента: список, скачивание и удале�
   assert.equal(removed.status, 200)
 })
 
+test('память: экспорт в JSON', async (t) => {
+  const { base } = await createHarness(t)
+  const cookies = jar()
+  await request(base, '/api/auth/login', { method: 'POST', body: { password: PASSWORD }, cookieJar: cookies })
+  await request(base, '/api/memory', { method: 'POST', cookieJar: cookies, headers: { 'X-Mobile-Client': '1' }, body: { text: 'экспортируемый факт' } })
+  const response = await fetch(`${base}/api/memory/export`, { headers: { cookie: cookies.cookie } })
+  assert.equal(response.status, 200)
+  const data = await response.json()
+  assert.match(JSON.stringify(data.facts), /экспортируемый факт/)
+})
+
 test('память: изменить факт', async (t) => {
   const { base } = await createHarness(t)
   const cookies = jar()
