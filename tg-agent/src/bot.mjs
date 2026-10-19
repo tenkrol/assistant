@@ -397,8 +397,13 @@ export class Assistant {
     }
     // В группе бот отвечает только на упоминание или ответ на своё сообщение,
     // как и в Telegram. Иначе сообщение просто уходит в общий чат.
-    const username = String(this.username ?? '').replace(/^@/, '')
-    const mentioned = username !== '' && new RegExp('@' + username.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?![a-z0-9_])', 'i').test(message.text)
+    const aliases = [...new Set([
+      this.username,
+      this.platform?.identity?.username,
+      this.platform?.identity?.title,
+      'Tenkrol',
+    ].map((value) => String(value ?? '').replace(/^@/, '').trim()).filter(Boolean))]
+    const mentioned = aliases.some((alias) => new RegExp('@' + alias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?![a-z0-9_])', 'i').test(message.text))
     const replyToBot = Boolean(message.replyTo && message.replyTo.role === 'assistant')
     if (isGroup && !mentioned && !replyToBot) {
       await this.history?.append?.(

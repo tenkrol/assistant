@@ -2995,6 +2995,42 @@ function runCmdk(index = cmdkActive) {
   action.run()
 }
 
+function mentionName() {
+  return String(state.session?.botUsername || 'Tenkrol_bot').replace(/^@/, '')
+}
+
+function updateMentionSuggestions() {
+  const box = $('mention-list')
+  const input = $('chat-input')
+  if (!box || !input) return
+  if (!state.chatTarget || state.chatTarget.type === 'private') {
+    box.hidden = true
+    return
+  }
+  const match = /(?:^|\s)@([A-Za-z0-9_]*)$/.exec(input.value.slice(0, input.selectionStart ?? input.value.length))
+  const name = mentionName()
+  if (!match || !name.toLowerCase().startsWith(match[1].toLowerCase())) {
+    box.hidden = true
+    return
+  }
+  box.replaceChildren()
+  const button = h('button', 'mention-item')
+  button.type = 'button'
+  button.append(h('b', null, '@' + name), h('span', null, 'ассистент'))
+  button.addEventListener('click', () => {
+    const before = input.value.slice(0, input.selectionStart ?? input.value.length)
+    const after = input.value.slice(input.selectionStart ?? input.value.length)
+    const replaced = before.replace(/(^|\s)@[A-Za-z0-9_]*$/, '$1@' + name + ' ')
+    input.value = replaced + after
+    box.hidden = true
+    input.focus()
+    input.setSelectionRange(replaced.length, replaced.length)
+    updateChatSend()
+  })
+  box.append(button)
+  box.hidden = false
+}
+
 function bindDesktopShortcuts() {
   let dragDepth = 0
   const chat = $('chat-scroll')
@@ -3155,14 +3191,14 @@ function bind() {
     void loadChat()
   })
   const chatInput = $('chat-input')
-  chatInput.addEventListener('input', updateChatSend)
+  chatInput.addEventListener('input', () => { updateChatSend(); updateMentionSuggestions() })
   chatInput.addEventListener('keydown', (event) => {
     if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
       event.preventDefault()
       void sendSiteMessage()
     }
   })
-  $('chat-send').addEventListener('click', () => void sendSiteMessage())
+  $('chat-send').addEventListener('click', () => { $('mention-list').hidden = true; void sendSiteMessage() })
   $('chat-attach').addEventListener('click', () => $('chat-files').click())
   $('chat-mic').addEventListener('click', () => { if (voiceRecording) stopVoiceRecording(); else void startVoiceRecording() })
   $('recorder-send').addEventListener('click', stopVoiceRecording)

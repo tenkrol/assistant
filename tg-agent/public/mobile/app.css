@@ -4344,3 +4344,43 @@ html.large-text .setting-row span {
   font-weight: 600;
   width: fit-content;
 }
+
+/* Подсказка @упоминания в общем чате */
+.composer-wrap {
+  position: relative;
+}
+
+.mention-list {
+  position: absolute;
+  left: 24px;
+  right: 24px;
+  bottom: 64px;
+  z-index: 30;
+  padding: 6px;
+  border-radius: 14px;
+  border: 1px solid var(--border-2);
+  background: var(--sheet);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.35);
+}
+
+.mention-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 9px 10px;
+  border-radius: 9px;
+  color: var(--fg);
+  text-align: left;
+  font-size: 13px;
+}
+
+.mention-item:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.mention-item span {
+  color: var(--muted);
+  font-size: 11.5px;
+}

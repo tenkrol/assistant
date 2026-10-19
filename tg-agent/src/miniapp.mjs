@@ -406,6 +406,7 @@ export function createMiniApp({
   mobileUserId,
   mobileUserName = 'Владелец',
   mobileUsername = '',
+  botUsername = '',
   mobileUsers,
   sessionTtlSec = DEFAULT_SESSION_TTL_SEC,
   cookieSecure = true,
@@ -716,6 +717,7 @@ export function createMiniApp({
         role: auth.role ?? null,
       },
       telegramUrl,
+      botUsername: String(botUsername || ''),
     })
   }
 
