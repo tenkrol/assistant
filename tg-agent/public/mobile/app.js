@@ -964,7 +964,7 @@ function openMessageMenu(message) {
   })
   const forward = h('button', null)
   forward.type = 'button'
-  forward.append(icon('send'), h('span', null, 'Сохранить в заметки'))
+  forward.append(icon('send'), h('span', null, 'Переслать в Инбокс'))
   forward.addEventListener('click', async () => {
     const text = String(message.text || '').trim()
     if (text === '') {
@@ -974,10 +974,17 @@ function openMessageMenu(message) {
     closeSheet()
     try {
       await api('POST', '/api/inbox', { text })
+      state.inbox = null
       state.loaded.inbox = false
-      toast('Сохранено в инбокс')
+      const notice = h('div')
+      notice.append(h('p', 'hint', 'Сообщение сохранено в Инбокс.'))
+      const open = h('button', 'btn btn-primary btn-block', 'Открыть Инбокс')
+      open.type = 'button'
+      open.addEventListener('click', () => { closeSheet(); go('inbox') })
+      notice.append(open)
+      openSheet({ title: 'Сохранено', body: notice })
     } catch (error) {
-      toast(error.message || 'Не удалось сохранить в заметки')
+      toast(error.message || 'Не удалось сохранить в Инбокс')
     }
   })
   if (message.role === 'user' && message.id) {
