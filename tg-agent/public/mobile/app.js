@@ -3723,6 +3723,8 @@ function bind() {
   })
   $('account-credentials').addEventListener('click', openCredentialsSheet)
   $('account-users').addEventListener('click', () => { void openUsersSheet() })
+  $('revoke-sessions').addEventListener('click', openRevokeAllSheet)
+  $('totp-row').addEventListener('click', openTotpSheet)
   $('set-voice').addEventListener('click', () => {
     const next = !$('set-voice').classList.contains('is-on')
     $('set-voice').classList.toggle('is-on', next)
