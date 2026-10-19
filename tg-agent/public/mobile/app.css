@@ -4689,3 +4689,14 @@ html.large-text .setting-row span {
   font-size: 12.5px;
   line-height: 1.5;
 }
+
+.duplicate-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.fact-meta .pill-btn {
+  margin-left: auto;
+}

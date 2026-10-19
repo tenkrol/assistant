@@ -1012,6 +1012,8 @@ test('память: изменить факт', async (t) => {
   assert.equal(created.status, 200)
   const updated = await request(base, '/api/memory/' + created.json.id, { method: 'PATCH', cookieJar: cookies, headers: { 'X-Mobile-Client': '1' }, body: { text: 'любит кофе' } })
   assert.equal(updated.status, 200)
+  const confirmed = await request(base, '/api/memory/' + created.json.id, { method: 'PATCH', cookieJar: cookies, headers: { 'X-Mobile-Client': '1' }, body: { confirmationStatus: 'confirmed' } })
+  assert.equal(confirmed.status, 200)
   const memory = await request(base, '/api/memory', { cookieJar: cookies })
   assert.match(JSON.stringify(memory.json.facts), /любит кофе/)
 })

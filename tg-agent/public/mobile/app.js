@@ -1973,6 +1973,27 @@ function renderMemory() {
   box.replaceChildren()
   const query = state.factQuery.trim().toLowerCase()
   const facts = state.memory.facts.filter((fact) => !query || String(fact.text).toLowerCase().includes(query))
+  if (!query) {
+    const groups = new Map()
+    state.memory.facts.forEach((fact) => {
+      const key = String(fact.text || '').trim().toLowerCase()
+      if (!groups.has(key)) groups.set(key, [])
+      groups.get(key).push(fact)
+    })
+    const duplicateGroups = [...groups.values()].filter((group) => group.length > 1)
+    if (duplicateGroups.length > 0) {
+      const card = h('div', 'card duplicate-card')
+      card.append(h('b', null, 'Найдены дубликаты: ' + duplicateGroups.reduce((sum, group) => sum + group.length - 1, 0)))
+      card.append(h('p', 'hint', 'Оставить по одному факту из каждой группы?'))
+      const merge = h('button', 'btn btn-ghost btn-sm', 'Объединить')
+      merge.type = 'button'
+      merge.addEventListener('click', () => {
+        confirmSheet('Объединить дубликаты?', 'Лишние копии будут удалены.', 'Объединить', () => void mergeDuplicateFacts(duplicateGroups))
+      })
+      card.append(merge)
+      box.append(card)
+    }
+  }
   if (facts.length === 0) {
     box.append(renderEmpty(query ? 'Ничего не нашлось' : 'Пока пусто', query ? 'Попробуйте другой запрос.' : 'Добавьте первый факт — бот учтёт его в личных ответах.'))
   }
@@ -1981,7 +2002,13 @@ function renderMemory() {
     const body = h('div', 'fact-body')
     body.append(h('div', 'fact-text', fact.text))
     const meta = h('div', 'fact-meta')
-    meta.append(icon('book'), h('span', null, 'личный факт'))
+    meta.append(icon('book'), h('span', null, fact.confirmationStatus === 'assumption' ? 'предположение' : 'личный факт'))
+    if (fact.confirmationStatus === 'assumption') {
+      const confirm = h('button', 'pill-btn', 'Подтвердить')
+      confirm.type = 'button'
+      confirm.addEventListener('click', () => void confirmFact(fact))
+      meta.append(confirm)
+    }
     body.append(meta)
     const edit = h('button', 'icon-btn sm')
     edit.type = 'button'
@@ -2012,6 +2039,34 @@ function renderMemory() {
   const count = state.memory.facts.length
   $('memory-sub').textContent = count + ' ' + plural(count, ['факт', 'факта', 'фактов'])
     + (state.memory.city ? ' · ' + state.memory.city : '')
+}
+
+async function confirmFact(fact) {
+  try {
+    await api('PATCH', '/api/memory/' + encodeURIComponent(fact.id), { confirmationStatus: 'confirmed' })
+    state.loaded.memory = false
+    await loadMemory()
+    toast('Факт подтверждён')
+  } catch (error) {
+    toast(error.message || 'Не удалось подтвердить факт')
+  }
+}
+
+async function mergeDuplicateFacts(groups) {
+  try {
+    let removed = 0
+    for (const group of groups) {
+      for (const fact of group.slice(1)) {
+        await api('DELETE', '/api/memory/' + encodeURIComponent(fact.id))
+        removed += 1
+      }
+    }
+    state.loaded.memory = false
+    await loadMemory()
+    toast('Удалено дублей: ' + removed)
+  } catch (error) {
+    toast(error.message || 'Не удалось объединить дубликаты')
+  }
 }
 
 function openEditFact(fact) {

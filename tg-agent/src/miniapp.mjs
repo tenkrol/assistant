@@ -2227,7 +2227,11 @@ export function createMiniApp({
   async function getMemory(request, response, { userId }) {
     const profiles = pickStore(stores.profiles)
     if (!profiles || typeof profiles.facts !== 'function') return missingStore(response, 'память')
-    const facts = profiles.facts(userId).map((fact) => ({ id: String(fact.id), text: String(fact.text ?? '') }))
+    const facts = profiles.facts(userId).map((fact) => ({
+      id: String(fact.id),
+      text: String(fact.text ?? ''),
+      confirmationStatus: fact.confirmationStatus === 'assumption' ? 'assumption' : 'confirmed',
+    }))
     sendJson(response, 200, {
       facts,
       city: (typeof profiles.city === 'function' ? profiles.city(userId) : undefined) ?? null,
@@ -2266,12 +2270,25 @@ export function createMiniApp({
     if (id === undefined) return notFound(response)
     const body = await readJsonBody(request, bodyLimit)
     if (!body.ok) return sendError(response, body.status, body.code, body.error)
-    const text = typeof body.value?.text === 'string' ? body.value.text.trim() : ''
-    if (text === '' || text.length > MAX_FACT_LENGTH) return badRequest(response, 'Некорректный текст факта')
-    const updated = profiles.updateFact(userId, id, { text })
+    const patch = {}
+    if (typeof body.value?.text === 'string') {
+      const text = body.value.text.trim()
+      if (text === '' || text.length > MAX_FACT_LENGTH) return badRequest(response, 'Некорректный текст факта')
+      patch.text = text
+    }
+    if (body.value?.confirmationStatus !== undefined) {
+      if (!['confirmed', 'assumption'].includes(body.value.confirmationStatus)) return badRequest(response, 'Некорректный статус')
+      patch.confirmationStatus = body.value.confirmationStatus
+    }
+    if (Object.keys(patch).length === 0) return badRequest(response, 'Нет изменений')
+    const updated = profiles.updateFact(userId, id, patch)
     if (!updated) return notFound(response)
     await profiles.flush()
-    sendJson(response, 200, { id: String(updated.id), text: String(updated.text ?? '') })
+    sendJson(response, 200, {
+      id: String(updated.id),
+      text: String(updated.text ?? ''),
+      confirmationStatus: updated.confirmationStatus === 'assumption' ? 'assumption' : 'confirmed',
+    })
   }
 
   async function deleteFact(request, response, { userId, params }) {
