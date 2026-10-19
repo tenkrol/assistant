@@ -4284,11 +4284,34 @@ function renderDashboard() {
   if (!data) return
   box.replaceChildren()
   const now = state.dashboardAt || new Date()
-  $('dashboard-date').textContent = now.toLocaleDateString('ru-RU', { weekday: 'long', day: 'numeric', month: 'long' }) + ' · ' + formatTime(now.toISOString())
+  $('dashboard-date').textContent = now.toLocaleDateString('ru-RU', { weekday: 'long', day: 'numeric', month: 'long' })
   const name = state.session?.user?.name || 'Вячеслав'
-  const hero = h('div', 'card')
-  hero.append(h('b', null, 'Привет, ' + name + ' 👋'))
-  hero.append(h('p', 'hint', 'Вот короткая сводка на сегодня.'))
+  const hour = now.getHours()
+  const greeting = hour < 6 ? 'Доброй ночи' : hour < 12 ? 'Доброе утро' : hour < 18 ? 'Добрый день' : 'Добрый вечер'
+
+  const hero = h('section', 'dash-hero')
+  const heroTop = h('div', 'dash-hero-top')
+  heroTop.append(h('span', 'dash-pill', formatTime(now.toISOString())))
+  heroTop.append(h('span', 'dash-pill dash-pill-soft', 'Москва'))
+  hero.append(heroTop)
+  hero.append(h('h2', 'dash-greeting', greeting + ', ' + name))
+  hero.append(h('p', 'dash-sub', 'Планы, сообщения и агент — всё под рукой.'))
+  const quick = h('div', 'dash-quick')
+  ;[
+    ['YouTube', 'youtube', 'youtube'],
+    ['Почта', 'mail', 'mail'],
+    ['Агент', 'cpu', 'agent'],
+    ['Ещё', 'grid', 'more'],
+  ].forEach(([label, iconName, screen]) => {
+    const button = h('button', 'dash-quick-item')
+    button.type = 'button'
+    const ic = h('span', 'dash-quick-icon')
+    ic.append(icon(iconName))
+    button.append(ic, h('span', null, label))
+    button.addEventListener('click', () => go(screen))
+    quick.append(button)
+  })
+  hero.append(quick)
   box.append(hero)
 
   const reminders = Array.isArray(data.reminders) ? data.reminders : []
@@ -4298,15 +4321,21 @@ function renderDashboard() {
     ...reminders.filter((item) => String(item.dueAt || '').slice(0, 10) === todayKey).map((item) => ({ kind: 'reminder', title: item.text, at: item.dueAt })),
     ...events.filter((item) => String(item.at || '').slice(0, 10) === todayKey).map((item) => ({ kind: 'event', title: item.title, at: item.at })),
   ].sort((a, b) => String(a.at).localeCompare(String(b.at)))
-  const todayCard = h('div', 'card')
-  const todayHead = h('div', 'card-head')
+  const todayCard = h('section', 'dash-section')
+  const todayHead = h('div', 'dash-section-head')
   todayHead.append(h('b', null, 'Сегодня'), h('span', null, todayItems.length === 0 ? 'свободно' : todayItems.length + ' ' + plural(todayItems.length, ['дело', 'дела', 'дел'])))
   todayCard.append(todayHead)
-  if (todayItems.length === 0) todayCard.append(h('p', 'hint', 'На сегодня нет напоминаний и событий.'))
-  else {
+  if (todayItems.length === 0) {
+    const empty = h('div', 'dash-empty')
+    empty.append(icon('sun'), h('span', null, 'На сегодня нет дел — можно выдохнуть.'))
+    todayCard.append(empty)
+  } else {
     todayItems.slice(0, 5).forEach((item) => {
-      const row = h('div', 'dashboard-row')
-      row.append(icon(item.kind === 'event' ? 'calendar' : 'bell'), h('span', null, formatTime(item.at) + ' · ' + item.title))
+      const row = h('div', 'dash-timeline-row')
+      const dot = h('span', 'dash-dot' + (item.kind === 'event' ? ' is-event' : ''))
+      const body = h('span', 'dash-timeline-body')
+      body.append(h('b', null, formatTime(item.at)), h('span', null, item.title))
+      row.append(dot, body)
       todayCard.append(row)
     })
   }
@@ -4315,49 +4344,34 @@ function renderDashboard() {
   const inbox = Array.isArray(data.inbox?.items) ? data.inbox.items : []
   const agentEvents = Array.isArray(data.agent?.events) ? data.agent.events : []
   const statsToday = data.stats?.today || { total: 0, requests: 0 }
-  const cards = h('div', 'dashboard-grid')
+  const cards = h('div', 'dash-widget-grid')
   cards.append(
-    dashboardCard('Инбокс', String(inbox.filter((item) => !item.done).length), 'активных заметок', () => go('inbox')),
-    dashboardCard('Задачи агента', String(agentEvents.length), agentEvents[0]?.title || 'последние события', () => go('agent')),
-    dashboardCard('Токены', String(statsToday.total || 0), 'запросов: ' + (statsToday.requests || 0), () => go('stats')),
-    dashboardCard('Чаты', String((data.chats?.chats || []).length), 'личный и общий', () => go('chat')),
+    dashboardCard('Инбокс', String(inbox.filter((item) => !item.done).length), 'активных заметок', 'book', 'mint', () => go('inbox')),
+    dashboardCard('Агент', String(agentEvents.length), agentEvents[0]?.title || 'последние задачи', 'cpu', 'violet', () => go('agent')),
+    dashboardCard('Токены', String(statsToday.total || 0), 'запросов: ' + (statsToday.requests || 0), 'chart', 'orange', () => go('stats')),
+    dashboardCard('Чаты', String((data.chats?.chats || []).length), 'личный и общий', 'chat', 'blue', () => go('chat')),
   )
   box.append(cards)
 
   const systemText = String(data.system?.server || '')
   if (systemText) {
-    const serverCard = h('div', 'card')
-    serverCard.append(h('b', null, 'Сервер'))
-    serverCard.append(h('p', 'hint', systemText.split('\n').slice(0, 4).join('\n')))
-    const open = h('button', 'pill-btn', 'Подробнее')
-    open.type = 'button'
-    open.addEventListener('click', () => go('system'))
-    serverCard.append(open)
+    const serverCard = h('button', 'dash-server')
+    serverCard.type = 'button'
+    const state = h('span', 'dash-server-status')
+    state.append(h('i'), h('span', null, 'Сервер на связи'))
+    serverCard.append(state, h('span', 'dash-server-name', systemText.split('\n')[0]))
+    serverCard.addEventListener('click', () => go('system'))
     box.append(serverCard)
   }
-
-  const quick = h('div', 'card')
-  quick.append(h('b', null, 'Быстро'))
-  const actions = h('div', 'file-actions')
-  ;[
-    ['YouTube', 'youtube'],
-    ['Автоматизации', 'automations'],
-    ['Почта', 'mail'],
-    ['Календарь', 'plans'],
-  ].forEach(([label, screen]) => {
-    const button = h('button', 'pill-btn', label)
-    button.type = 'button'
-    button.addEventListener('click', () => go(screen))
-    actions.append(button)
-  })
-  quick.append(actions)
-  box.append(quick)
 }
 
-function dashboardCard(title, value, hint, action) {
-  const card = h('button', 'card dashboard-stat')
+function dashboardCard(title, value, hint, iconName, tone, action) {
+  const card = h('button', 'dash-widget tone-' + tone)
   card.type = 'button'
-  card.append(h('span', 'hint', title), h('b', null, value), h('span', 'hint', hint))
+  const top = h('span', 'dash-widget-top')
+  top.append(h('span', 'dash-widget-icon'), h('span', null, title))
+  top.firstChild.append(icon(iconName))
+  card.append(top, h('b', null, value), h('span', 'dash-widget-hint', hint))
   card.addEventListener('click', action)
   return card
 }
