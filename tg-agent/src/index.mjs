@@ -981,6 +981,10 @@ export async function createInstance({ config, logger, instance, shared, platfor
           }
           return bot.agentBridge.cancelTask(String(taskId))
         },
+        agentTask: async (taskId) => {
+          if (!bot.agentBridge?.enabled || typeof bot.agentBridge.getTask !== 'function') throw new Error('Мост к агенту выключен')
+          return bot.agentBridge.getTask(String(taskId))
+        },
         agentStatus: async () => {
           if (!bot.agentBridge?.enabled) return { enabled: false, agents: [], events: [] }
           const [agents, events] = await Promise.all([

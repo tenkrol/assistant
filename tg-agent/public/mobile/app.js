@@ -4123,15 +4123,75 @@ function renderAgentStatus(data) {
     body.append(h('div', 'agent-event-title', String(title)))
     const meta = [event.agent, event.type, event.status, event.tokens ? event.tokens + ' ток.' : ''].filter(Boolean).join(' · ')
     body.append(h('div', 'agent-event-meta', meta || 'событие агента'))
+    if (event.taskId) {
+      card.classList.add('is-clickable')
+      card.tabIndex = 0
+      card.setAttribute('role', 'button')
+      card.addEventListener('click', () => void openAgentTask(event))
+      card.addEventListener('keydown', (keyEvent) => { if (keyEvent.key === 'Enter') void openAgentTask(event) })
+    }
     if (event.taskId && !['done', 'failed', 'cancelled', 'expired'].includes(String(event.status))) {
       const cancel = h('button', 'agent-cancel', 'Отменить')
       cancel.type = 'button'
-      cancel.addEventListener('click', () => void cancelAgentTask(event.taskId))
+      cancel.addEventListener('click', (clickEvent) => {
+        clickEvent.stopPropagation()
+        void cancelAgentTask(event.taskId)
+      })
       body.append(cancel)
     }
     card.append(ic, body)
     box.append(card)
   })
+}
+
+async function openAgentTask(event) {
+  const wrap = h('div')
+  wrap.append(h('p', 'hint', 'Загружаю задачу…'))
+  openSheet({ title: event.title || 'Задача агента', body: wrap })
+  let original = event.task || event.text || event.title || ''
+  let details = null
+  if (event.taskId) {
+    try {
+      const data = await api('GET', '/api/agent/task/' + encodeURIComponent(event.taskId))
+      details = data.task
+      const candidate = details?.task?.task ?? details?.task?.text ?? details?.task?.prompt
+        ?? details?.request?.task ?? details?.task ?? details?.text ?? details?.prompt
+      if (typeof candidate === 'string' && candidate.trim() !== '') original = candidate.trim()
+    } catch (error) {
+      // Покажем то, что уже есть в событии.
+    }
+  }
+  wrap.replaceChildren()
+  const meta = [event.agent, event.status, event.tokens ? event.tokens + ' ток.' : '', event.taskId || ''].filter(Boolean).join(' · ')
+  wrap.append(h('p', 'plan-meta', meta || 'событие агента'))
+  if (details?.result || details?.answer || details?.output) {
+    const resultText = String(details.result || details.answer || details.output)
+    const resultBox = h('div', 'agent-task-result')
+    resultBox.append(h('b', null, 'Результат'), h('p', null, resultText.slice(0, 4000)))
+    wrap.append(resultBox)
+  }
+  const taskInput = document.createElement('textarea')
+  taskInput.className = 'input'
+  taskInput.rows = 6
+  taskInput.value = original
+  const send = h('button', 'btn btn-primary btn-block', 'Отправить заново')
+  send.type = 'button'
+  send.addEventListener('click', async () => {
+    const text = taskInput.value.trim()
+    if (text === '') return
+    send.disabled = true
+    try {
+      await api('POST', '/api/agent/task', { task: text })
+      closeSheet()
+      toast('Задача отправлена агенту')
+      await loadAgentStatus()
+    } catch (error) {
+      send.disabled = false
+      toast(error.message || 'Не удалось отправить задачу')
+    }
+  })
+  wrap.append(field('Что было задано — можно исправить и отправить снова', taskInput), send)
+  openSheet({ title: event.title || 'Задача агента', body: wrap })
 }
 
 async function loadAgentStatus() {

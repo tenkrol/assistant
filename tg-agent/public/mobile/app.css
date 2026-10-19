@@ -5234,3 +5234,27 @@ html.large-text .setting-row span {
   white-space: nowrap;
   max-width: 55%;
 }
+
+.agent-event.is-clickable {
+  cursor: pointer;
+}
+
+.agent-event.is-clickable:hover {
+  border-color: var(--accent);
+}
+
+.agent-task-result {
+  margin: 8px 0 12px;
+  padding: 10px;
+  border-radius: 10px;
+  background: var(--card);
+  border: 1px solid var(--border);
+}
+
+.agent-task-result p {
+  margin: 5px 0 0;
+  white-space: pre-wrap;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--fg-2);
+}

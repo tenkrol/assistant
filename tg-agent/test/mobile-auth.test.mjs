@@ -198,6 +198,7 @@ async function createHarness(t, options = {}) {
     agentResponder: options.agentResponder,
     agentStatus: options.agentStatus,
     agentCancel: options.agentCancel,
+    agentTask: options.agentTask,
     publicDir,
     logger: silentLogger,
     mobilePasswordHash: options.mobilePasswordHash ?? HASH,
@@ -759,6 +760,17 @@ test('проактивность: чтение и сохранение наст�
     body: { reviewAt: '25:00' },
   })
   assert.equal(invalid.status, 400)
+})
+
+test('агент: детали задачи', async (t) => {
+  const { base } = await createHarness(t, {
+    agentTask: async (taskId) => ({ task: { task: 'проверь сервер ' + taskId }, status: 'done' }),
+  })
+  const cookies = jar()
+  await request(base, '/api/auth/login', { method: 'POST', body: { password: PASSWORD }, cookieJar: cookies })
+  const details = await request(base, '/api/agent/task/task-1', { cookieJar: cookies })
+  assert.equal(details.status, 200)
+  assert.match(JSON.stringify(details.json.task), /проверь сервер/)
 })
 
 test('агент: отмена задачи', async (t) => {

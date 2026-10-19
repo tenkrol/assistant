@@ -447,6 +447,7 @@ export function createMiniApp({
   agentResponder,
   agentStatus,
   agentCancel,
+  agentTask,
   timeZone = '',
   now = () => Date.now(),
 } = {}) {
@@ -1210,6 +1211,19 @@ export function createMiniApp({
     } catch (error) {
       logger?.warn?.('agent status failed', { error: error?.message ?? error })
       sendJson(response, 200, { enabled: false, agents: [], events: [], error: 'Агент не отвечает' })
+    }
+  }
+
+  /** GET /api/agent/task/:id — детали задачи агента. */
+  async function getAgentTask(request, response, { params }) {
+    request.resume()
+    if (typeof agentTask !== 'function') return missingStore(response, 'агент')
+    try {
+      const task = await agentTask(String(params[0]))
+      sendJson(response, 200, { task: task ?? null })
+    } catch (error) {
+      logger?.warn?.('agent task details failed', { error: error?.message ?? error })
+      sendError(response, 502, 'agent_unavailable', 'Не удалось получить задачу')
     }
   }
 
@@ -2584,6 +2598,7 @@ export function createMiniApp({
     { method: 'GET', pattern: /^\/api\/agent\/status$/, handler: getAgentStatus },
     { method: 'POST', pattern: /^\/api\/agent\/task$/, handler: submitAgentTask },
     { method: 'POST', pattern: /^\/api\/agent\/cancel$/, handler: cancelAgentTask },
+    { method: 'GET', pattern: /^\/api\/agent\/task\/([^/]+)$/, handler: getAgentTask },
     { method: 'GET', pattern: /^\/api\/proactive$/, handler: getProactive },
     { method: 'PATCH', pattern: /^\/api\/proactive$/, handler: patchProactive },
     { method: 'GET', pattern: /^\/api\/settings$/, handler: getSettings },
