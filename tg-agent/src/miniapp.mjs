@@ -1200,6 +1200,31 @@ export function createMiniApp({
     sendJson(response, 200, { files })
   }
 
+  /** GET /api/files/search — поиск по содержимому документов. */
+  async function searchFiles(request, response, { userId, url }) {
+    request.resume()
+    if (!documents || typeof documents.search !== 'function') return missingStore(response, 'файлы')
+    const query = String(url.searchParams.get('q') ?? '').trim()
+    if (query.length < 2) return badRequest(response, 'Запрос минимум из 2 символов')
+    try {
+      const result = await documents.search({ userId, query, limit: 10 })
+      sendJson(response, 200, {
+        query,
+        results: (result.results ?? []).map((item) => ({
+          documentId: item.citation.documentId,
+          name: safeText(item.citation.documentName, 160),
+          snippet: safeText(item.citation.snippet, 600),
+          ...(item.citation.page ? { page: item.citation.page } : {}),
+          ...(item.citation.versionNumber ? { version: item.citation.versionNumber } : {}),
+        })),
+        semantic: Boolean(result.semantic),
+      })
+    } catch (error) {
+      logger?.warn?.('files search failed', { error: error?.message ?? error })
+      sendError(response, 502, ERROR_CODES.unavailable, 'Поиск по файлам недоступен')
+    }
+  }
+
   /** GET /api/files/:id/download — оригинал документа. */
   async function downloadFile(request, response, { userId, params }) {
     request.resume()
@@ -1824,6 +1849,7 @@ export function createMiniApp({
     { method: 'GET', pattern: /^\/api\/avatar\/(\d+)$/, handler: getAvatar },
     { method: 'GET', pattern: /^\/api\/calendar\.ics$/, handler: exportCalendar },
     { method: 'GET', pattern: /^\/api\/system$/, handler: getSystem },
+    { method: 'GET', pattern: /^\/api\/files\/search$/, handler: searchFiles },
     { method: 'GET', pattern: /^\/api\/files$/, handler: listFiles },
     { method: 'GET', pattern: /^\/api\/files\/([^/]+)\/download$/, handler: downloadFile },
     { method: 'POST', pattern: /^\/api\/chat\/upload$/, handler: uploadMedia },

@@ -2149,6 +2149,47 @@ async function loadFiles() {
   }
 }
 
+let filesSearchTimer
+
+async function searchFiles(query) {
+  const box = $('files-list')
+  if (!box) return
+  const text = String(query || '').trim()
+  if (text.length < 2) {
+    renderFiles()
+    return
+  }
+  box.replaceChildren(h('p', 'hint', 'Ищу по документам…'))
+  try {
+    const data = await api('GET', '/api/files/search?q=' + encodeURIComponent(text))
+    const results = Array.isArray(data.results) ? data.results : []
+    box.replaceChildren()
+    if (results.length === 0) {
+      box.append(h('p', 'hint', 'Ничего не найдено. Попробуйте другие слова.'))
+      return
+    }
+    results.forEach((result) => {
+      const card = h('div', 'plan-card')
+      const ic = h('span', 'plan-ic')
+      ic.append(icon('file'))
+      const body = h('div', 'plan-body')
+      body.append(h('b', null, result.name))
+      if (result.snippet) body.append(h('span', 'plan-meta', result.snippet))
+      const meta = [result.page ? 'стр. ' + result.page : '', result.version ? 'версия ' + result.version : ''].filter(Boolean).join(' · ')
+      if (meta) body.append(h('span', 'plan-meta', meta))
+      const link = document.createElement('a')
+      link.className = 'pill-btn'
+      link.href = '/api/files/' + encodeURIComponent(result.documentId) + '/download'
+      link.textContent = 'Скачать'
+      body.append(link)
+      card.append(ic, body)
+      box.append(card)
+    })
+  } catch (error) {
+    box.replaceChildren(h('p', 'hint', error.message || 'Поиск не удался'))
+  }
+}
+
 function renderFiles() {
   const box = $('files-list')
   box.replaceChildren()
@@ -3285,6 +3326,11 @@ function bind() {
   $('chat-mic').addEventListener('click', () => { if (voiceRecording) stopVoiceRecording(); else void startVoiceRecording() })
   $('recorder-send').addEventListener('click', stopVoiceRecording)
   $('recorder-cancel').addEventListener('click', cancelVoiceRecording)
+  $('files-search').addEventListener('input', (event) => {
+    clearTimeout(filesSearchTimer)
+    const value = event.target.value
+    filesSearchTimer = setTimeout(() => void searchFiles(value), 300)
+  })
   $('chat-files').addEventListener('change', (event) => {
     addPendingMedia(event.target.files)
     event.target.value = ''

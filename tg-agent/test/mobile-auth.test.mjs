@@ -878,6 +878,25 @@ test('медиа: загрузка фото, отдача и отправка с
   assert.equal(chat.json.messages.at(-1).attachments[0].id, uploaded.id)
 })
 
+test('файлы: поиск по содержимому', async (t) => {
+  const { base } = await createHarness(t, {
+    documents: {
+      list: () => [],
+      search: async ({ query }) => ({
+        query,
+        semantic: false,
+        results: [{ citation: { documentId: 'd1', documentName: 'договор.pdf', snippet: 'оплата в течение 5 дней', page: 2, versionNumber: 1 } }],
+      }),
+    },
+  })
+  const cookies = jar()
+  await request(base, '/api/auth/login', { method: 'POST', body: { password: PASSWORD }, cookieJar: cookies })
+  const found = await request(base, '/api/files/search?q=оплата', { cookieJar: cookies })
+  assert.equal(found.status, 200)
+  assert.equal(found.json.results[0].name, 'договор.pdf')
+  assert.match(found.json.results[0].snippet, /оплата/)
+})
+
 test('аватар: отдаётся только своим, история ссылается на него', async (t) => {
   const { base, profiles, history } = await createHarness(t, {
     avatarProvider: async (userId) => (Number(userId) === USER_ID ? { bytes: Buffer.from([1, 2, 3]), mime: 'image/png' } : null),
