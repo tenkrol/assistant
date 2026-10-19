@@ -182,6 +182,7 @@ async function createHarness(t, options = {}) {
     mediaStore: options.mediaStore,
     documents: options.documents,
     inbox: options.inbox,
+    agentFiles: options.agentFiles,
     systemStatus: options.systemStatus,
     proactiveSettings: options.proactiveSettings,
     updateProactive: options.updateProactive,
@@ -899,6 +900,24 @@ test('инбокс: добавить, отметить, удалить', async (
   const toggled = await request(base, '/api/inbox', { method: 'PATCH', cookieJar: cookies, headers: { 'X-Mobile-Client': '1' }, body: { itemId: 'i1', done: true } })
   assert.equal(toggled.json.item.done, true)
   const removed = await request(base, '/api/inbox?id=i1', { method: 'DELETE', cookieJar: cookies, headers: { 'X-Mobile-Client': '1' } })
+  assert.equal(removed.status, 200)
+})
+
+test('файлы агента: список, скачивание и удаление', async (t) => {
+  const original = path.join(t.context?.dir ?? process.cwd(), 'agent-file.txt')
+  const { base } = await createHarness(t, {
+    agentFiles: {
+      list: (chatId) => [{ id: 'af1', chatId, name: 'отчёт.txt', mime: 'text/plain', size: 5, storageName: 'af1.txt', at: new Date().toISOString() }].filter(() => String(chatId) === String(USER_ID)),
+      getPath: () => original,
+      remove: async () => true,
+    },
+  })
+  const cookies = jar()
+  await request(base, '/api/auth/login', { method: 'POST', body: { password: PASSWORD }, cookieJar: cookies })
+  const listed = await request(base, '/api/files/agent', { cookieJar: cookies })
+  assert.equal(listed.status, 200)
+  assert.equal(listed.json.files[0].name, 'отчёт.txt')
+  const removed = await request(base, '/api/files/agent/af1', { method: 'DELETE', cookieJar: cookies, headers: { 'X-Mobile-Client': '1' } })
   assert.equal(removed.status, 200)
 })
 

@@ -33,6 +33,7 @@ import { MobileUserStore } from './mobile-users.mjs'
 import { MobilePushStore, createVapidConfig, sendPush } from './mobile-push.mjs'
 import { MobileMediaStore } from './mobile-media.mjs'
 import { MobileInboxStore } from './mobile-inbox.mjs'
+import { AgentFileStore } from './agent-files.mjs'
 import { createOutbox } from './outbox.mjs'
 import { createAgentEventsStore } from './storage/agent-events.mjs'
 import { createAgentLink } from './agent-link/index.mjs'
@@ -645,6 +646,15 @@ export async function createInstance({ config, logger, instance, shared, platfor
 
   // Mini App: панель управления поверх тех же файлов состояния. Только Telegram
   // (там есть подписанный initData) и только когда задан публичный HTTPS-адрес.
+  // Файлы агента: сохраняем рядом с состоянием, чтобы их можно было открыть
+  // с сайта, а не только в Telegram.
+  const agentFiles = new AgentFileStore({
+    file: stateFile(botConfig.dataDir, 'agent-files', instance.namespace),
+    directory: path.join(botConfig.dataDir, 'agent-files'),
+    logger,
+  })
+  await agentFiles.load().catch((error) => logger.warn('agent files disabled', { error: error?.message ?? error }))
+
   // Сообщения от агента: одна точка на бота, только localhost и только с токеном.
   /** Доставить событие агента v2: текст, файлы, вопрос, предложение памяти. */
   async function deliverAgentEvent(event) {
@@ -680,6 +690,14 @@ export async function createInstance({ config, logger, instance, shared, platfor
     for (const file of event.files ?? []) {
       const data = await agentBridge.downloadFile(file.fileId).catch((error) => ({ ok: false, error: error?.message ?? error }))
       if (data.ok) {
+        await agentFiles.add({
+          chatId,
+          name: file.name,
+          bytes: data.bytes,
+          mime: file.mime,
+          caption: file.caption,
+          eventTitle: event.title,
+        }).catch((error) => logger.warn('agent file not saved', { error: error?.message ?? error }))
         await bot.platform.sendDocument({ chatId, bytes: data.bytes, fileName: file.name, caption: file.caption }).catch((error) => {
           logger.warn('agent file delivery failed', { file: file.name, error: error?.message ?? error })
         })
@@ -817,6 +835,7 @@ export async function createInstance({ config, logger, instance, shared, platfor
         avatarProvider: (userId) => (typeof bot.platform.getUserAvatar === 'function' ? bot.platform.getUserAvatar(userId) : null),
         mediaStore: mobileMedia,
         inbox: mobileInbox,
+        agentFiles,
         documents,
         systemStatus: async () => {
           let serverText = 'Модуль состояния сервера выключен.'

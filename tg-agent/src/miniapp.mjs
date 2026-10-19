@@ -424,6 +424,7 @@ export function createMiniApp({
   avatarProvider,
   mediaStore,
   inbox,
+  agentFiles,
   documents,
   proactiveSettings,
   updateProactive,
@@ -1246,6 +1247,68 @@ export function createMiniApp({
     sendJson(response, 200, { files })
   }
 
+  /** GET /api/files/agent — файлы, которые прислал агент. */
+  function listAgentFiles(request, response, { userId }) {
+    request.resume()
+    if (!agentFiles || typeof agentFiles.list !== 'function') return missingStore(response, 'файлы агента')
+    const chats = [String(userId)]
+    if (groupConfigured) chats.push(String(groupIdNumber))
+    const files = chats
+      .flatMap((chatId) => agentFiles.list(chatId))
+      .sort((left, right) => String(right.at).localeCompare(String(left.at)))
+      .map((item) => ({
+        id: String(item.id),
+        name: safeText(item.name, 160),
+        mime: safeText(item.mime, 100),
+        size: Number(item.size) || 0,
+        at: item.at,
+        ...(item.caption ? { caption: safeText(item.caption, 300) } : {}),
+        ...(item.eventTitle ? { eventTitle: safeText(item.eventTitle, 200) } : {}),
+      }))
+    sendJson(response, 200, { files })
+  }
+
+  function agentFileAccess(auth, id) {
+    if (!agentFiles || typeof agentFiles.list !== 'function') return undefined
+    const chats = [String(auth.userId)]
+    if (groupConfigured) chats.push(String(groupIdNumber))
+    for (const chatId of chats) {
+      const item = agentFiles.list(chatId).find((entry) => String(entry.id) === String(id))
+      if (item) return { item, chatId }
+    }
+    return undefined
+  }
+
+  /** GET /api/files/agent/:id/download — скачать файл агента. */
+  async function downloadAgentFile(request, response, { auth, params }) {
+    request.resume()
+    const found = agentFileAccess(auth, params?.[0])
+    if (!found) return notFound(response)
+    let bytes
+    try {
+      bytes = await fs.promises.readFile(agentFiles.getPath(found.item))
+    } catch {
+      return notFound(response)
+    }
+    const name = String(found.item.name || 'agent-file').replace(/[\r\n"]/g, '')
+    response.writeHead(200, {
+      'content-type': found.item.mime || 'application/octet-stream',
+      'content-length': String(bytes.length),
+      'content-disposition': `attachment; filename*=UTF-8''${encodeURIComponent(name)}`,
+      'cache-control': 'private, no-store',
+    })
+    response.end(bytes)
+  }
+
+  /** DELETE /api/files/agent/:id — удалить файл агента. */
+  async function deleteAgentFile(request, response, { auth, params }) {
+    request.resume()
+    const found = agentFileAccess(auth, params?.[0])
+    if (!found) return notFound(response)
+    await agentFiles.remove({ chatId: found.chatId, id: found.item.id })
+    sendJson(response, 200, { ok: true })
+  }
+
   /** GET /api/files/search — поиск по содержимому документов. */
   async function searchFiles(request, response, { userId, url }) {
     request.resume()
@@ -1900,6 +1963,9 @@ export function createMiniApp({
     { method: 'GET', pattern: /^\/api\/calendar\.ics$/, handler: exportCalendar },
     { method: 'GET', pattern: /^\/api\/system$/, handler: getSystem },
     { method: 'GET', pattern: /^\/api\/files\/search$/, handler: searchFiles },
+    { method: 'GET', pattern: /^\/api\/files\/agent$/, handler: listAgentFiles },
+    { method: 'GET', pattern: /^\/api\/files\/agent\/([^/]+)\/download$/, handler: downloadAgentFile },
+    { method: 'DELETE', pattern: /^\/api\/files\/agent\/([^/]+)$/, handler: deleteAgentFile },
     { method: 'GET', pattern: /^\/api\/files$/, handler: listFiles },
     { method: 'GET', pattern: /^\/api\/files\/([^/]+)\/download$/, handler: downloadFile },
     { method: 'POST', pattern: /^\/api\/chat\/upload$/, handler: uploadMedia },

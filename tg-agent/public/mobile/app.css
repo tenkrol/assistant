@@ -4480,3 +4480,19 @@ html.large-text .setting-row span {
   text-decoration: line-through;
   color: var(--muted);
 }
+
+.file-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+
+.pill-btn.danger {
+  border-color: color-mix(in srgb, var(--danger) 45%, transparent);
+  color: var(--danger);
+}
+
+.pill-btn.danger:hover {
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+}

@@ -154,6 +154,8 @@ const state = {
   stats: null,
   chat: null,
   files: null,
+  agentFiles: null,
+  filesTab: 'documents',
   inbox: null,
   system: null,
   proactive: null,
@@ -2212,6 +2214,10 @@ function renderSystem() {
 }
 
 async function ensureFiles() {
+  if (state.filesTab === 'agent') {
+    await loadAgentFiles()
+    return
+  }
   if (!state.loaded.files && !state.loading.files) await loadFiles()
 }
 
@@ -2272,6 +2278,77 @@ async function searchFiles(query) {
     })
   } catch (error) {
     box.replaceChildren(h('p', 'hint', error.message || 'Поиск не удался'))
+  }
+}
+
+async function loadAgentFiles() {
+  if (state.loading.agentFiles) return
+  state.loading.agentFiles = true
+  try {
+    const data = await api('GET', '/api/files/agent')
+    state.agentFiles = Array.isArray(data.files) ? data.files : []
+    renderAgentFiles()
+  } catch (error) {
+    $('files-list').replaceChildren(h('p', 'hint', error.message || 'Не удалось загрузить файлы агента'))
+  } finally {
+    state.loading.agentFiles = false
+  }
+}
+
+function renderAgentFiles() {
+  const box = $('files-list')
+  box.replaceChildren()
+  const files = state.agentFiles || []
+  if (files.length === 0) {
+    box.append(h('p', 'hint', 'Пока пусто. Файлы, которые агент пришлёт в чат, появятся здесь.'))
+    return
+  }
+  files.forEach((file) => {
+    const card = h('div', 'plan-card')
+    const ic = h('span', 'plan-ic')
+    ic.append(icon('file'))
+    const body = h('div', 'plan-body')
+    body.append(h('b', null, file.name))
+    const meta = [formatFileSize(file.size), formatDateTime(file.at), file.eventTitle].filter(Boolean).join(' · ')
+    body.append(h('span', 'plan-meta', meta))
+    if (file.caption) body.append(h('span', 'plan-meta', file.caption))
+    const actions = h('div', 'file-actions')
+    const link = document.createElement('a')
+    link.className = 'pill-btn'
+    link.href = '/api/files/agent/' + encodeURIComponent(file.id) + '/download'
+    link.textContent = 'Скачать'
+    const remove = h('button', 'pill-btn danger', 'Удалить')
+    remove.type = 'button'
+    remove.addEventListener('click', () => {
+      confirmSheet('Удалить файл?', file.name, 'Удалить', async () => {
+        try {
+          await api('DELETE', '/api/files/agent/' + encodeURIComponent(file.id))
+          state.agentFiles = (state.agentFiles || []).filter((item) => item.id !== file.id)
+          renderAgentFiles()
+          toast('Файл удалён')
+        } catch (error) {
+          toast(error.message || 'Не удалось удалить файл')
+        }
+      })
+    })
+    actions.append(link, remove)
+    body.append(actions)
+    card.append(ic, body)
+    box.append(card)
+  })
+}
+
+function switchFilesTab(tab) {
+  state.filesTab = tab
+  document.querySelectorAll('[data-files-tab]').forEach((button) => {
+    button.classList.toggle('is-active', button.dataset.filesTab === tab)
+  })
+  $('files-search-row').hidden = tab !== 'documents'
+  if (tab === 'agent') {
+    $('files-list').replaceChildren(h('p', 'hint', 'Загружаю…'))
+    void loadAgentFiles()
+  } else {
+    renderFiles()
   }
 }
 
@@ -3411,6 +3488,9 @@ function bind() {
   $('chat-mic').addEventListener('click', () => { if (voiceRecording) stopVoiceRecording(); else void startVoiceRecording() })
   $('recorder-send').addEventListener('click', stopVoiceRecording)
   $('recorder-cancel').addEventListener('click', cancelVoiceRecording)
+  document.querySelectorAll('[data-files-tab]').forEach((button) => {
+    button.addEventListener('click', () => switchFilesTab(button.dataset.filesTab))
+  })
   $('inbox-add').addEventListener('click', () => void addInbox())
   $('inbox-input').addEventListener('keydown', (event) => { if (event.key === 'Enter') { event.preventDefault(); void addInbox() } })
   $('files-search').addEventListener('input', (event) => {
