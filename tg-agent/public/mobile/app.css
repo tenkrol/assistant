@@ -3884,6 +3884,19 @@ html.large-text .setting-row span {
     padding: 0 24px;
   }
 
+  .msg-stack {
+    max-width: min(78%, 680px);
+  }
+
+  .msg-user .bubble {
+    max-width: min(72%, 680px);
+  }
+
+  .bubble {
+    font-size: 15px;
+    padding: 11px 16px;
+  }
+
   .chat-switch {
     width: min(100%, 900px);
     margin: 0 auto;
