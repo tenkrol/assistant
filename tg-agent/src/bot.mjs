@@ -722,7 +722,12 @@ export class Assistant {
     // несколько человек со своими напоминаниями.
     const isGroup = reminder.userId !== undefined && reminder.chatId !== reminder.userId
     const owner = isGroup ? this.domain.profiles.displayName(reminder.userId) : undefined
-    const text = this.domain.reminders.deliveryText(reminder, { lateNotice, owner })
+    const text = this.domain.reminders.deliveryText(reminder, {
+      lateNotice,
+      owner,
+      // Пояс нужен для «было на DD.MM HH:MM» в пометке догона.
+      timeZone: this.config.time?.timeZone ?? '',
+    })
     await this.send(reminder.chatId, text)
     void this.webPush?.notify?.({ chatId: reminder.chatId, text })?.catch?.(() => {})
   }

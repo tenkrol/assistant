@@ -399,6 +399,42 @@ test('lateMs and lateNotice describe how overdue a reminder was', async () => {
   }
 })
 
+test('в пределах 12 ч просроченное доставляется, старше — снимается и считается', async () => {
+  const ctx = await makeStore()
+  try {
+    const now = Date.parse('2026-10-06T20:00:00Z')
+    const delivered = []
+    const scheduler = new ReminderScheduler({
+      store: ctx.store,
+      logger: silentLogger,
+      intervalMs: 1000,
+      now: () => now,
+      deliver: async (reminder, info) => { delivered.push({ text: reminder.text, info }) },
+    })
+    const within = ctx.store.add({ chatId: 1, text: 'в окне', dueAt: new Date(now - 5 * 60 * 60 * 1000).toISOString() })
+    const tooLate = ctx.store.add({ chatId: 1, text: 'давно', dueAt: new Date(now - 13 * 60 * 60 * 1000).toISOString() })
+    const repeat = ctx.store.add({ chatId: 1, text: 'зарядка', dueAt: new Date(now - 20 * 60 * 60 * 1000).toISOString(), repeat: 'daily' })
+
+    assert.equal(await scheduler.tick(), 1, 'доставлено только то, что в окне')
+    assert.deepEqual(delivered.map((entry) => entry.text), ['в окне'])
+    assert.equal(delivered[0].info.lateNotice, true)
+    assert.equal(scheduler.droppedCount, 2, 'старое снято и посчитано')
+
+    const remaining = ctx.store.list()
+    assert.deepEqual(remaining.map((item) => item.text), ['зарядка'], 'старое одноразовое снято, повтор перенесён')
+    assert.ok(Date.parse(remaining[0].dueAt) > now, 'повтор смотрит вперёд, а не висит просроченным')
+    assert.equal(remaining[0].id, repeat.id)
+    assert.ok(!remaining.some((item) => item.id === tooLate.id))
+    assert.ok(!remaining.some((item) => item.id === within.id), 'доставленное одноразовое снято')
+
+    // Повторный тик ничего не доставляет и не считает заново.
+    assert.equal(await scheduler.tick(), 0)
+    assert.equal(scheduler.droppedCount, 2)
+  } finally {
+    await ctx.cleanup()
+  }
+})
+
 test('overlapping ticks deliver one reminder exactly once', async () => {
   const ctx = await makeStore()
   try {

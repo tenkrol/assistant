@@ -285,10 +285,27 @@ export class ReminderScheduler {
     if (this.firing) return 0
     this.firing = true
     let delivered = 0
+    let dropped = 0
     try {
       const now = this.now()
       for (const reminder of this.store.due(now)) {
         const late = now - Date.parse(reminder.dueAt)
+        // Слишком старое не доставляем: иначе после суток простоя человек
+        // получил бы всю очередь. Снимаем и считаем, чтобы это было видно.
+        if (this.lateWindowMs > 0 && late > this.lateWindowMs) {
+          dropped++
+          this.droppedCount++
+          this.logger?.warn('reminder dropped as too late', {
+            id: reminder.id,
+            chatId: reminder.chatId,
+            lateMs: late,
+            windowMs: this.lateWindowMs,
+            repeat: reminder.repeat,
+          })
+          if (reminder.repeat === 'none') this.store.remove(reminder.id)
+          else this.store.advance(reminder.id, now)
+          continue
+        }
         try {
           await this.deliver(reminder, { lateMs: late, lateNotice: this.lateNotice && late > this.intervalMs * 2 })
           delivered++
@@ -302,7 +319,10 @@ export class ReminderScheduler {
         if (reminder.repeat === 'none') this.store.remove(reminder.id)
         else this.store.advance(reminder.id, now)
       }
-      if (delivered > 0) await this.store.flush()
+      // Снятие старого тоже меняет файл: без flush оно вернулось бы после
+      // перезапуска и считалось повторно.
+      if (delivered > 0 || dropped > 0) await this.store.flush()
+      if (dropped > 0) this.logger?.info('late reminders dropped', { dropped, total: this.droppedCount })
       // Проактивность живёт на этом же таймере: отдельного интервала нет.
       if (this.onTick) {
         try {

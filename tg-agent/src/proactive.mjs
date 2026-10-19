@@ -417,6 +417,30 @@ export function proactiveKeyboard(key) {
 }
 
 /**
+ * Видна ли запись получателю с учётом областей и известных ему чатов.
+ *
+ * Обычный путь — единая проверка доступа по `scope_id`. Но у старых записей
+ * области может не быть: напоминание, созданное в беседе до появления
+ * пространств, принадлежало чату целиком. Тогда доступ решает участие в этом
+ * чате, а не отсутствие области. Запись с областью так не «обойти» нельзя:
+ * если `access` её не разрешает, она остаётся закрытой.
+ *
+ * @param {string|number} userId - проверенный получатель.
+ * @param {object} record - запись источника.
+ * @param {object} access - правила доступа (`src/core/access.mjs`).
+ * @param {Array<string|number>} chatIds - чаты, где получатель участник.
+ * @returns {boolean} можно ли показать запись.
+ */
+export function recordVisible(userId, record, access, chatIds = []) {
+  if (!access || userId === undefined || userId === null || !record) return true
+  if (access.canRead(userId, record)) return true
+  const scoped = record.scope_id !== undefined && record.scope_id !== null && record.scope_id !== ''
+  if (scoped) return false
+  const known = new Set((chatIds ?? []).map(String))
+  return record.chatId !== undefined && record.chatId !== null && known.has(String(record.chatId))
+}
+
+/**
  * Собрать кандидатов из существующих источников.
  *
  * Напоминания и события уже лежат в своих хранилищах; поручения приходят из
@@ -424,19 +448,16 @@ export function proactiveKeyboard(key) {
  * доставляет прежний планировщик, и второй раз о нём не сообщаем.
  *
  * @param {object} options - `now`, `reminders`, `events`, `tasks`, `previous`,
- *   `userId`, `chatId`, `settings`, `access`, `onDenied`.
+ *   `userId`, `chatId`, `chatIds`, `settings`, `access`, `onDenied`.
  * @returns {Array<object>} кандидаты без дублей, по убыванию приоритета.
  */
-export function collectCandidates({ now = new Date(), reminders = [], events = [], tasks = [], previous = [], userId, chatId, settings = {}, access, onDenied } = {}) {
+export function collectCandidates({ now = new Date(), reminders = [], events = [], tasks = [], previous = [], userId, chatId, chatIds = [], settings = {}, access, onDenied } = {}) {
   const at = asDate(now)
   const config = normalizeSettings(settings)
   const day = dayKeyInZone(at, config.tz)
   const dayEnd = endOfDayInstant(at, config.tz)
   const previousByKey = new Map((previous ?? []).map((item) => [item.key, item]))
-  const canRead = (record) => {
-    if (!access || userId === undefined || !record) return true
-    return access.canRead(userId, record)
-  }
+  const canRead = (record) => recordVisible(userId, record, access, chatIds)
   const list = []
 
   for (const reminder of reminders ?? []) {
@@ -1533,6 +1554,23 @@ export class ProactiveService {
     return this.store.settings
   }
 
+  /**
+   * Чаты, где получатель участник: личный и известные беседы.
+   *
+   * Список приходит из проверенного контекста бота (`target.chats`), а не из
+   * текста задачи. Он нужен только для старых записей без `scope_id`.
+   *
+   * @param {object} target - получатель.
+   * @returns {string[]} идентификаторы чатов.
+   */
+  chatIdsOf(target = {}) {
+    const listed = target?.chats ?? target?.chatIds ?? []
+    const values = [...(Array.isArray(listed) ? listed : [listed]), target?.chatId]
+    return [...new Set(values
+      .filter((value) => value !== undefined && value !== null && value !== '')
+      .map(String))]
+  }
+
   /** Категория включена у получателя? */
   categoryEnabled(type, settings = this.settings) {
     if (settings?.mute?.[type] === true) return false
@@ -1600,6 +1638,7 @@ export class ProactiveService {
       previous,
       userId: target.userId,
       chatId: target.chatId,
+      chatIds: this.chatIdsOf(target),
       settings: this.store.settingsFor(principal),
       access: this.access,
       onDenied: (decision) => denied.push({
@@ -1693,10 +1732,7 @@ export class ProactiveService {
 
     // Обзор собирается только из доступных этому человеку записей: чужие
     // пространства не должны попадать даже в перечисление.
-    const visible = (record) => {
-      if (!this.access || target.userId === undefined) return true
-      return this.access.canRead(target.userId, record)
-    }
+    const visible = (record) => recordVisible(target.userId, record, this.access, this.chatIdsOf(target))
     // Задачи проходят тот же ACL, что и доставка: обзор не перечисляет чужие
     // поручения и не считает задачу без владельца общей.
     const ownTasks = (gathered.tasks ?? []).filter((entry) => canReadTask(target.userId, entry, this.access))
