@@ -188,6 +188,7 @@ async function createHarness(t, options = {}) {
     mobileAutomations: options.mobileAutomations,
     gmail: options.gmail,
     mobileQuiz: options.mobileQuiz,
+    mobileProjects: options.mobileProjects,
     quizGenerator: options.quizGenerator,
     automationRunner: options.automationRunner,
     systemStatus: options.systemStatus,
@@ -777,6 +778,28 @@ test('агент: отмена задачи', async (t) => {
     method: 'POST', cookieJar: cookies, headers: { 'X-Mobile-Client': '1' }, body: {},
   })
   assert.equal(empty.status, 400)
+})
+
+test('проекты: список и отдельный контекст', async (t) => {
+  const seen = []
+  const { base } = await createHarness(t, {
+    mobileProjects: {
+      list: () => [{ id: 'p1', name: 'Работа', instructions: 'коротко' }],
+      find: (userId, id) => id === 'p1' ? { id: 'p1', name: 'Работа', instructions: 'коротко' } : undefined,
+      add: async () => ({ id: 'p2', name: 'Дом', instructions: '' }),
+      update: async () => ({ id: 'p1', name: 'Работа', instructions: 'коротко' }),
+      remove: async () => true,
+    },
+    chatResponder: async (input) => { seen.push(input); return { sends: [{ text: 'ответ' }], files: [] } },
+  })
+  const cookies = jar()
+  await request(base, '/api/auth/login', { method: 'POST', body: { password: PASSWORD }, cookieJar: cookies })
+  const list = await request(base, '/api/projects', { cookieJar: cookies })
+  assert.equal(list.json.projects.length, 1)
+  const sent = await request(base, '/api/chat/message', { method: 'POST', cookieJar: cookies, headers: { 'X-Mobile-Client': '1' }, body: { chatId: 'project:p1', text: 'привет' } })
+  assert.equal(sent.status, 200)
+  assert.equal(seen[0].webOnly, true)
+  assert.equal(seen[0].projectInstructions, 'коротко')
 })
 
 test('опрос дня: вопросы и ответ в память', async (t) => {

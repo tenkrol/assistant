@@ -309,11 +309,11 @@ export class Assistant {
    * @param {object} input - `userId`, `chatId`, `text`, `name`.
    * @returns {Promise<{sends: object[], files: object[]}>} ответы для сайта.
    */
-  async handleWebMessage({ userId, chatId, text, name, chatType = 'private', chatTitle, replyTo, attachments = [], onDelta } = {}) {
+  async handleWebMessage({ userId, chatId, text, name, chatType = 'private', chatTitle, replyTo, attachments = [], onDelta, webOnly = false, projectInstructions = '' } = {}) {
     const delivery = {
       sends: [],
       files: [],
-      chatId: Number(chatId ?? userId),
+      chatId: String(chatId ?? userId),
       ...(typeof onDelta === 'function' ? { onDelta } : {}),
     }
     const normalizedAttachments = (Array.isArray(attachments) ? attachments : [])
@@ -346,10 +346,12 @@ export class Assistant {
         : {}),
     }
     const isGroup = message.chat.type !== 'private'
+    const projectNote = String(projectInstructions ?? '').trim()
+    if (projectNote !== '') message.projectInstructions = projectNote.slice(0, 2000)
     let relayedMessageId
     // Синхронизация с Telegram: сообщение с сайта и в личном, и в общем чате
     // пересылается ботом в тот же Telegram-чат с подписью автора.
-    {
+    if (!webOnly) {
       const quoted = message.replyTo
         ? `↪ ${message.replyTo.author ? message.replyTo.author + ': ' : ''}${message.replyTo.text.slice(0, 300)}\n`
         : ''
@@ -432,7 +434,7 @@ export class Assistant {
     if (delivery.sends.length === 0 && delivery.files.length === 0) {
       delivery.sends.push({ text: 'Не удалось получить ответ. Попробуйте ещё раз.' })
     }
-    {
+    if (!webOnly) {
       for (const send of delivery.sends) {
         if (String(send.text ?? '').trim() === '') continue
         await this.platform.sendText({

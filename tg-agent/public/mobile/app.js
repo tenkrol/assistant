@@ -402,6 +402,7 @@ function go(name, options = {}) {
   if (name === 'automations') ensureAutomations()
   if (name === 'mail') ensureMail()
   if (name === 'dashboard') ensureDashboard()
+  if (name === 'projects') ensureProjects()
   if (name === 'system') ensureSystem()
   if (name === 'agent') ensureAgent()
   if (name === 'chat') ensureChat()
@@ -4035,6 +4036,107 @@ async function ensureAgent() {
 
 /* ============================ Статистика ============================ */
 
+async function ensureProjects() {
+  if (state.projects !== null) return
+  await loadProjects()
+}
+
+async function loadProjects() {
+  try {
+    const data = await api('GET', '/api/projects')
+    state.projects = Array.isArray(data.projects) ? data.projects : []
+    renderProjects()
+  } catch (error) {
+    $('projects-list').replaceChildren(h('p', 'hint', error.message || 'Не удалось загрузить проекты'))
+  }
+}
+
+function renderProjects() {
+  const box = $('projects-list')
+  box.replaceChildren()
+  const projects = state.projects || []
+  if (projects.length === 0) {
+    box.append(h('p', 'hint', 'Проектов пока нет. Создайте первый — у него будет своя история.'))
+    return
+  }
+  projects.forEach((project) => {
+    const card = h('div', 'plan-card')
+    const ic = h('span', 'plan-ic')
+    ic.append(icon('folder'))
+    const body = h('div', 'plan-body')
+    body.append(h('b', null, project.name))
+    if (project.instructions) body.append(h('span', 'plan-meta', project.instructions))
+    const actions = h('div', 'file-actions')
+    const open = h('button', 'pill-btn', 'Открыть чат')
+    open.type = 'button'
+    open.addEventListener('click', () => openProjectChat(project))
+    const edit = h('button', 'pill-btn', 'Изменить')
+    edit.type = 'button'
+    edit.addEventListener('click', () => openProjectSheet(project))
+    const remove = h('button', 'pill-btn danger', 'Удалить')
+    remove.type = 'button'
+    remove.addEventListener('click', () => { confirmSheet('Удалить проект?', project.name + ' — история останется на диске, но проект исчезнет.', 'Удалить', () => void deleteProject(project)) })
+    actions.append(open, edit, remove)
+    body.append(actions)
+    card.append(ic, body)
+    box.append(card)
+  })
+}
+
+function openProjectSheet(project = null) {
+  const wrap = h('div')
+  const name = document.createElement('input')
+  name.className = 'input'
+  name.placeholder = 'Название проекта'
+  name.value = project ? project.name : ''
+  const instructions = document.createElement('textarea')
+  instructions.className = 'input'
+  instructions.rows = 5
+  instructions.placeholder = 'Инструкции: как ассистент должен отвечать в этом проекте'
+  instructions.value = project ? project.instructions : ''
+  const save = h('button', 'btn btn-primary btn-block', 'Сохранить')
+  save.type = 'button'
+  save.addEventListener('click', async () => {
+    if (name.value.trim() === '') return
+    save.disabled = true
+    try {
+      if (project) await api('PATCH', '/api/projects/' + encodeURIComponent(project.id), { name: name.value.trim(), instructions: instructions.value })
+      else await api('POST', '/api/projects', { name: name.value.trim(), instructions: instructions.value })
+      closeSheet()
+      state.projects = null
+      await loadProjects()
+      await loadChats()
+      toast(project ? 'Проект изменён' : 'Проект создан')
+    } catch (error) {
+      save.disabled = false
+      toast(error.message || 'Не удалось сохранить проект')
+    }
+  })
+  wrap.append(field('Название', name), field('Инструкции', instructions), save)
+  openSheet({ title: project ? 'Изменить проект' : 'Новый проект', body: wrap })
+}
+
+async function deleteProject(project) {
+  try {
+    await api('DELETE', '/api/projects/' + encodeURIComponent(project.id))
+    state.projects = null
+    await loadProjects()
+    await loadChats()
+    toast('Проект удалён')
+  } catch (error) {
+    toast(error.message || 'Не удалось удалить проект')
+  }
+}
+
+async function openProjectChat(project) {
+  go('chat')
+  state.chatTarget = { id: 'project:' + project.id, type: 'project', title: project.name }
+  state.loaded.chat = false
+  state.chat = null
+  await loadChat()
+  renderChatSwitch()
+}
+
 async function ensureDashboard() {
   if (!state.dashboard || state.dashboardStale) {
     state.dashboardStale = false
@@ -4582,6 +4684,7 @@ function bind() {
       toast(error.message || 'Не удалось получить ссылку')
     }
   })
+  $('project-add').addEventListener('click', () => openProjectSheet())
   $('dashboard-refresh').addEventListener('click', () => { state.dashboardStale = true; void ensureDashboard() })
   $('youtube-search-btn').addEventListener('click', () => void searchYoutube())
   $('youtube-search-input').addEventListener('keydown', (event) => { if (event.key === 'Enter') { event.preventDefault(); void searchYoutube() } })

@@ -400,6 +400,7 @@ export function createConversation(bot) {
         ...(character ? [{ role: 'system', content: character }] : []),
         // Модель не знает, с чем её собрали: это и есть это знание.
         { role: 'system', content: bot.capabilitiesHint() },
+        ...(message.projectInstructions ? [{ role: 'system', content: 'Контекст проекта:\n' + message.projectInstructions }] : []),
         ...history,
         ...(prepared.parts.length > 0
           // Составной контент: подпись/текст документа плюс само изображение.

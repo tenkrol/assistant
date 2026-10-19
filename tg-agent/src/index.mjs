@@ -39,6 +39,7 @@ import { MobileAuthLogStore } from './mobile-auth-log.mjs'
 import { AutomationStore } from './mobile-automations.mjs'
 import { GmailClient, GmailTokenStore } from './mobile-gmail.mjs'
 import { QuizStore } from './mobile-quiz.mjs'
+import { ProjectStore } from './mobile-projects.mjs'
 import { createOutbox } from './outbox.mjs'
 import { createAgentEventsStore } from './storage/agent-events.mjs'
 import { createAgentLink } from './agent-link/index.mjs'
@@ -821,6 +822,13 @@ export async function createInstance({ config, logger, instance, shared, platfor
       } catch (error) {
         logger.warn('mobile auth log disabled', { error: error?.message ?? error })
       }
+      let mobileProjects
+      try {
+        mobileProjects = new ProjectStore({ file: stateFile(botConfig.dataDir, 'mobile-projects', instance.namespace), logger })
+        await mobileProjects.load()
+      } catch (error) {
+        logger.warn('mobile projects disabled', { error: error?.message ?? error })
+      }
       let mobileQuiz
       try {
         mobileQuiz = new QuizStore({ file: stateFile(botConfig.dataDir, 'mobile-quiz', instance.namespace), logger })
@@ -881,6 +889,7 @@ export async function createInstance({ config, logger, instance, shared, platfor
         mobileAutomations,
         gmail,
         mobileQuiz,
+        mobileProjects,
         quizGenerator: async ({ previous = [] } = {}) => {
           const prompt = [
             'Составь ровно 10 коротких личных вопросов для ежедневного опроса памяти.',

@@ -434,6 +434,7 @@ export function createMiniApp({
   automationRunner,
   gmail,
   mobileQuiz,
+  mobileProjects,
   quizGenerator,
   editChatMessage,
   deleteChatMessage,
@@ -1081,6 +1082,11 @@ export function createMiniApp({
     if (groupConfigured && String(requested) === String(groupIdNumber)) {
       return { chatId: groupIdNumber, type: groupType, title: groupName }
     }
+    const projectMatch = /^project:([A-Za-z0-9-]+)$/.exec(String(requested))
+    if (projectMatch && mobileProjects && typeof mobileProjects.find === 'function') {
+      const project = mobileProjects.find(auth.userId, projectMatch[1])
+      if (project) return { chatId: 'project:' + project.id, type: 'project', title: project.name, project }
+    }
     return null
   }
 
@@ -1112,6 +1118,16 @@ export function createMiniApp({
         title: groupName,
         subtitle: 'общий чат с Машей',
       }))
+    }
+    if (mobileProjects && typeof mobileProjects.list === 'function') {
+      for (const project of mobileProjects.list(auth.userId)) {
+        chats.push(decorate({
+          id: 'project:' + project.id,
+          type: 'project',
+          title: project.name,
+          subtitle: 'проект · отдельный контекст',
+        }))
+      }
     }
     sendJson(response, 200, { chats })
   }
@@ -1320,8 +1336,9 @@ export function createMiniApp({
       const delivery = await chatResponder({
         userId,
         chatId: target.chatId,
-        chatType: target.type,
+        chatType: target.type === 'project' ? 'private' : target.type,
         chatTitle: target.title,
+        ...(target.type === 'project' ? { webOnly: true, projectInstructions: target.project?.instructions ?? '' } : {}),
         text,
         ...(replyTo ? { replyTo } : {}),
         ...(attachments.length > 0 ? { attachments } : {}),
@@ -2323,6 +2340,56 @@ export function createMiniApp({
     sendJson(response, 200, { ok: true, id: String(removed.id) })
   }
 
+  const mapProject = (item) => ({
+    id: String(item.id),
+    name: String(item.name),
+    instructions: String(item.instructions ?? ''),
+    createdAt: item.createdAt,
+  })
+
+  function listProjects(request, response, { userId }) {
+    request.resume()
+    if (!mobileProjects || typeof mobileProjects.list !== 'function') return sendJson(response, 200, { projects: [] })
+    sendJson(response, 200, { projects: mobileProjects.list(userId).map(mapProject) })
+  }
+
+  async function createProject(request, response, { userId }) {
+    if (!mobileProjects || typeof mobileProjects.add !== 'function') return missingStore(response, 'проекты')
+    const body = await readJsonBody(request, bodyLimit)
+    if (!body.ok) return sendError(response, body.status, body.code, body.error)
+    try {
+      const item = await mobileProjects.add({ userId, name: body.value?.name, instructions: body.value?.instructions })
+      sendJson(response, 200, { project: mapProject(item) })
+    } catch (error) {
+      return badRequest(response, error?.message || 'Не удалось создать проект')
+    }
+  }
+
+  async function updateProject(request, response, { userId, params }) {
+    if (!mobileProjects || typeof mobileProjects.update !== 'function') return missingStore(response, 'проекты')
+    const body = await readJsonBody(request, bodyLimit)
+    if (!body.ok) return sendError(response, body.status, body.code, body.error)
+    try {
+      const item = await mobileProjects.update({ userId, id: params[0], name: body.value?.name, instructions: body.value?.instructions })
+      sendJson(response, 200, { project: mapProject(item) })
+    } catch (error) {
+      if (error?.code === 'not_found') return notFound(response)
+      return badRequest(response, error?.message || 'Не удалось обновить проект')
+    }
+  }
+
+  async function deleteProject(request, response, { userId, params }) {
+    request.resume()
+    if (!mobileProjects || typeof mobileProjects.remove !== 'function') return missingStore(response, 'проекты')
+    try {
+      await mobileProjects.remove({ userId, id: params[0] })
+      sendJson(response, 200, { ok: true })
+    } catch (error) {
+      if (error?.code === 'not_found') return notFound(response)
+      return badRequest(response, error?.message || 'Не удалось удалить проект')
+    }
+  }
+
   const mapQuiz = (day) => ({
     date: day.date,
     questions: (day.questions ?? []).map((question) => ({
@@ -2473,6 +2540,10 @@ export function createMiniApp({
     { method: 'DELETE', pattern: /^\/api\/events\/([^/]+)$/, handler: deleteEvent },
     { method: 'GET', pattern: /^\/api\/memory$/, handler: getMemory },
     { method: 'GET', pattern: /^\/api\/memory\/export$/, handler: exportMemory },
+    { method: 'GET', pattern: /^\/api\/projects$/, handler: listProjects },
+    { method: 'POST', pattern: /^\/api\/projects$/, handler: createProject },
+    { method: 'PATCH', pattern: /^\/api\/projects\/([^/]+)$/, handler: updateProject },
+    { method: 'DELETE', pattern: /^\/api\/projects\/([^/]+)$/, handler: deleteProject },
     { method: 'GET', pattern: /^\/api\/quiz$/, handler: getQuiz },
     { method: 'POST', pattern: /^\/api\/quiz\/answer$/, handler: answerQuiz },
     { method: 'POST', pattern: /^\/api\/memory$/, handler: createFact },

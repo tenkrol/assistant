@@ -418,6 +418,10 @@
             <span class="tile-ic red"><svg class="ic"><use href="#i-youtube"/></svg></span>
             <b>YouTube</b><span>поиск и просмотр</span>
           </button>
+          <button class="tile" data-go="projects">
+            <span class="tile-ic violet"><svg class="ic"><use href="#i-folder"/></svg></span>
+            <b>Проекты</b><span>отдельный контекст</span>
+          </button>
           <button class="tile" data-go="dashboard">
             <span class="tile-ic mint"><svg class="ic"><use href="#i-grid"/></svg></span>
             <b>Главная</b><span>сводка дня</span>
@@ -633,6 +637,26 @@
           Выйти из аккаунта
         </button>
         <p class="hint center">Версия 1.0 · tenkrol.ru/mobile</p>
+      </div>
+    </section>
+
+    <!-- ================= ПРОЕКТЫ ================= -->
+    <section class="screen" data-screen="projects" hidden>
+      <header class="topbar sub-head">
+        <button class="icon-btn" data-back="more" aria-label="Назад">
+          <svg class="ic"><use href="#i-chevron-left"/></svg>
+        </button>
+        <div><h2>Проекты</h2><p class="sub">отдельные контексты и инструкции</p></div>
+        <button class="icon-btn accent" id="project-add" aria-label="Новый проект">
+          <svg class="ic"><use href="#i-plus"/></svg>
+        </button>
+      </header>
+      <div class="scroll screen-scroll" id="projects-scroll">
+        <div class="card info-card">
+          <b>Зачем проекты</b>
+          <p>У каждого проекта своя история и инструкции. Удобно разделить работу, дом и поездки.</p>
+        </div>
+        <div id="projects-list"><p class="hint">Загружаю…</p></div>
       </div>
     </section>
 
