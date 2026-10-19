@@ -153,6 +153,8 @@ const state = {
   memory: { facts: [], city: null },
   stats: null,
   chat: null,
+  files: null,
+  proactive: null,
   chatReply: null,
   chatSending: false,
   pendingMedia: [],
@@ -161,7 +163,7 @@ const state = {
   factQuery: '',
   plansView: 'reminders',
   calendar: { year: TODAY.getFullYear(), month: TODAY.getMonth(), selected: TODAY.getDate() },
-  loaded: { plans: false, memory: false, settings: false, stats: false, chat: false },
+  loaded: { plans: false, memory: false, settings: false, stats: false, chat: false, files: false },
   loading: { plans: false, memory: false, settings: false, stats: false, chat: false }
 }
 
@@ -386,6 +388,7 @@ function go(name, options = {}) {
   if (name === 'memory') ensureMemory()
   if (name === 'settings') ensureSettings()
   if (name === 'stats') ensureStats()
+  if (name === 'files') ensureFiles()
   if (name === 'agent') ensureAgent()
   if (name === 'chat') ensureChat()
   const active = screens.get(name)
@@ -637,7 +640,8 @@ function sameMessages(left, right) {
     && item.author === right[index].author
     && (item.replyTo && item.replyTo.text ? item.replyTo.text : '') === (right[index].replyTo && right[index].replyTo.text ? right[index].replyTo.text : '')
     && (item.avatar || '') === (right[index].avatar || '')
-    && JSON.stringify((item.attachments || []).map((a) => a.id)) === JSON.stringify((right[index].attachments || []).map((a) => a.id)))
+    && JSON.stringify((item.attachments || []).map((a) => a.id)) === JSON.stringify((right[index].attachments || []).map((a) => a.id))
+    && (item.at || '') === (right[index].at || ''))
 }
 
 async function refreshChatHistory() {
@@ -722,7 +726,7 @@ function renderChat() {
   }
   const day = h('div', 'day-chip', state.chatTarget && state.chatTarget.type !== 'private' ? state.chatTarget.title : 'Диалог с ассистентом')
   box.append(day)
-  messages.forEach((message) => box.append(chatMessageNode(message.role, message.text, message.author, message.replyTo, message.avatar, message.attachments)))
+  messages.forEach((message) => box.append(chatMessageNode(message.role, message.text, message.author, message.replyTo, message.avatar, message.attachments, message.at)))
   chatScrollToBottom()
 }
 
@@ -907,7 +911,7 @@ function chatMediaNode(attachments) {
   return box
 }
 
-function chatMessageNode(role, text, author, replyTo, avatar, attachments) {
+function chatMessageNode(role, text, author, replyTo, avatar, attachments, at) {
   const ownName = state.session && state.session.user ? state.session.user.telegramName : ''
   const otherAuthor = role === 'user' && author && ownName && author !== ownName
   const article = h('article', 'msg ' + (role === 'assistant' || otherAuthor ? 'msg-bot' : 'msg-user'))
@@ -950,6 +954,7 @@ function chatMessageNode(role, text, author, replyTo, avatar, attachments) {
     bubble.append(chatMediaNode(media))
   }
   if (text) bubble.append(h('div', 'bubble-text', text))
+  if (at) bubble.append(h('span', 'msg-time', formatTime(at)))
   const replyText = text || (media.length > 0 ? (media[0].kind === 'video' ? '[видео]' : '[фото]') : '')
   bindMessageGesture(bubble, { role, text: replyText, author })
   return article
@@ -964,7 +969,7 @@ function appendChatMessage(role, text, author, replyTo, attachments) {
   const box = $('chat-messages')
   const empty = box.querySelector('.chat-empty')
   if (empty) empty.remove()
-  box.append(chatMessageNode(role, text, author, replyTo, undefined, attachments))
+  box.append(chatMessageNode(role, text, author, replyTo, undefined, attachments, new Date().toISOString()))
   chatScrollToBottom()
 }
 
@@ -1718,6 +1723,7 @@ async function loadSettings() {
     state.settings = settings
     state.loaded.settings = true
     renderSettings()
+    void loadProactive()
     refreshProfile()
   } catch (error) {
     if (error.status !== 401) {
@@ -1739,12 +1745,163 @@ function renderSettings() {
   $('set-voice').classList.toggle('is-on', settings.voice === true)
 }
 
+function minutesToClock(minutes) {
+  const value = Number(minutes)
+  if (!Number.isFinite(value)) return '—'
+  return String(Math.floor(value / 60) % 24).padStart(2, '0') + ':' + String(value % 60).padStart(2, '0')
+}
+
+function clockToMinutes(value) {
+  const match = /^(\d{2}):(\d{2})$/.exec(String(value || ''))
+  return match ? Number(match[1]) * 60 + Number(match[2]) : undefined
+}
+
+function renderProactive() {
+  const settings = state.proactive
+  const toggle = $('proactive-toggle')
+  if (!toggle) return
+  if (!settings) {
+    toggle.classList.remove('is-on')
+    $('proactive-review').textContent = '—'
+    $('proactive-quiet').textContent = '—'
+    $('proactive-limit').textContent = '—'
+    $('proactive-hint').textContent = 'Настройки проактивности недоступны.'
+    return
+  }
+  toggle.classList.toggle('is-on', settings.enabled === true)
+  $('proactive-review').textContent = settings.reviewAt || '—'
+  $('proactive-quiet').textContent = settings.quiet
+    ? minutesToClock(settings.quiet.start) + '–' + minutesToClock(settings.quiet.end)
+    : '—'
+  $('proactive-limit').textContent = String(settings.dayLimit ?? '—')
+  $('proactive-hint').textContent = settings.globalEnabled === false
+    ? 'Глобально проактивность выключена на сервере — личный переключатель пока ничего не отправит.'
+    : 'Обзор дня и важные события. В тихие часы сообщения не приходят.'
+}
+
+async function loadProactive() {
+  try {
+    state.proactive = await api('GET', '/api/proactive')
+  } catch {
+    state.proactive = null
+  }
+  renderProactive()
+}
+
+async function patchProactive(patch, message) {
+  try {
+    state.proactive = await api('PATCH', '/api/proactive', patch)
+    renderProactive()
+    if (message) toast(message)
+  } catch (error) {
+    handleError(error)
+  }
+}
+
+function openProactivePicker(kind) {
+  const settings = state.proactive
+  if (!settings) return
+  const wrap = h('div')
+  const save = h('button', 'btn btn-primary btn-block', 'Сохранить')
+  save.type = 'button'
+  if (kind === 'review') {
+    const input = h('input', 'input')
+    input.type = 'time'
+    input.value = settings.reviewAt || '09:00'
+    wrap.append(field('Время обзора', input))
+    save.addEventListener('click', () => { closeSheet(); void patchProactive({ reviewAt: input.value }, 'Время обзора сохранено') })
+  } else if (kind === 'quiet') {
+    const start = h('input', 'input')
+    start.type = 'time'
+    start.value = settings.quiet ? minutesToClock(settings.quiet.start) : '23:00'
+    const end = h('input', 'input')
+    end.type = 'time'
+    end.value = settings.quiet ? minutesToClock(settings.quiet.end) : '08:00'
+    wrap.append(field('Начало', start), field('Конец', end))
+    save.addEventListener('click', () => {
+      if (clockToMinutes(start.value) === undefined || clockToMinutes(end.value) === undefined) {
+        toast('Укажите время в формате ЧЧ:ММ')
+        return
+      }
+      closeSheet()
+      void patchProactive({ quietStart: start.value, quietEnd: end.value }, 'Тихие часы сохранены')
+    })
+  } else {
+    const select = h('select', 'input')
+    for (let limit = 1; limit <= 10; limit += 1) {
+      const option = document.createElement('option')
+      option.value = String(limit)
+      option.textContent = String(limit)
+      if (Number(settings.dayLimit) === limit) option.selected = true
+      select.append(option)
+    }
+    wrap.append(field('Сообщений в день', select))
+    save.addEventListener('click', () => { closeSheet(); void patchProactive({ dayLimit: Number(select.value) }, 'Лимит сохранён') })
+  }
+  wrap.append(save)
+  openSheet({ title: kind === 'review' ? 'Время обзора' : kind === 'quiet' ? 'Тихие часы' : 'Лимит в день', body: wrap })
+}
+
+function formatFileSize(size) {
+  const value = Number(size) || 0
+  if (value < 1024) return value + ' Б'
+  if (value < 1024 * 1024) return Math.round(value / 1024) + ' КБ'
+  return (value / (1024 * 1024)).toFixed(1) + ' МБ'
+}
+
+async function ensureFiles() {
+  if (!state.loaded.files && !state.loading.files) await loadFiles()
+}
+
+async function loadFiles() {
+  state.loading.files = true
+  try {
+    const data = await api('GET', '/api/files')
+    state.files = Array.isArray(data.files) ? data.files : []
+    state.loaded.files = true
+    renderFiles()
+  } catch (error) {
+    if (error.status !== 401) {
+      $('files-list').replaceChildren(renderError('Не удалось загрузить файлы', () => {
+        state.loaded.files = false
+        void loadFiles()
+      }))
+    }
+  } finally {
+    state.loading.files = false
+  }
+}
+
+function renderFiles() {
+  const box = $('files-list')
+  box.replaceChildren()
+  const files = state.files || []
+  if (files.length === 0) {
+    box.append(h('p', 'hint', 'Файлов пока нет. Попросите бота в чате собрать отчёт, таблицу или документ.'))
+    return
+  }
+  files.forEach((file) => {
+    const row = document.createElement('a')
+    row.className = 'plan-card'
+    row.href = '/api/files/' + encodeURIComponent(file.id) + '/download'
+    row.style.textDecoration = 'none'
+    const iconBox = h('span', 'plan-ic')
+    iconBox.append(icon('file'))
+    const body = h('div', 'plan-body')
+    body.append(h('b', null, file.name || 'Документ'))
+    body.append(h('span', 'plan-meta', [formatFileSize(file.size), file.status === 'ready' ? 'готов' : file.status].filter(Boolean).join(' · ')))
+    row.append(iconBox, body)
+    box.append(row)
+  })
+}
+
 async function patchSettings(patch, successMessage) {
   try {
     const settings = await api('PATCH', '/api/settings', patch)
     state.settings = settings
     state.loaded.settings = true
     renderSettings()
+    void loadProactive()
     refreshProfile()
     if (state.loaded.memory) {
       state.loaded.memory = false
@@ -2611,6 +2768,24 @@ function bind() {
     const next = !largeTextSwitch.classList.contains('is-on')
     store.set(LARGE_TEXT_KEY, next ? '1' : '0')
     applyLargeText(next)
+  })
+
+  $('proactive-toggle').addEventListener('click', () => {
+    if (!state.proactive) return
+    void patchProactive({ enabled: state.proactive.enabled !== true }, state.proactive.enabled ? 'Проактивность выключена' : 'Проактивность включена')
+  })
+  document.querySelectorAll('[data-proactive]').forEach((row) => {
+    row.addEventListener('click', () => openProactivePicker(row.dataset.proactive))
+  })
+  document.querySelectorAll('[data-help-command]').forEach((row) => {
+    row.addEventListener('click', () => {
+      go('chat')
+      const input = $('chat-input')
+      input.value = row.dataset.helpCommand
+      input.style.height = 'auto'
+      updateChatSend()
+      input.focus()
+    })
   })
 
   $('push-toggle').addEventListener('click', () => {

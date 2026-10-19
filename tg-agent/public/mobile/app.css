@@ -3600,3 +3600,13 @@ html.large-text .setting-row span {
   gap: 4px;
   max-width: 320px;
 }
+
+.msg-time {
+  display: block;
+  text-align: right;
+  font-size: 10.5px;
+  line-height: 1;
+  opacity: 0.62;
+  margin-top: 5px;
+  user-select: none;
+}

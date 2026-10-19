@@ -422,6 +422,9 @@ export function createMiniApp({
   pushTest,
   avatarProvider,
   mediaStore,
+  documents,
+  proactiveSettings,
+  updateProactive,
   maxMediaBytes = 20 * 1024 * 1024,
   chatResponder,
   agentResponder,
@@ -1070,6 +1073,52 @@ export function createMiniApp({
 
   const avatarCache = new Map()
 
+  /** GET /api/files — документы, доступные пользователю. */
+  function listFiles(request, response, { userId }) {
+    request.resume()
+    if (!documents || typeof documents.list !== 'function') return missingStore(response, 'файлы')
+    const files = documents.list(userId)
+      .slice()
+      .sort((a, b) => String(b.updatedAt ?? b.createdAt ?? '').localeCompare(String(a.updatedAt ?? a.createdAt ?? '')))
+      .slice(0, 100)
+      .map((document) => ({
+        id: String(document.id),
+        name: safeText(document.fileName, 160),
+        mime: safeText(document.mime, 100),
+        size: Number(document.size) || 0,
+        status: String(document.processingStatus ?? 'ready'),
+        createdAt: document.createdAt ?? null,
+        updatedAt: document.updatedAt ?? document.createdAt ?? null,
+      }))
+    sendJson(response, 200, { files })
+  }
+
+  /** GET /api/files/:id/download — оригинал документа. */
+  async function downloadFile(request, response, { userId, params }) {
+    request.resume()
+    if (!documents || typeof documents.createDownloadLink !== 'function' || typeof documents.resolveDownloadLink !== 'function') {
+      return missingStore(response, 'файлы')
+    }
+    const link = await documents.createDownloadLink({ userId, documentId: params?.[0] })
+    if (!link) return notFound(response)
+    const resolved = await documents.resolveDownloadLink({ token: link.token, userId })
+    if (!resolved) return notFound(response)
+    let bytes
+    try {
+      bytes = await fs.promises.readFile(resolved.filePath)
+    } catch {
+      return notFound(response)
+    }
+    const name = String(resolved.fileName || 'document').replace(/[\r\n"]/g, '')
+    response.writeHead(200, {
+      'content-type': resolved.version?.mime || 'application/octet-stream',
+      'content-length': String(bytes.length),
+      'content-disposition': `attachment; filename*=UTF-8''${encodeURIComponent(name)}`,
+      'cache-control': 'private, no-store',
+    })
+    response.end(bytes)
+  }
+
   /** POST /api/chat/upload — принять фото или видео с телефона. */
   async function uploadMedia(request, response, { userId }) {
     if (!mediaStore || typeof mediaStore.add !== 'function') {
@@ -1194,6 +1243,7 @@ export function createMiniApp({
         return {
           role: message.role === 'assistant' ? 'assistant' : 'user',
           text: safeText(message.content),
+          ...(typeof message.at === 'string' ? { at: message.at } : {}),
           ...(author ? { author } : {}),
           ...(authorId ? { avatar: `/api/avatar/${authorId}` } : {}),
           ...(message.replyTo && typeof message.replyTo.text === 'string' && message.replyTo.text !== ''
@@ -1246,6 +1296,55 @@ export function createMiniApp({
         models,
       },
       telegramUrl,
+    }
+  }
+
+  /** GET /api/proactive — личные настройки проактивности. */
+  async function getProactive(request, response, { userId }) {
+    request.resume()
+    if (typeof proactiveSettings !== 'function') return missingStore(response, 'проактивность')
+    const value = await proactiveSettings({ userId })
+    sendJson(response, 200, value ?? {})
+  }
+
+  /** PATCH /api/proactive — время обзора, тихие часы, лимит и включение. */
+  async function patchProactive(request, response, { userId }) {
+    if (typeof updateProactive !== 'function') {
+      request.resume()
+      return missingStore(response, 'проактивность')
+    }
+    const body = await readJsonBody(request, bodyLimit)
+    if (!body.ok) return sendError(response, body.status, body.code, body.error)
+    const values = body.value ?? {}
+    const patch = {}
+    if (Object.prototype.hasOwnProperty.call(values, 'enabled')) {
+      if (typeof values.enabled !== 'boolean') return badRequest(response, 'enabled должен быть true/false')
+      patch.enabled = values.enabled
+    }
+    if (Object.prototype.hasOwnProperty.call(values, 'reviewAt')) {
+      if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(String(values.reviewAt ?? ''))) return badRequest(response, 'Время обзора в формате HH:MM')
+      patch.reviewAt = values.reviewAt
+    }
+    if (Object.prototype.hasOwnProperty.call(values, 'dayLimit')) {
+      const limit = Number(values.dayLimit)
+      if (!Number.isInteger(limit) || limit < 1 || limit > 20) return badRequest(response, 'Лимит от 1 до 20')
+      patch.dayLimit = limit
+    }
+    if (Object.prototype.hasOwnProperty.call(values, 'quietStart') || Object.prototype.hasOwnProperty.call(values, 'quietEnd')) {
+      const toMinutes = (value) => {
+        const match = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(String(value ?? ''))
+        return match ? Number(match[1]) * 60 + Number(match[2]) : undefined
+      }
+      const start = toMinutes(values.quietStart)
+      const end = toMinutes(values.quietEnd)
+      if (start === undefined || end === undefined) return badRequest(response, 'Тихие часы в формате HH:MM')
+      patch.quiet = { start, end }
+    }
+    try {
+      const value = await updateProactive(patch, { userId })
+      sendJson(response, 200, value ?? {})
+    } catch (error) {
+      badRequest(response, String(error?.message ?? 'Не удалось сохранить настройки'))
     }
   }
 
@@ -1577,6 +1676,8 @@ export function createMiniApp({
     { method: 'DELETE', pattern: /^\/api\/memory\/([^/]+)$/, handler: deleteFact },
     { method: 'GET', pattern: /^\/api\/chats$/, handler: listChats },
     { method: 'GET', pattern: /^\/api\/avatar\/(\d+)$/, handler: getAvatar },
+    { method: 'GET', pattern: /^\/api\/files$/, handler: listFiles },
+    { method: 'GET', pattern: /^\/api\/files\/([^/]+)\/download$/, handler: downloadFile },
     { method: 'POST', pattern: /^\/api\/chat\/upload$/, handler: uploadMedia },
     { method: 'GET', pattern: /^\/api\/media\/([^/]+)$/, handler: getMedia },
     { method: 'GET', pattern: /^\/api\/chat\/history$/, handler: chatHistory },
@@ -1587,6 +1688,8 @@ export function createMiniApp({
     { method: 'POST', pattern: /^\/api\/push\/test$/, handler: testPush },
     { method: 'GET', pattern: /^\/api\/agent\/status$/, handler: getAgentStatus },
     { method: 'POST', pattern: /^\/api\/agent\/task$/, handler: submitAgentTask },
+    { method: 'GET', pattern: /^\/api\/proactive$/, handler: getProactive },
+    { method: 'PATCH', pattern: /^\/api\/proactive$/, handler: patchProactive },
     { method: 'GET', pattern: /^\/api\/settings$/, handler: getSettings },
     { method: 'PATCH', pattern: /^\/api\/settings$/, handler: updateSettings },
     { method: 'GET', pattern: /^\/api\/stats$/, handler: getStats },

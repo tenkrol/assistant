@@ -1102,6 +1102,27 @@ export class ProactiveStore {
     return first ?? principalKey(DEFAULT_CHANNEL, 'default')
   }
 
+  /** Обновить личные настройки проактивности (только разрешённые поля). */
+  async updateSettings(patch = {}, principal) {
+    const who = principalOf(principal) ?? this.ownerPrincipal
+    await this.storage.transaction((draft) => {
+      const user = ensureUserState(draft, who, this.baseSettings)
+      const current = user.settings
+      user.settings = normalizeSettings(
+        { ...current, ...patch },
+        {
+          timeZone: current.tz,
+          quiet: current.quiet,
+          reviewAt: current.reviewAt,
+          dayLimit: current.dayLimit,
+          reviewMax: current.reviewMax,
+          snoozeMinutes: current.snoozeMinutes,
+        },
+      )
+    })
+    return this.settingsFor(who)
+  }
+
   /** Настройки получателя; новый получатель начинается с defaults из конфига. */
   settingsFor(principal) {
     const key = principalOf(principal) ?? this.ownerPrincipal

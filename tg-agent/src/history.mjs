@@ -155,7 +155,11 @@ export class HistoryStore {
    */
   async append(chatId, message, { userId } = {}) {
     const record = this.record(chatId, { userId })
-    record.messages.push(message)
+    // Время сообщения нужно веб-чату; старые записи остаются без него.
+    const entry = message && typeof message === 'object' && message.at === undefined
+      ? { ...message, at: new Date().toISOString() }
+      : message
+    record.messages.push(entry)
     while (record.messages.length > this.limit || (record.messages.length > 0 && record.messages[0].role !== 'user')) {
       record.messages.shift()
     }

@@ -180,6 +180,9 @@ async function createHarness(t, options = {}) {
     pushTest: options.pushTest,
     avatarProvider: options.avatarProvider,
     mediaStore: options.mediaStore,
+    documents: options.documents,
+    proactiveSettings: options.proactiveSettings,
+    updateProactive: options.updateProactive,
     chatResponder: options.chatResponder,
     agentResponder: options.agentResponder,
     agentStatus: options.agentStatus,
@@ -670,6 +673,64 @@ test('push: конфиг, подписка и отписка', async (t) => {
   assert.equal(tested.status, 200)
   assert.equal(tested.json.sent, 1)
   assert.equal(tested.json.userId, USER_ID)
+})
+
+test('файлы: список документов и скачивание оригинала', async (t) => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'tg-files-api-'))
+  const original = path.join(dir, 'a.txt')
+  await fs.writeFile(original, 'hello')
+  t.after(async () => { await fs.rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }) })
+  const { base } = await createHarness(t, {
+    documents: {
+      list: () => [{ id: 'd1', fileName: 'a.txt', mime: 'text/plain', size: 5, processingStatus: 'ready', createdAt: new Date().toISOString() }],
+      createDownloadLink: async () => ({ token: 't1' }),
+      resolveDownloadLink: async () => ({ filePath: original, fileName: 'a.txt', version: { mime: 'text/plain' } }),
+    },
+  })
+  const cookies = jar()
+  await request(base, '/api/auth/login', { method: 'POST', body: { password: PASSWORD }, cookieJar: cookies })
+  const list = await request(base, '/api/files', { cookieJar: cookies })
+  assert.equal(list.status, 200)
+  assert.equal(list.json.files[0].name, 'a.txt')
+  const download = await fetch(`${base}/api/files/d1/download`, { headers: { cookie: cookies.cookie } })
+  assert.equal(download.status, 200)
+  assert.equal(await download.text(), 'hello')
+  assert.match(download.headers.get('content-disposition'), /a\.txt/)
+})
+
+test('проактивность: чтение и сохранение настроек', async (t) => {
+  let current = { enabled: true, reviewAt: '09:00', quiet: { start: 23 * 60, end: 8 * 60 }, dayLimit: 3, globalEnabled: true }
+  const patches = []
+  const { base } = await createHarness(t, {
+    proactiveSettings: async () => current,
+    updateProactive: async (patch) => { patches.push(patch); current = { ...current, ...patch }; return current },
+  })
+  const cookies = jar()
+  await request(base, '/api/auth/login', { method: 'POST', body: { password: PASSWORD }, cookieJar: cookies })
+  const before = await request(base, '/api/proactive', { cookieJar: cookies })
+  assert.equal(before.status, 200)
+  assert.equal(before.json.reviewAt, '09:00')
+  assert.equal(before.json.globalEnabled, true)
+
+  const after = await request(base, '/api/proactive', {
+    method: 'PATCH',
+    cookieJar: cookies,
+    headers: { 'X-Mobile-Client': '1' },
+    body: { enabled: false, reviewAt: '10:30', dayLimit: 5, quietStart: '22:00', quietEnd: '07:00' },
+  })
+  assert.equal(after.status, 200)
+  assert.equal(patches[0].enabled, false)
+  assert.equal(patches[0].reviewAt, '10:30')
+  assert.equal(patches[0].dayLimit, 5)
+  assert.deepEqual(patches[0].quiet, { start: 1320, end: 420 })
+
+  const invalid = await request(base, '/api/proactive', {
+    method: 'PATCH',
+    cookieJar: cookies,
+    headers: { 'X-Mobile-Client': '1' },
+    body: { reviewAt: '25:00' },
+  })
+  assert.equal(invalid.status, 400)
 })
 
 test('настройки: чтение, смена и проверка значений', async (t) => {

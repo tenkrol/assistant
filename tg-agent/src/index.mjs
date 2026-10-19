@@ -792,6 +792,12 @@ export async function createInstance({ config, logger, instance, shared, platfor
         pushPublicKey: pushVapid ? pushVapid.publicKey : '',
         avatarProvider: (userId) => (typeof bot.platform.getUserAvatar === 'function' ? bot.platform.getUserAvatar(userId) : null),
         mediaStore: mobileMedia,
+        documents,
+        proactiveSettings: async ({ userId }) => ({
+          ...proactive.settingsFor({ channel: instance.platform, userId }),
+          globalEnabled: botConfig.proactive?.enabled === true,
+        }),
+        updateProactive: async (patch, { userId }) => proactiveStore.updateSettings(patch, { channel: instance.platform, userId }),
         pushTest: async ({ userId }) => {
           if (!mobilePush || !pushVapid) return { sent: 0, failed: 0, subscribed: 0, error: 'VAPID не настроен' }
           const subscriptions = mobilePush.listForUsers([userId])

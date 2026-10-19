@@ -361,14 +361,14 @@
             <span class="tile-ic blue"><svg class="ic"><use href="#i-settings"/></svg></span>
             <b>Настройки</b><span>характер, режим, голос</span>
           </button>
-          <a class="tile" href="https://t.me/Tenkrol_bot" target="_blank" rel="noopener">
+          <button class="tile" data-go="files">
             <span class="tile-ic violet"><svg class="ic"><use href="#i-folder"/></svg></span>
-            <b>Файлы</b><span>приходят в Telegram</span>
-          </a>
-          <a class="tile" href="https://t.me/Tenkrol_bot" target="_blank" rel="noopener">
+            <b>Файлы</b><span>документы бота</span>
+          </button>
+          <button class="tile" data-go="help">
             <span class="tile-ic amber"><svg class="ic"><use href="#i-help"/></svg></span>
             <b>Помощь</b><span>команды и советы</span>
-          </a>
+          </button>
         </div>
 
         <div class="list-group">
@@ -476,6 +476,34 @@
         </div>
 
         <div class="settings-group">
+          <div class="group-head"><span>Проактивность</span></div>
+          <div class="setting-row">
+            <span class="row-ic"><svg class="ic"><use href="#i-bell"/></svg></span>
+            <span><b>Проактивные сообщения</b><span>обзор дня и важные события</span></span>
+            <button class="switch" id="proactive-toggle" aria-label="Проактивные сообщения"></button>
+          </div>
+          <button class="setting-row" data-proactive="review">
+            <span class="row-ic"><svg class="ic"><use href="#i-clock"/></svg></span>
+            <span><b>Время обзора</b><span>когда присылать сводку дня</span></span>
+            <span class="setting-value" id="proactive-review">—</span>
+            <svg class="ic"><use href="#i-chevron-right"/></svg>
+          </button>
+          <button class="setting-row" data-proactive="quiet">
+            <span class="row-ic"><svg class="ic"><use href="#i-moon"/></svg></span>
+            <span><b>Тихие часы</b><span>не беспокоить в это время</span></span>
+            <span class="setting-value" id="proactive-quiet">—</span>
+            <svg class="ic"><use href="#i-chevron-right"/></svg>
+          </button>
+          <button class="setting-row" data-proactive="limit">
+            <span class="row-ic"><svg class="ic"><use href="#i-chart"/></svg></span>
+            <span><b>Лимит в день</b><span>сколько сообщений максимум</span></span>
+            <span class="setting-value" id="proactive-limit">—</span>
+            <svg class="ic"><use href="#i-chevron-right"/></svg>
+          </button>
+          <p class="hint" id="proactive-hint"></p>
+        </div>
+
+        <div class="settings-group">
           <div class="group-head"><span>Уведомления</span></div>
           <div class="setting-row">
             <span class="row-ic"><svg class="ic"><use href="#i-bell"/></svg></span>
@@ -517,6 +545,56 @@
           Выйти из аккаунта
         </button>
         <p class="hint center">Версия 1.0 · tenkrol.ru/mobile</p>
+      </div>
+    </section>
+
+    <!-- ================= ФАЙЛЫ ================= -->
+    <section class="screen" data-screen="files" hidden>
+      <header class="topbar sub-head">
+        <button class="icon-btn" data-back="more" aria-label="Назад">
+          <svg class="ic"><use href="#i-chevron-left"/></svg>
+        </button>
+        <div><h2>Файлы</h2><p class="sub">документы, которые собрал бот</p></div>
+      </header>
+      <div class="scroll screen-scroll" id="files-scroll">
+        <div id="files-list"><p class="hint">Загружаю файлы…</p></div>
+      </div>
+    </section>
+
+    <!-- ================= ПОМОЩЬ ================= -->
+    <section class="screen" data-screen="help" hidden>
+      <header class="topbar sub-head">
+        <button class="icon-btn" data-back="more" aria-label="Назад">
+          <svg class="ic"><use href="#i-chevron-left"/></svg>
+        </button>
+        <div><h2>Помощь</h2><p class="sub">команды и возможности</p></div>
+      </header>
+      <div class="scroll screen-scroll">
+        <div class="card info-card">
+          <b>Что можно прямо сейчас</b>
+          <p>Напишите боту в чате обычным текстом или используйте команды. Нажмите на команду — она подставится в поле ввода.</p>
+        </div>
+        <div class="group-head"><span>Команды</span></div>
+        <div class="list-group" id="help-commands">
+          <button class="list-row" data-help-command="/help"><span class="row-ic"><svg class="ic"><use href="#i-help"/></svg></span><b>/help</b><span>список команд</span><svg class="ic"><use href="#i-chevron-right"/></svg></button>
+          <button class="list-row" data-help-command="/whoami"><span class="row-ic"><svg class="ic"><use href="#i-user"/></svg></span><b>/whoami</b><span>кто я для бота</span><svg class="ic"><use href="#i-chevron-right"/></svg></button>
+          <button class="list-row" data-help-command="/reminders"><span class="row-ic"><svg class="ic"><use href="#i-calendar"/></svg></span><b>/reminders</b><span>мои напоминания</span><svg class="ic"><use href="#i-chevron-right"/></svg></button>
+          <button class="list-row" data-help-command="/search "><span class="row-ic"><svg class="ic"><use href="#i-search"/></svg></span><b>/search …</b><span>поиск по истории</span><svg class="ic"><use href="#i-chevron-right"/></svg></button>
+          <button class="list-row" data-help-command="/stats"><span class="row-ic"><svg class="ic"><use href="#i-chart"/></svg></span><b>/stats</b><span>расход токенов</span><svg class="ic"><use href="#i-chevron-right"/></svg></button>
+          <button class="list-row" data-help-command="/server"><span class="row-ic"><svg class="ic"><use href="#i-server"/></svg></span><b>/server</b><span>состояние серверов</span><svg class="ic"><use href="#i-chevron-right"/></svg></button>
+          <button class="list-row" data-help-command="/request "><span class="row-ic"><svg class="ic"><use href="#i-bolt"/></svg></span><b>/request …</b><span>заявка на доработку</span><svg class="ic"><use href="#i-chevron-right"/></svg></button>
+          <button class="list-row" data-help-command="/reset"><span class="row-ic"><svg class="ic"><use href="#i-refresh"/></svg></span><b>/reset</b><span>очистить контекст</span><svg class="ic"><use href="#i-chevron-right"/></svg></button>
+        </div>
+        <div class="group-head"><span>Советы</span></div>
+        <div class="card info-card">
+          <b>Фото и видео</b><p>Прикрепите скрепкой в чате — бот увидит фото или перешлёт видео.</p>
+        </div>
+        <div class="card info-card">
+          <b>Ответ на сообщение</b><p>Смахните сообщение вправо или зажмите — можно ответить цитатой или скопировать.</p>
+        </div>
+        <div class="card info-card">
+          <b>Общий чат</b><p>Во вкладке «Чат» переключитесь на «TenKrol и Машулечка». Бот ответит, если упомянуть @Tenkrol_bot или ответить на его сообщение.</p>
+        </div>
       </div>
     </section>
 
