@@ -2886,9 +2886,15 @@ function switchFilesTab(tab) {
   }
 }
 
+let artifactObjectUrl = null
+
 function closeArtifact() {
   $('artifact').hidden = true
   $('artifact-body').replaceChildren()
+  if (artifactObjectUrl) {
+    URL.revokeObjectURL(artifactObjectUrl)
+    artifactObjectUrl = null
+  }
 }
 
 async function openArtifact({ name, url, mime = '' } = {}) {
@@ -2900,50 +2906,61 @@ async function openArtifact({ name, url, mime = '' } = {}) {
   $('artifact-download').setAttribute('download', name || 'file')
   const body = $('artifact-body')
   body.replaceChildren(h('p', 'artifact-note', 'Загружаю…'))
-  const type = String(mime).toLowerCase()
-  const lower = String(name || '').toLowerCase()
+  if (artifactObjectUrl) {
+    URL.revokeObjectURL(artifactObjectUrl)
+    artifactObjectUrl = null
+  }
   try {
-    if (type.startsWith('image/') || /\.(png|jpe?g|webp|gif|heic)$/.test(lower)) {
+    // Скачивающие эндпоинты отдают Content-Disposition: attachment, поэтому
+    // напрямую в img/iframe вставлять нельзя — браузер начинает скачивание.
+    // Сначала забираем байты и открываем их через blob-URL.
+    const response = await fetch(url, { credentials: 'same-origin' })
+    if (!response.ok) throw new Error('HTTP ' + response.status)
+    const blob = await response.blob()
+    const type = String(mime || blob.type || '').toLowerCase()
+    const lower = String(name || '').toLowerCase()
+    artifactObjectUrl = URL.createObjectURL(blob)
+    $('artifact-meta').textContent = blob.type || mime || ''
+    if (type.startsWith('image/') || /\.(png|jpe?g|webp|gif|heic|bmp)$/.test(lower)) {
       const img = document.createElement('img')
-      img.src = url
+      img.src = artifactObjectUrl
       img.alt = name || 'Изображение'
       body.replaceChildren(img)
       return
     }
-    if (type.startsWith('video/') || /\.(mp4|mov|webm)$/.test(lower)) {
+    if (type.startsWith('video/') || /\.(mp4|mov|webm|m4v)$/.test(lower)) {
       const video = document.createElement('video')
-      video.src = url
+      video.src = artifactObjectUrl
       video.controls = true
       body.replaceChildren(video)
       return
     }
-    if (type.startsWith('audio/') || /\.(mp3|m4a|ogg|webm|wav)$/.test(lower)) {
+    if (type.startsWith('audio/') || /\.(mp3|m4a|ogg|wav)$/.test(lower)) {
       const audio = document.createElement('audio')
-      audio.src = url
+      audio.src = artifactObjectUrl
       audio.controls = true
       body.replaceChildren(audio)
       return
     }
     if (type === 'application/pdf' || lower.endsWith('.pdf')) {
       const frame = document.createElement('iframe')
-      frame.src = url
+      frame.src = artifactObjectUrl
       frame.title = name || 'PDF'
       body.replaceChildren(frame)
       return
     }
-    const response = await fetch(url, { credentials: 'same-origin' })
-    if (!response.ok) throw new Error('HTTP ' + response.status)
-    const textType = type.startsWith('text/') || /\.(txt|md|json|js|mjs|cjs|py|csv|log|html|css|xml|yml|yaml|sh)$/.test(lower)
-    const text = await response.text()
-    if (textType || (!/\u0000/.test(text) && text.length > 0)) {
+    const textType = type.startsWith('text/') || /\.(txt|md|json|js|mjs|cjs|py|csv|log|html|css|xml|yml|yaml|sh|ts|tsx|jsx)$/.test(lower)
+    if (textType) {
+      const text = await blob.text()
       body.replaceChildren(h('pre', null, text.slice(0, 200_000)))
-    } else {
-      body.replaceChildren(h('p', 'artifact-note', 'Предпросмотр недоступен. Скачайте файл кнопкой сверху.'))
+      return
     }
+    body.replaceChildren(h('p', 'artifact-note', 'Предпросмотр этого формата недоступен. Скачайте файл кнопкой сверху.'))
   } catch (error) {
     body.replaceChildren(h('p', 'artifact-note', 'Не удалось открыть предпросмотр. Скачайте файл кнопкой сверху.'))
   }
 }
+
 
 function renderFiles() {
   const box = $('files-list')
