@@ -2943,6 +2943,46 @@ function runCmdk(index = cmdkActive) {
   action.run()
 }
 
+function bindDesktopShortcuts() {
+  let dragDepth = 0
+  const chat = $('chat-scroll')
+  const clearDrag = () => { dragDepth = 0; chat?.classList.remove('is-drag') }
+  if (chat) {
+    chat.addEventListener('dragenter', (event) => {
+      if (!event.dataTransfer?.types?.includes('Files')) return
+      event.preventDefault()
+      dragDepth += 1
+      chat.classList.add('is-drag')
+    })
+    chat.addEventListener('dragover', (event) => {
+      if (event.dataTransfer?.types?.includes('Files')) event.preventDefault()
+    })
+    chat.addEventListener('dragleave', () => {
+      dragDepth -= 1
+      if (dragDepth <= 0) clearDrag()
+    })
+    chat.addEventListener('drop', (event) => {
+      if (!event.dataTransfer?.files?.length) return
+      event.preventDefault()
+      addPendingMedia(event.dataTransfer.files)
+      clearDrag()
+    })
+  }
+  document.addEventListener('keydown', (event) => {
+    const tag = String(document.activeElement?.tagName ?? '').toLowerCase()
+    const typing = tag === 'input' || tag === 'textarea' || tag === 'select'
+    if ((event.metaKey || event.ctrlKey) && event.key === 'Enter' && document.body.dataset.screen === 'chat') {
+      event.preventDefault()
+      void sendSiteMessage()
+      return
+    }
+    if (event.key === '?' && !typing && !event.metaKey && !event.ctrlKey) {
+      event.preventDefault()
+      go('help')
+    }
+  })
+}
+
 function bindCmdk() {
   document.addEventListener('keydown', (event) => {
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
@@ -3163,6 +3203,7 @@ function bind() {
   })
 
   bindCmdk()
+  bindDesktopShortcuts()
 
   window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
     if (themeMode === 'auto') applyTheme()

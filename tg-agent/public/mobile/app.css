@@ -4290,3 +4290,26 @@ html.large-text .setting-row span {
   background: var(--accent-soft);
   border-color: var(--accent);
 }
+
+.chat-scroll.is-drag {
+  outline: 2px dashed var(--accent);
+  outline-offset: -10px;
+  border-radius: 16px;
+  background: var(--accent-soft);
+}
+
+/* Подсказка о drag&drop появляется только при перетаскивании */
+.chat-scroll.is-drag::after {
+  content: 'Отпустите файл, чтобы прикрепить';
+  position: sticky;
+  bottom: 12px;
+  display: block;
+  width: fit-content;
+  margin: 0 auto;
+  padding: 7px 12px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+}
