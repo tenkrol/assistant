@@ -1158,13 +1158,15 @@ function chatMessageNode(role, text, author, replyTo, avatar, attachments, at, m
     article.classList.add('has-reaction')
   }
   if (at) {
+    const meta = h('div', 'msg-meta')
     const time = h('span', 'msg-time', formatTime(at))
+    meta.append(time)
     if (status) {
       const tick = h('span', 'msg-status' + (status === 'read' ? ' is-read' : ''), status === 'sent' ? '✓' : '✓✓')
       tick.title = status === 'read' ? 'прочитано' : status === 'delivered' ? 'доставлено' : 'отправлено'
-      time.append(tick)
+      meta.append(tick)
     }
-    bubble.append(time)
+    bubble.append(meta)
   }
   const replyText = text || (media.length > 0 ? (media[0].kind === 'video' ? '[видео]' : media[0].kind === 'voice' ? '[голосовое]' : '[фото]') : '')
   bindMessageGesture(bubble, { role, text: replyText, author, id: messageId, reaction })
