@@ -1439,6 +1439,7 @@ async function sendSiteMessage() {
       const userMessage = { role: 'user', text, ...(reply ? { replyTo: reply } : {}), ...(uploaded.length > 0 ? { attachments: uploaded } : {}) }
       if (data.userMessage && data.userMessage.id) userMessage.id = data.userMessage.id
       state.chat.messages.push(userMessage)
+      if (userMessage.id) renderChat()
       if (!silent) messages.forEach((message) => state.chat.messages.push({ role: 'assistant', text: message.text }))
     }
   } catch (error) {
