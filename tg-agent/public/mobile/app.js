@@ -2792,6 +2792,32 @@ function openTotpSheet() {
   openSheet({ title: enabled ? 'Двухфакторная защита' : 'Включить 2FA', body: wrap })
 }
 
+async function openAuthLog() {
+  const wrap = h('div')
+  wrap.append(h('p', 'hint', 'Загружаю…'))
+  openSheet({ title: 'Журнал входов', body: wrap })
+  try {
+    const data = await api('GET', '/api/security/log')
+    const entries = Array.isArray(data.entries) ? data.entries : []
+    wrap.replaceChildren()
+    if (entries.length === 0) {
+      wrap.append(h('p', 'hint', 'Записей пока нет.'))
+      return
+    }
+    entries.forEach((entry) => {
+      const row = h('div', 'plan-card')
+      const body = h('div', 'plan-body')
+      body.append(h('b', null, (entry.ok ? '✓ ' : '✕ ') + (entry.at ? formatDateTime(entry.at) : '')))
+      body.append(h('span', 'plan-meta', [entry.ip, entry.via, entry.userAgent].filter(Boolean).join(' · ')))
+      if (entry.reason) body.append(h('span', 'plan-meta', 'причина: ' + entry.reason))
+      row.append(body)
+      wrap.append(row)
+    })
+  } catch (error) {
+    wrap.replaceChildren(h('p', 'hint', error.message || 'Не удалось загрузить журнал'))
+  }
+}
+
 function openRevokeAllSheet() {
   const wrap = h('div')
   const password = document.createElement('input')
@@ -3734,6 +3760,7 @@ function bind() {
   $('account-users').addEventListener('click', () => { void openUsersSheet() })
   $('revoke-sessions').addEventListener('click', openRevokeAllSheet)
   $('totp-row').addEventListener('click', openTotpSheet)
+  $('auth-log-row').addEventListener('click', openAuthLog)
   $('set-voice').addEventListener('click', () => {
     const next = !$('set-voice').classList.contains('is-on')
     $('set-voice').classList.toggle('is-on', next)

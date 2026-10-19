@@ -184,6 +184,7 @@ async function createHarness(t, options = {}) {
     documents: options.documents,
     inbox: options.inbox,
     agentFiles: options.agentFiles,
+    mobileAuthLog: options.mobileAuthLog,
     systemStatus: options.systemStatus,
     proactiveSettings: options.proactiveSettings,
     updateProactive: options.updateProactive,
@@ -771,6 +772,17 @@ test('агент: отмена задачи', async (t) => {
     method: 'POST', cookieJar: cookies, headers: { 'X-Mobile-Client': '1' }, body: {},
   })
   assert.equal(empty.status, 400)
+})
+
+test('журнал входов показывает записи аккаунта', async (t) => {
+  const { base } = await createHarness(t, {
+    mobileAuthLog: { list: ({ login }) => [{ at: new Date().toISOString(), login, ok: true, via: 'password', ip: '127.0.0.1', userAgent: 'test' }], add: async () => {} },
+  })
+  const cookies = jar()
+  await request(base, '/api/auth/login', { method: 'POST', body: { password: PASSWORD }, cookieJar: cookies })
+  const log = await request(base, '/api/security/log', { cookieJar: cookies })
+  assert.equal(log.status, 200)
+  assert.equal(log.json.entries[0].ok, true)
 })
 
 test('2FA: включение и вход по коду', async (t) => {

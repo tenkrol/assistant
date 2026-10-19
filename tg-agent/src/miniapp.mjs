@@ -427,6 +427,7 @@ export function createMiniApp({
   inbox,
   agentFiles,
   yandexDisk,
+  mobileAuthLog,
   editChatMessage,
   deleteChatMessage,
   documents,
@@ -655,6 +656,7 @@ export function createMiniApp({
         ? Math.max(1, Math.ceil((failed.blockedUntil - at) / 1000))
         : undefined
       const headers = retryAfter ? { 'retry-after': String(retryAfter) } : {}
+      await mobileAuthLog?.add?.({ login: username, ok: false, ip, userAgent: request.headers['user-agent'], reason: 'password' }).catch(() => {})
       return sendJson(response, 401, {
         error: 'Неверный логин или пароль',
         code: ERROR_CODES.unauthorized,
@@ -706,6 +708,7 @@ export function createMiniApp({
       version: sessionUser.version,
     }, mobileSessionSecret)
     logger?.info?.('mobile login ok', { login: sessionUser.login })
+    await mobileAuthLog?.add?.({ login: sessionUser.login, ok: true, ip, userAgent: request.headers['user-agent'] }).catch(() => {})
     return sendJson(response, 200, {
       ok: true,
       user: { name: sessionUser.name, via: 'password', login: sessionUser.login, role: sessionUser.role },
@@ -840,6 +843,15 @@ export function createMiniApp({
     } catch (error) {
       accountError(response, error)
     }
+  }
+
+  /** GET /api/security/log — последние входы текущего аккаунта. */
+  function securityLog(request, response, { auth }) {
+    request.resume()
+    if (!mobileAuthLog || typeof mobileAuthLog.list !== 'function') {
+      return sendJson(response, 200, { entries: [] })
+    }
+    sendJson(response, 200, { entries: mobileAuthLog.list({ login: auth.login, limit: 20 }) })
   }
 
   /** Двухфакторная защита: выдать секрет (ещё не включён). */
@@ -2166,6 +2178,7 @@ export function createMiniApp({
     { method: 'GET', pattern: /^\/api\/accounts$/, handler: listAccounts },
     { method: 'POST', pattern: /^\/api\/accounts$/, handler: createAccount },
     { method: 'PATCH', pattern: /^\/api\/account$/, handler: updateAccount },
+    { method: 'GET', pattern: /^\/api\/security\/log$/, handler: securityLog },
     { method: 'POST', pattern: /^\/api\/2fa\/setup$/, handler: setupTotp },
     { method: 'POST', pattern: /^\/api\/2fa\/enable$/, handler: enableTotp },
     { method: 'POST', pattern: /^\/api\/2fa\/disable$/, handler: disableTotp },

@@ -35,6 +35,7 @@ import { MobileMediaStore } from './mobile-media.mjs'
 import { MobileInboxStore } from './mobile-inbox.mjs'
 import { AgentFileStore } from './agent-files.mjs'
 import { YandexDisk } from './yandex-disk.mjs'
+import { MobileAuthLogStore } from './mobile-auth-log.mjs'
 import { createOutbox } from './outbox.mjs'
 import { createAgentEventsStore } from './storage/agent-events.mjs'
 import { createAgentLink } from './agent-link/index.mjs'
@@ -810,6 +811,13 @@ export async function createInstance({ config, logger, instance, shared, platfor
           mobilePush = undefined
         }
       }
+      let mobileAuthLog
+      try {
+        mobileAuthLog = new MobileAuthLogStore({ file: stateFile(botConfig.dataDir, 'mobile-auth-log', instance.namespace), logger })
+        await mobileAuthLog.load()
+      } catch (error) {
+        logger.warn('mobile auth log disabled', { error: error?.message ?? error })
+      }
       const yandexDisk = new YandexDisk({
         token: config.yandexDisk?.token,
         dir: config.yandexDisk?.dir,
@@ -843,6 +851,7 @@ export async function createInstance({ config, logger, instance, shared, platfor
         inbox: mobileInbox,
         agentFiles,
         yandexDisk,
+        mobileAuthLog,
         documents,
         systemStatus: async () => {
           let serverText = 'Модуль состояния сервера выключен.'
