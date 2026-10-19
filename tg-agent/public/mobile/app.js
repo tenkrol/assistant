@@ -1140,6 +1140,104 @@ function chatMediaNode(attachments) {
   return box
 }
 
+function escapeMessageHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
+function safeHref(value) {
+  const href = String(value || '').trim()
+  return /^(https?:\/\/|mailto:)/i.test(href) ? href : '#'
+}
+
+function formatInlineMarkdown(value) {
+  let text = value
+  text = text.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+  text = text.replace(/__([^_]+)__/g, '<strong>$1</strong>')
+  text = text.replace(/~~([^~]+)~~/g, '<del>$1</del>')
+  text = text.replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, '$1<em>$2</em>')
+  text = text.replace(/(^|[^_])_([^_\n]+)_(?!_)/g, '$1<em>$2</em>')
+  return text
+}
+
+function formatMessageHtml(raw) {
+  const codeBlocks = []
+  const inlineCode = []
+  const links = []
+  let text = escapeMessageHtml(raw)
+  // Код и ссылки прячем в токены, чтобы разметка не трогала их содержимое.
+  text = text.replace(/```([a-zA-Z0-9_+-]*)\n?([\s\S]*?)```/g, (_, language, code) => {
+    const index = codeBlocks.length
+    codeBlocks.push(`<pre class="md-code"><code>${code.replace(/^\n|\n$/g, '')}</code></pre>`)
+    return `@@CODEBLOCK${index}@@`
+  })
+  text = text.replace(/`([^`\n]+)`/g, (_, code) => {
+    const index = inlineCode.length
+    inlineCode.push(`<code class="md-inline">${code}</code>`)
+    return `@@INLINECODE${index}@@`
+  })
+  text = text.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+|mailto:[^)\s]+)\)/gi, (_, label, href) => {
+    const index = links.length
+    links.push(`<a href="${safeHref(href)}" target="_blank" rel="noopener noreferrer">${label}</a>`)
+    return `@@LINK${index}@@`
+  })
+  text = text.replace(/(^|[\s(])((?:https?:\/\/)[^\s<]+)/gi, (match, prefix, href) => {
+    const index = links.length
+    const clean = href.replace(/[.,;:!?)]$/, '')
+    const tail = href.slice(clean.length)
+    links.push(`<a href="${safeHref(clean)}" target="_blank" rel="noopener noreferrer">${clean}</a>`)
+    return prefix + `@@LINK${index}@@` + tail
+  })
+  const lines = text.split('\n')
+  let html = ''
+  let listType = null
+  const closeList = () => {
+    if (listType) {
+      html += listType === 'ol' ? '</ol>' : '</ul>'
+      listType = null
+    }
+  }
+  lines.forEach((line) => {
+    const bullet = /^\s*[-*•]\s+(.+)$/.exec(line)
+    const ordered = /^\s*\d+[.)]\s+(.+)$/.exec(line)
+    if (bullet || ordered) {
+      const type = bullet ? 'ul' : 'ol'
+      if (listType !== type) {
+        closeList()
+        html += `<${type}>`
+        listType = type
+      }
+      html += '<li>' + formatInlineMarkdown(bullet ? bullet[1] : ordered[1]) + '</li>'
+      return
+    }
+    closeList()
+    if (/^\s*$/.test(line)) {
+      html += '<br>'
+      return
+    }
+    const heading = /^(#{1,4})\s+(.+)$/.exec(line)
+    if (heading) {
+      html += '<div class="md-heading">' + formatInlineMarkdown(heading[2]) + '</div>'
+      return
+    }
+    const quote = /^>\s?(.*)$/.exec(line)
+    if (quote) {
+      html += '<blockquote>' + formatInlineMarkdown(quote[1]) + '</blockquote>'
+      return
+    }
+    html += formatInlineMarkdown(line) + '<br>'
+  })
+  closeList()
+  html = html.replace(/@@CODEBLOCK(\d+)@@/g, (_, index) => codeBlocks[Number(index)] ?? '')
+  html = html.replace(/@@INLINECODE(\d+)@@/g, (_, index) => inlineCode[Number(index)] ?? '')
+  html = html.replace(/@@LINK(\d+)@@/g, (_, index) => links[Number(index)] ?? '')
+  return html.replace(/(<br>)+$/, '')
+}
+
 function chatMessageNode(role, text, author, replyTo, avatar, attachments, at, messageId, reaction, status) {
   const ownName = state.session && state.session.user ? state.session.user.telegramName : ''
   const otherAuthor = role === 'user' && author && ownName && author !== ownName
@@ -1183,7 +1281,11 @@ function chatMessageNode(role, text, author, replyTo, avatar, attachments, at, m
     bubble.append(chatMediaNode(media))
   }
   const placeholder = /^\[(фото|видео|голосовое)(,\s*(фото|видео|голосовое))*\]$/i.test(String(text || '').trim())
-  if (text && !(media.length > 0 && placeholder)) bubble.append(h('div', 'bubble-text', text))
+  if (text && !(media.length > 0 && placeholder)) {
+    const textNode = h('div', 'bubble-text')
+    textNode.innerHTML = formatMessageHtml(text)
+    bubble.append(textNode)
+  }
   if (reaction) {
     bubble.append(h('div', 'msg-reaction', reaction))
     article.classList.add('has-reaction')
@@ -1567,7 +1669,7 @@ async function sendSiteMessage(payload = null) {
         } else {
           streamText += chunk
           const bubble = streamNode.querySelector('.bubble-text')
-          if (bubble) bubble.textContent = streamText
+          if (bubble) bubble.innerHTML = formatMessageHtml(streamText)
           chatScrollToBottom()
         }
       },
