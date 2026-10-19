@@ -155,6 +155,7 @@ const state = {
   chat: null,
   files: null,
   agentFiles: null,
+  diskMode: false,
   filesTab: 'documents',
   inbox: null,
   system: null,
@@ -2344,6 +2345,21 @@ async function loadAgentFiles() {
   if (state.loading.agentFiles) return
   state.loading.agentFiles = true
   try {
+    const disk = await api('GET', '/api/disk').catch(() => null)
+    if (disk && disk.configured) {
+      state.diskMode = true
+      state.agentFiles = (Array.isArray(disk.files) ? disk.files : []).map((file) => ({
+        id: file.path,
+        name: file.name,
+        size: file.size,
+        at: file.modified,
+        task: file.task,
+        path: file.path,
+      }))
+      renderAgentFiles()
+      return
+    }
+    state.diskMode = false
     const data = await api('GET', '/api/files/agent')
     state.agentFiles = Array.isArray(data.files) ? data.files : []
     renderAgentFiles()
@@ -2362,7 +2378,14 @@ function renderAgentFiles() {
     box.append(h('p', 'hint', 'Пока пусто. Файлы, которые агент пришлёт в чат, появятся здесь.'))
     return
   }
+  let currentTask = null
   files.forEach((file) => {
+    if (state.diskMode && file.task && file.task !== currentTask) {
+      currentTask = file.task
+      const head = h('div', 'group-head')
+      head.append(h('span', null, 'Задача ' + file.task))
+      box.append(head)
+    }
     const card = h('div', 'plan-card')
     const ic = h('span', 'plan-ic')
     ic.append(icon('file'))
@@ -2374,14 +2397,17 @@ function renderAgentFiles() {
     const actions = h('div', 'file-actions')
     const link = document.createElement('a')
     link.className = 'pill-btn'
-    link.href = '/api/files/agent/' + encodeURIComponent(file.id) + '/download'
+    link.href = state.diskMode
+      ? '/api/disk/download?path=' + encodeURIComponent(file.path)
+      : '/api/files/agent/' + encodeURIComponent(file.id) + '/download'
     link.textContent = 'Скачать'
     const remove = h('button', 'pill-btn danger', 'Удалить')
     remove.type = 'button'
     remove.addEventListener('click', () => {
       confirmSheet('Удалить файл?', file.name, 'Удалить', async () => {
         try {
-          await api('DELETE', '/api/files/agent/' + encodeURIComponent(file.id))
+          if (state.diskMode) await api('DELETE', '/api/disk?path=' + encodeURIComponent(file.path))
+          else await api('DELETE', '/api/files/agent/' + encodeURIComponent(file.id))
           state.agentFiles = (state.agentFiles || []).filter((item) => item.id !== file.id)
           renderAgentFiles()
           toast('Файл удалён')

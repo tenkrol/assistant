@@ -425,6 +425,7 @@ export function createMiniApp({
   mediaStore,
   inbox,
   agentFiles,
+  yandexDisk,
   editChatMessage,
   deleteChatMessage,
   documents,
@@ -1257,6 +1258,56 @@ export function createMiniApp({
     sendJson(response, 200, { files })
   }
 
+  /** GET /api/disk — папка агента на Яндекс.Диске. */
+  async function listDiskFiles(request, response) {
+    request.resume()
+    if (!yandexDisk || !yandexDisk.enabled) {
+      return sendJson(response, 200, { configured: false, files: [] })
+    }
+    try {
+      const files = await yandexDisk.listAgentFiles()
+      sendJson(response, 200, { configured: true, files })
+    } catch (error) {
+      logger?.warn?.('disk list failed', { error: error?.message ?? error })
+      sendJson(response, 200, { configured: true, files: [], error: 'Не удалось получить файлы с Диска' })
+    }
+  }
+
+  /** GET /api/disk/download?path=... — скачать файл из папки агента. */
+  async function downloadDiskFile(request, response, { url }) {
+    request.resume()
+    if (!yandexDisk || !yandexDisk.enabled) return notFound(response)
+    try {
+      const bytes = await yandexDisk.download(url.searchParams.get('path'))
+      const name = String(url.searchParams.get('path') || 'agent-file').split('/').pop()
+      response.writeHead(200, {
+        'content-type': 'application/octet-stream',
+        'content-length': String(bytes.length),
+        'content-disposition': `attachment; filename*=UTF-8''${encodeURIComponent(name)}`,
+        'cache-control': 'private, no-store',
+      })
+      response.end(bytes)
+    } catch (error) {
+      if (error?.status === 403) return sendError(response, 403, ERROR_CODES.forbidden, 'Чужой путь')
+      if (error?.status === 404) return notFound(response)
+      sendError(response, 502, ERROR_CODES.unavailable, 'Не удалось скачать файл с Диска')
+    }
+  }
+
+  /** DELETE /api/disk?path=... — удалить файл из папки агента на Диске. */
+  async function deleteDiskFile(request, response, { url }) {
+    request.resume()
+    if (!yandexDisk || !yandexDisk.enabled) return notFound(response)
+    try {
+      await yandexDisk.remove(url.searchParams.get('path'))
+      sendJson(response, 200, { ok: true })
+    } catch (error) {
+      if (error?.status === 403) return sendError(response, 403, ERROR_CODES.forbidden, 'Чужой путь')
+      if (error?.status === 404) return notFound(response)
+      sendError(response, 502, ERROR_CODES.unavailable, 'Не удалось удалить файл с Диска')
+    }
+  }
+
   /** GET /api/files/agent — файлы, которые прислал агент. */
   function listAgentFiles(request, response, { userId }) {
     request.resume()
@@ -2012,6 +2063,9 @@ export function createMiniApp({
     { method: 'GET', pattern: /^\/api\/calendar\.ics$/, handler: exportCalendar },
     { method: 'GET', pattern: /^\/api\/system$/, handler: getSystem },
     { method: 'GET', pattern: /^\/api\/files\/search$/, handler: searchFiles },
+    { method: 'GET', pattern: /^\/api\/disk$/, handler: listDiskFiles },
+    { method: 'GET', pattern: /^\/api\/disk\/download$/, handler: downloadDiskFile },
+    { method: 'DELETE', pattern: /^\/api\/disk$/, handler: deleteDiskFile },
     { method: 'GET', pattern: /^\/api\/files\/agent$/, handler: listAgentFiles },
     { method: 'GET', pattern: /^\/api\/files\/agent\/([^/]+)\/download$/, handler: downloadAgentFile },
     { method: 'DELETE', pattern: /^\/api\/files\/agent\/([^/]+)$/, handler: deleteAgentFile },

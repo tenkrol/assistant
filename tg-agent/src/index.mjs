@@ -34,6 +34,7 @@ import { MobilePushStore, createVapidConfig, sendPush } from './mobile-push.mjs'
 import { MobileMediaStore } from './mobile-media.mjs'
 import { MobileInboxStore } from './mobile-inbox.mjs'
 import { AgentFileStore } from './agent-files.mjs'
+import { YandexDisk } from './yandex-disk.mjs'
 import { createOutbox } from './outbox.mjs'
 import { createAgentEventsStore } from './storage/agent-events.mjs'
 import { createAgentLink } from './agent-link/index.mjs'
@@ -809,6 +810,11 @@ export async function createInstance({ config, logger, instance, shared, platfor
           mobilePush = undefined
         }
       }
+      const yandexDisk = new YandexDisk({
+        token: config.yandexDisk?.token,
+        dir: config.yandexDisk?.dir,
+        logger,
+      })
       let mobileInbox
       try {
         mobileInbox = new MobileInboxStore({ file: stateFile(botConfig.dataDir, 'mobile-inbox', instance.namespace), logger })
@@ -836,6 +842,7 @@ export async function createInstance({ config, logger, instance, shared, platfor
         mediaStore: mobileMedia,
         inbox: mobileInbox,
         agentFiles,
+        yandexDisk,
         documents,
         systemStatus: async () => {
           let serverText = 'Модуль состояния сервера выключен.'

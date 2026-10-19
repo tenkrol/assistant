@@ -600,6 +600,10 @@ export function loadConfig(env = process.env) {
       host: '127.0.0.1',
       token: read(env, 'OUTBOX_TOKEN').trim(),
     },
+    yandexDisk: {
+      token: read(env, 'YANDEX_DISK_TOKEN').trim(),
+      dir: read(env, 'YANDEX_DISK_DIR').trim() || 'Агент',
+    },
     youtube: { enabled: read(env, 'YOUTUBE').trim().toLowerCase() !== 'false' },
     polls: { enabled: read(env, 'POLLS').trim().toLowerCase() !== 'false' },
     // The machine the bot runs on, as reported by `server` and /server.
