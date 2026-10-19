@@ -401,6 +401,7 @@ function go(name, options = {}) {
   if (name === 'inbox') ensureInbox()
   if (name === 'automations') ensureAutomations()
   if (name === 'mail') ensureMail()
+  if (name === 'dashboard') ensureDashboard()
   if (name === 'system') ensureSystem()
   if (name === 'agent') ensureAgent()
   if (name === 'chat') ensureChat()
@@ -4034,6 +4035,117 @@ async function ensureAgent() {
 
 /* ============================ Статистика ============================ */
 
+async function ensureDashboard() {
+  if (!state.dashboard || state.dashboardStale) {
+    state.dashboardStale = false
+    await loadDashboard()
+  } else renderDashboard()
+}
+
+async function loadDashboard() {
+  const box = $('dashboard-scroll')
+  box.replaceChildren(h('div', 'loading-inline', 'Собираю сводку…'))
+  const settled = await Promise.allSettled([
+    api('GET', '/api/chats'),
+    api('GET', '/api/reminders'),
+    api('GET', '/api/events?days=2'),
+    api('GET', '/api/inbox'),
+    api('GET', '/api/agent/status'),
+    api('GET', '/api/stats?days=1'),
+    api('GET', '/api/system'),
+  ])
+  const val = (index) => settled[index]?.status === 'fulfilled' ? settled[index].value : null
+  state.dashboard = {
+    chats: val(0), reminders: val(1), events: val(2), inbox: val(3), agent: val(4), stats: val(5), system: val(6),
+  }
+  state.dashboardAt = new Date()
+  renderDashboard()
+}
+
+function renderDashboard() {
+  const box = $('dashboard-scroll')
+  const data = state.dashboard
+  if (!data) return
+  box.replaceChildren()
+  const now = state.dashboardAt || new Date()
+  $('dashboard-date').textContent = now.toLocaleDateString('ru-RU', { weekday: 'long', day: 'numeric', month: 'long' }) + ' · ' + formatTime(now.toISOString())
+  const name = state.session?.user?.name || 'Вячеслав'
+  const hero = h('div', 'card')
+  hero.append(h('b', null, 'Привет, ' + name + ' 👋'))
+  hero.append(h('p', 'hint', 'Вот короткая сводка на сегодня.'))
+  box.append(hero)
+
+  const reminders = Array.isArray(data.reminders) ? data.reminders : []
+  const events = Array.isArray(data.events) ? data.events : []
+  const todayKey = new Date().toISOString().slice(0, 10)
+  const todayItems = [
+    ...reminders.filter((item) => String(item.dueAt || '').slice(0, 10) === todayKey).map((item) => ({ kind: 'reminder', title: item.text, at: item.dueAt })),
+    ...events.filter((item) => String(item.at || '').slice(0, 10) === todayKey).map((item) => ({ kind: 'event', title: item.title, at: item.at })),
+  ].sort((a, b) => String(a.at).localeCompare(String(b.at)))
+  const todayCard = h('div', 'card')
+  const todayHead = h('div', 'card-head')
+  todayHead.append(h('b', null, 'Сегодня'), h('span', null, todayItems.length === 0 ? 'свободно' : todayItems.length + ' ' + plural(todayItems.length, ['дело', 'дела', 'дел'])))
+  todayCard.append(todayHead)
+  if (todayItems.length === 0) todayCard.append(h('p', 'hint', 'На сегодня нет напоминаний и событий.'))
+  else {
+    todayItems.slice(0, 5).forEach((item) => {
+      const row = h('div', 'dashboard-row')
+      row.append(icon(item.kind === 'event' ? 'calendar' : 'bell'), h('span', null, formatTime(item.at) + ' · ' + item.title))
+      todayCard.append(row)
+    })
+  }
+  box.append(todayCard)
+
+  const inbox = Array.isArray(data.inbox?.items) ? data.inbox.items : []
+  const agentEvents = Array.isArray(data.agent?.events) ? data.agent.events : []
+  const statsToday = data.stats?.today || { total: 0, requests: 0 }
+  const cards = h('div', 'dashboard-grid')
+  cards.append(
+    dashboardCard('Инбокс', String(inbox.filter((item) => !item.done).length), 'активных заметок', () => go('inbox')),
+    dashboardCard('Задачи агента', String(agentEvents.length), agentEvents[0]?.title || 'последние события', () => go('agent')),
+    dashboardCard('Токены', String(statsToday.total || 0), 'запросов: ' + (statsToday.requests || 0), () => go('stats')),
+    dashboardCard('Чаты', String((data.chats?.chats || []).length), 'личный и общий', () => go('chat')),
+  )
+  box.append(cards)
+
+  const systemText = String(data.system?.server || '')
+  if (systemText) {
+    const serverCard = h('div', 'card')
+    serverCard.append(h('b', null, 'Сервер'))
+    serverCard.append(h('p', 'hint', systemText.split('\n').slice(0, 4).join('\n')))
+    const open = h('button', 'pill-btn', 'Подробнее')
+    open.type = 'button'
+    open.addEventListener('click', () => go('system'))
+    serverCard.append(open)
+    box.append(serverCard)
+  }
+
+  const quick = h('div', 'card')
+  quick.append(h('b', null, 'Быстро'))
+  const actions = h('div', 'file-actions')
+  ;[
+    ['YouTube', 'youtube'],
+    ['Автоматизации', 'automations'],
+    ['Почта', 'mail'],
+    ['Календарь', 'plans'],
+  ].forEach(([label, screen]) => {
+    const button = h('button', 'pill-btn', label)
+    button.type = 'button'
+    button.addEventListener('click', () => go(screen))
+    actions.append(button)
+  })
+  quick.append(actions)
+  box.append(quick)
+}
+
+function dashboardCard(title, value, hint, action) {
+  const card = h('button', 'card dashboard-stat')
+  card.type = 'button'
+  card.append(h('span', 'hint', title), h('b', null, value), h('span', 'hint', hint))
+  card.addEventListener('click', action)
+  return card
+}
+
 async function ensureStats() {
   if (!state.loaded.stats && !state.loading.stats) await loadStats()
 }
@@ -4470,6 +4582,7 @@ function bind() {
       toast(error.message || 'Не удалось получить ссылку')
     }
   })
+  $('dashboard-refresh').addEventListener('click', () => { state.dashboardStale = true; void ensureDashboard() })
   $('youtube-search-btn').addEventListener('click', () => void searchYoutube())
   $('youtube-search-input').addEventListener('keydown', (event) => { if (event.key === 'Enter') { event.preventDefault(); void searchYoutube() } })
   $('mail-refresh').addEventListener('click', () => { state.gmail = null; void loadGmail() })
@@ -4583,6 +4696,10 @@ function bind() {
 
   bindCmdk()
   bindDesktopShortcuts()
+  const agentFeedTimer = setInterval(() => {
+    if (document.body.dataset.screen === 'agent') void loadAgentStatus()
+  }, 10_000)
+  agentFeedTimer.unref?.()
 
   window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
     if (themeMode === 'auto') applyTheme()

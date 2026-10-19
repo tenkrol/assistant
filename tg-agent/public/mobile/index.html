@@ -418,6 +418,10 @@
             <span class="tile-ic red"><svg class="ic"><use href="#i-youtube"/></svg></span>
             <b>YouTube</b><span>поиск и просмотр</span>
           </button>
+          <button class="tile" data-go="dashboard">
+            <span class="tile-ic mint"><svg class="ic"><use href="#i-grid"/></svg></span>
+            <b>Главная</b><span>сводка дня</span>
+          </button>
           <button class="tile" data-go="mail">
             <span class="tile-ic blue"><svg class="ic"><use href="#i-mail"/></svg></span>
             <b>Почта</b><span>Gmail</span>
@@ -629,6 +633,22 @@
           Выйти из аккаунта
         </button>
         <p class="hint center">Версия 1.0 · tenkrol.ru/mobile</p>
+      </div>
+    </section>
+
+    <!-- ================= ГЛАВНАЯ ================= -->
+    <section class="screen" data-screen="dashboard" hidden>
+      <header class="topbar title-head">
+        <div>
+          <h1>Главная</h1>
+          <p class="sub" id="dashboard-date">—</p>
+        </div>
+        <button class="icon-btn" id="dashboard-refresh" aria-label="Обновить">
+          <svg class="ic"><use href="#i-refresh"/></svg>
+        </button>
+      </header>
+      <div class="scroll screen-scroll" id="dashboard-scroll">
+        <div class="loading-inline"><span class="spinner"></span>Собираю сводку…</div>
       </div>
     </section>
 
