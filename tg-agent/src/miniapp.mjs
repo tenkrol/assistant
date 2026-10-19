@@ -1502,6 +1502,32 @@ export function createMiniApp({
   }
 
   const youtubeSearchCache = new Map()
+  const youtubeThumbCache = new Map()
+
+  /** GET /api/youtube/thumb?id=... — превью через сервер (локально ytimg может быть закрыт). */
+  async function youtubeThumb(request, response, { url }) {
+    request.resume()
+    const id = String(url.searchParams.get('id') ?? '')
+    if (!/^[A-Za-z0-9_-]{11}$/.test(id)) return notFound(response)
+    const cached = youtubeThumbCache.get(id)
+    if (cached && Date.now() - cached.at < 6 * 60 * 60 * 1000) {
+      response.writeHead(200, { 'content-type': 'image/jpeg', 'content-length': String(cached.bytes.length), 'cache-control': 'public, max-age=21600' })
+      return response.end(cached.bytes)
+    }
+    try {
+      const image = await fetch('https://i.ytimg.com/vi/' + id + '/mqdefault.jpg')
+      if (!image.ok) return notFound(response)
+      const bytes = Buffer.from(await image.arrayBuffer())
+      youtubeThumbCache.set(id, { at: Date.now(), bytes })
+      while (youtubeThumbCache.size > 100) youtubeThumbCache.delete(youtubeThumbCache.keys().next().value)
+      response.writeHead(200, { 'content-type': 'image/jpeg', 'content-length': String(bytes.length), 'cache-control': 'public, max-age=21600' })
+      response.end(bytes)
+    } catch (error) {
+      logger?.warn?.('youtube thumb failed', { error: error?.message ?? error })
+      notFound(response)
+    }
+  }
+
 
   /** Поиск YouTube через публичную страницу результатов (без API-ключа). */
   async function searchYoutube(request, response, { url }) {
@@ -1539,7 +1565,7 @@ export function createMiniApp({
               duration: String(item.lengthText?.simpleText ?? ''),
               views: String(item.viewCountText?.simpleText ?? item.shortViewCountText?.simpleText ?? ''),
               published: String(item.publishedTimeText?.simpleText ?? ''),
-              thumbnail: String(thumb ?? 'https://i.ytimg.com/vi/' + id + '/mqdefault.jpg'),
+              thumbnail: '/api/youtube/thumb?id=' + encodeURIComponent(id),
             })
           }
           return
@@ -2462,6 +2488,7 @@ export function createMiniApp({
     { method: 'GET', pattern: /^\/api\/calendar\/link$/, handler: calendarLink },
     { method: 'GET', pattern: /^\/api\/system$/, handler: getSystem },
     { method: 'GET', pattern: /^\/api\/files\/search$/, handler: searchFiles },
+    { method: 'GET', pattern: /^\/api\/youtube\/thumb$/, handler: youtubeThumb },
     { method: 'GET', pattern: /^\/api\/youtube\/search$/, handler: searchYoutube },
     { method: 'GET', pattern: /^\/api\/disk$/, handler: listDiskFiles },
     { method: 'GET', pattern: /^\/api\/disk\/download$/, handler: downloadDiskFile },
