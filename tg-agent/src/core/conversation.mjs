@@ -344,7 +344,31 @@ export function createConversation(bot) {
           ? prepared.notes.map((note) => `⚠️ ${note}`).join('\n')
           : '⚠️ Не удалось разобрать вложение.'
         const saved = prepared.notices?.length > 0 ? `${prepared.notices.join('\n')}\n\n` : ''
-        await bot.send(chatId, `${saved}${reason}\n\nПришлите текст сообщением или файл в другом формате — отвечу по содержимому.`, message.message_id)
+        const failureText = `${saved}${reason}\n\nПришлите текст сообщением или файл в другом формате — отвечу по содержимому.`
+        // Даже если вложение не удалось разобрать, оно должно остаться в истории:
+        // иначе голосовое/фото с сайта исчезает после первого опроса.
+        const historyAttachments = (message.attachments ?? [])
+          .filter((item) => item && item.url)
+          .map((item) => ({ id: item.id, kind: item.kind, name: item.name, mime: item.mime, size: item.size, url: item.url }))
+        await bot.history.append(
+          chatKey,
+          {
+            role: 'user',
+            content: prepared.summary || prompt || '[вложение]',
+            ...(authorName ? { author: authorName } : {}),
+            ...(message.replyTo && typeof message.replyTo.text === 'string' && message.replyTo.text.trim() !== ''
+              ? { replyTo: { text: message.replyTo.text.trim().slice(0, 600), ...(message.replyTo.author ? { author: String(message.replyTo.author).slice(0, 80) } : {}) } }
+              : {}),
+            ...(historyAttachments.length > 0 ? { attachments: historyAttachments } : {}),
+          },
+          { userId: isGroup ? undefined : userId },
+        )
+        await bot.send(chatId, failureText, message.message_id)
+        await bot.history.append(
+          chatKey,
+          { role: 'assistant', content: failureText },
+          { userId: isGroup ? undefined : userId },
+        )
         void bot.react(message, '🤔')
         return
       }
