@@ -423,6 +423,7 @@ export function createMiniApp({
   pushTest,
   avatarProvider,
   mediaStore,
+  inbox,
   documents,
   proactiveSettings,
   updateProactive,
@@ -1168,6 +1169,51 @@ export function createMiniApp({
     response.end(body)
   }
 
+  /** Инбокс: короткие заметки пользователя. */
+  function listInbox(request, response, { userId }) {
+    request.resume()
+    if (!inbox || typeof inbox.list !== 'function') return missingStore(response, 'инбокс')
+    sendJson(response, 200, { items: inbox.list(userId) })
+  }
+
+  async function addInboxItem(request, response, { userId }) {
+    if (!inbox || typeof inbox.add !== 'function') return missingStore(response, 'инбокс')
+    const body = await readJsonBody(request, bodyLimit)
+    if (!body.ok) return sendError(response, body.status, body.code, body.error)
+    try {
+      const item = await inbox.add({ userId, text: body.value?.text })
+      sendJson(response, 200, { item })
+    } catch (error) {
+      if (error?.code === 'conflict') return sendError(response, 409, ERROR_CODES.conflict, error.message)
+      return badRequest(response, error?.message || 'Не удалось добавить заметку')
+    }
+  }
+
+  async function updateInboxItem(request, response, { userId }) {
+    if (!inbox || typeof inbox.toggle !== 'function') return missingStore(response, 'инбокс')
+    const body = await readJsonBody(request, bodyLimit)
+    if (!body.ok) return sendError(response, body.status, body.code, body.error)
+    try {
+      const item = await inbox.toggle({ userId, itemId: body.value?.itemId, done: body.value?.done })
+      sendJson(response, 200, { item })
+    } catch (error) {
+      if (error?.code === 'not_found') return notFound(response)
+      return badRequest(response, error?.message || 'Не удалось обновить заметку')
+    }
+  }
+
+  async function deleteInboxItem(request, response, { userId, url }) {
+    if (!inbox || typeof inbox.remove !== 'function') return missingStore(response, 'инбокс')
+    request.resume()
+    try {
+      await inbox.remove({ userId, itemId: url.searchParams.get('id') })
+      sendJson(response, 200, { ok: true })
+    } catch (error) {
+      if (error?.code === 'not_found') return notFound(response)
+      return badRequest(response, error?.message || 'Не удалось удалить заметку')
+    }
+  }
+
   /** GET /api/system — состояние сервера и список бэкапов. */
   async function getSystem(request, response) {
     request.resume()
@@ -1847,6 +1893,10 @@ export function createMiniApp({
     { method: 'DELETE', pattern: /^\/api\/memory\/([^/]+)$/, handler: deleteFact },
     { method: 'GET', pattern: /^\/api\/chats$/, handler: listChats },
     { method: 'GET', pattern: /^\/api\/avatar\/(\d+)$/, handler: getAvatar },
+    { method: 'GET', pattern: /^\/api\/inbox$/, handler: listInbox },
+    { method: 'POST', pattern: /^\/api\/inbox$/, handler: addInboxItem },
+    { method: 'PATCH', pattern: /^\/api\/inbox$/, handler: updateInboxItem },
+    { method: 'DELETE', pattern: /^\/api\/inbox$/, handler: deleteInboxItem },
     { method: 'GET', pattern: /^\/api\/calendar\.ics$/, handler: exportCalendar },
     { method: 'GET', pattern: /^\/api\/system$/, handler: getSystem },
     { method: 'GET', pattern: /^\/api\/files\/search$/, handler: searchFiles },

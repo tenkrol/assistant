@@ -32,6 +32,7 @@ import { createMiniApp } from './miniapp.mjs'
 import { MobileUserStore } from './mobile-users.mjs'
 import { MobilePushStore, createVapidConfig, sendPush } from './mobile-push.mjs'
 import { MobileMediaStore } from './mobile-media.mjs'
+import { MobileInboxStore } from './mobile-inbox.mjs'
 import { createOutbox } from './outbox.mjs'
 import { createAgentEventsStore } from './storage/agent-events.mjs'
 import { createAgentLink } from './agent-link/index.mjs'
@@ -790,6 +791,14 @@ export async function createInstance({ config, logger, instance, shared, platfor
           mobilePush = undefined
         }
       }
+      let mobileInbox
+      try {
+        mobileInbox = new MobileInboxStore({ file: stateFile(botConfig.dataDir, 'mobile-inbox', instance.namespace), logger })
+        await mobileInbox.load()
+      } catch (error) {
+        logger.warn('mobile inbox disabled', { error: error?.message ?? error })
+        mobileInbox = undefined
+      }
       const miniApp = createMiniApp({
         port: config.miniapp.port,
         host: config.miniapp.host,
@@ -807,6 +816,7 @@ export async function createInstance({ config, logger, instance, shared, platfor
         pushPublicKey: pushVapid ? pushVapid.publicKey : '',
         avatarProvider: (userId) => (typeof bot.platform.getUserAvatar === 'function' ? bot.platform.getUserAvatar(userId) : null),
         mediaStore: mobileMedia,
+        inbox: mobileInbox,
         documents,
         systemStatus: async () => {
           let serverText = 'Модуль состояния сервера выключен.'

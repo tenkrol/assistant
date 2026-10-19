@@ -381,6 +381,10 @@
             <span class="tile-ic blue"><svg class="ic"><use href="#i-settings"/></svg></span>
             <b>Настройки</b><span>характер, режим, голос</span>
           </button>
+          <button class="tile" data-go="inbox">
+            <span class="tile-ic mint"><svg class="ic"><use href="#i-checklist"/></svg></span>
+            <b>Инбокс</b><span>заметки и задачи</span>
+          </button>
           <button class="tile" data-go="files">
             <span class="tile-ic violet"><svg class="ic"><use href="#i-folder"/></svg></span>
             <b>Файлы</b><span>документы бота</span>
@@ -570,6 +574,23 @@
           Выйти из аккаунта
         </button>
         <p class="hint center">Версия 1.0 · tenkrol.ru/mobile</p>
+      </div>
+    </section>
+
+    <!-- ================= ИНБОКС ================= -->
+    <section class="screen" data-screen="inbox" hidden>
+      <header class="topbar sub-head">
+        <button class="icon-btn" data-back="more" aria-label="Назад">
+          <svg class="ic"><use href="#i-chevron-left"/></svg>
+        </button>
+        <div><h2>Инбокс</h2><p class="sub">заметки и задачи на бегу</p></div>
+      </header>
+      <div class="search-row">
+        <input class="input" id="inbox-input" placeholder="Новая заметка…" aria-label="Новая заметка">
+        <button class="icon-btn accent" id="inbox-add" aria-label="Добавить"><svg class="ic"><use href="#i-plus"/></svg></button>
+      </div>
+      <div class="scroll screen-scroll" id="inbox-scroll">
+        <div id="inbox-list"><p class="hint">Загружаю…</p></div>
       </div>
     </section>
 

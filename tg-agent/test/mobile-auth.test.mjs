@@ -181,6 +181,7 @@ async function createHarness(t, options = {}) {
     avatarProvider: options.avatarProvider,
     mediaStore: options.mediaStore,
     documents: options.documents,
+    inbox: options.inbox,
     systemStatus: options.systemStatus,
     proactiveSettings: options.proactiveSettings,
     updateProactive: options.updateProactive,
@@ -876,6 +877,29 @@ test('медиа: загрузка фото, отдача и отправка с
   await history.flush()
   const chat = await request(base, '/api/chat/history', { cookieJar: cookies })
   assert.equal(chat.json.messages.at(-1).attachments[0].id, uploaded.id)
+})
+
+test('инбокс: добавить, отметить, удалить', async (t) => {
+  const items = []
+  const { base } = await createHarness(t, {
+    inbox: {
+      list: (userId) => items.filter((item) => item.userId === userId),
+      add: async ({ userId, text }) => { const item = { id: 'i1', userId, text, done: false, createdAt: new Date().toISOString() }; items.push(item); return item },
+      toggle: async ({ itemId, done }) => { const item = items.find((entry) => entry.id === itemId); item.done = done; return item },
+      remove: async ({ itemId }) => { const index = items.findIndex((entry) => entry.id === itemId); return items.splice(index, 1)[0] },
+    },
+  })
+  const cookies = jar()
+  await request(base, '/api/auth/login', { method: 'POST', body: { password: PASSWORD }, cookieJar: cookies })
+  const created = await request(base, '/api/inbox', { method: 'POST', cookieJar: cookies, headers: { 'X-Mobile-Client': '1' }, body: { text: 'позвонить' } })
+  assert.equal(created.status, 200)
+  assert.equal(created.json.item.text, 'позвонить')
+  const listed = await request(base, '/api/inbox', { cookieJar: cookies })
+  assert.equal(listed.json.items.length, 1)
+  const toggled = await request(base, '/api/inbox', { method: 'PATCH', cookieJar: cookies, headers: { 'X-Mobile-Client': '1' }, body: { itemId: 'i1', done: true } })
+  assert.equal(toggled.json.item.done, true)
+  const removed = await request(base, '/api/inbox?id=i1', { method: 'DELETE', cookieJar: cookies, headers: { 'X-Mobile-Client': '1' } })
+  assert.equal(removed.status, 200)
 })
 
 test('файлы: поиск по содержимому', async (t) => {

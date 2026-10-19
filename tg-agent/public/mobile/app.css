@@ -4447,3 +4447,36 @@ html.large-text .setting-row span {
 .cal-grid[hidden] {
   display: none;
 }
+
+.inbox-check {
+  width: 23px;
+  height: 23px;
+  flex: 0 0 auto;
+  border-radius: 7px;
+  border: 1.5px solid var(--border-2);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  display: grid;
+  place-items: center;
+}
+
+.inbox-check.is-done {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.inbox-remove {
+  flex: 0 0 auto;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  color: var(--muted);
+  font-size: 19px;
+  line-height: 1;
+}
+
+.plan-card.is-done .plan-body b {
+  text-decoration: line-through;
+  color: var(--muted);
+}

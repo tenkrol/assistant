@@ -154,6 +154,7 @@ const state = {
   stats: null,
   chat: null,
   files: null,
+  inbox: null,
   system: null,
   proactive: null,
   chatReply: null,
@@ -164,7 +165,7 @@ const state = {
   factQuery: '',
   plansView: 'reminders',
   calendar: { year: TODAY.getFullYear(), month: TODAY.getMonth(), selected: TODAY.getDate(), view: 'month' },
-  loaded: { plans: false, memory: false, settings: false, stats: false, chat: false, files: false, system: false },
+  loaded: { plans: false, memory: false, settings: false, stats: false, chat: false, files: false, system: false, inbox: false },
   loading: { plans: false, memory: false, settings: false, stats: false, chat: false }
 }
 
@@ -390,6 +391,7 @@ function go(name, options = {}) {
   if (name === 'settings') ensureSettings()
   if (name === 'stats') ensureStats()
   if (name === 'files') ensureFiles()
+  if (name === 'inbox') ensureInbox()
   if (name === 'system') ensureSystem()
   if (name === 'agent') ensureAgent()
   if (name === 'chat') ensureChat()
@@ -2088,6 +2090,89 @@ function formatFileSize(size) {
   return (value / (1024 * 1024)).toFixed(1) + ' МБ'
 }
 
+async function ensureInbox() {
+  if (!state.loaded.inbox && !state.loading.inbox) await loadInbox()
+}
+
+async function loadInbox() {
+  if (state.loading.inbox) return
+  state.loading.inbox = true
+  try {
+    const data = await api('GET', '/api/inbox')
+    state.inbox = Array.isArray(data.items) ? data.items : []
+    state.loaded.inbox = true
+    renderInbox()
+  } catch (error) {
+    $('inbox-list').replaceChildren(h('p', 'hint', error.message || 'Не удалось загрузить инбокс'))
+  } finally {
+    state.loading.inbox = false
+  }
+}
+
+function renderInbox() {
+  const box = $('inbox-list')
+  box.replaceChildren()
+  const items = state.inbox || []
+  if (items.length === 0) {
+    box.append(h('p', 'hint', 'Пока пусто. Запишите мысль или задачу — она сохранится.'))
+    return
+  }
+  items.forEach((item) => {
+    const card = h('div', 'plan-card' + (item.done ? ' is-done' : ''))
+    const check = h('button', 'inbox-check' + (item.done ? ' is-done' : ''), item.done ? '✓' : '')
+    check.type = 'button'
+    check.setAttribute('aria-label', item.done ? 'Вернуть в работу' : 'Отметить выполненным')
+    check.addEventListener('click', () => void toggleInbox(item))
+    const body = h('div', 'plan-body')
+    const text = h('b', null, item.text)
+    body.append(text, h('span', 'plan-meta', formatDateTime(item.createdAt)))
+    const remove = h('button', 'inbox-remove', '×')
+    remove.type = 'button'
+    remove.setAttribute('aria-label', 'Удалить заметку')
+    remove.addEventListener('click', () => void removeInbox(item))
+    card.append(check, body, remove)
+    box.append(card)
+  })
+}
+
+async function addInbox() {
+  const input = $('inbox-input')
+  const text = input.value.trim()
+  if (text === '') return
+  input.disabled = true
+  try {
+    await api('POST', '/api/inbox', { text })
+    input.value = ''
+    state.loaded.inbox = false
+    await loadInbox()
+  } catch (error) {
+    toast(error.message || 'Не удалось добавить заметку')
+  } finally {
+    input.disabled = false
+    input.focus()
+  }
+}
+
+async function toggleInbox(item) {
+  try {
+    await api('PATCH', '/api/inbox', { itemId: item.id, done: !item.done })
+    state.loaded.inbox = false
+    await loadInbox()
+  } catch (error) {
+    toast(error.message || 'Не удалось обновить заметку')
+  }
+}
+
+async function removeInbox(item) {
+  try {
+    await api('DELETE', '/api/inbox?id=' + encodeURIComponent(item.id))
+    state.loaded.inbox = false
+    await loadInbox()
+  } catch (error) {
+    toast(error.message || 'Не удалось удалить заметку')
+  }
+}
+
 async function ensureSystem() {
   if (state.loaded.system) return
   try {
@@ -3326,6 +3411,8 @@ function bind() {
   $('chat-mic').addEventListener('click', () => { if (voiceRecording) stopVoiceRecording(); else void startVoiceRecording() })
   $('recorder-send').addEventListener('click', stopVoiceRecording)
   $('recorder-cancel').addEventListener('click', cancelVoiceRecording)
+  $('inbox-add').addEventListener('click', () => void addInbox())
+  $('inbox-input').addEventListener('keydown', (event) => { if (event.key === 'Enter') { event.preventDefault(); void addInbox() } })
   $('files-search').addEventListener('input', (event) => {
     clearTimeout(filesSearchTimer)
     const value = event.target.value
