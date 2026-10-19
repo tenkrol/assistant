@@ -38,6 +38,7 @@ import {
   verifyUsername,
 } from './mobile-auth.mjs'
 import { generateTotpSecret, totpUri, verifyTotp } from './totp.mjs'
+import { GmailError } from './mobile-gmail.mjs'
 
 const JSON_TYPE = 'application/json; charset=utf-8'
 const DEFAULT_MAX_BODY = 32_768
@@ -430,6 +431,7 @@ export function createMiniApp({
   mobileAuthLog,
   mobileAutomations,
   automationRunner,
+  gmail,
   editChatMessage,
   deleteChatMessage,
   documents,
@@ -2338,6 +2340,10 @@ export function createMiniApp({
     { method: 'POST', pattern: /^\/api\/accounts$/, handler: createAccount },
     { method: 'PATCH', pattern: /^\/api\/account$/, handler: updateAccount },
     { method: 'GET', pattern: /^\/api\/security\/log$/, handler: securityLog },
+    { method: 'GET', pattern: /^\/api\/gmail\/status$/, handler: gmailStatus },
+    { method: 'GET', pattern: /^\/api\/gmail\/auth$/, handler: gmailAuth },
+    { method: 'GET', pattern: /^\/api\/gmail\/messages$/, handler: gmailMessages },
+    { method: 'GET', pattern: /^\/api\/gmail\/messages\/([^/]+)$/, handler: gmailMessage },
     { method: 'GET', pattern: /^\/api\/automations$/, handler: listAutomations },
     { method: 'POST', pattern: /^\/api\/automations$/, handler: createAutomation },
     { method: 'PATCH', pattern: /^\/api\/automations\/([^/]+)$/, handler: updateAutomation },
@@ -2354,6 +2360,102 @@ export function createMiniApp({
     '/api/auth/login': { method: 'POST', run: login },
     '/api/auth/logout': { method: 'POST', run: logout },
     '/api/auth/session': { method: 'GET', run: sessionInfo },
+  }
+
+  function gmailState(userId) {
+    const payload = Buffer.from(JSON.stringify({ userId: Number(userId), at: Date.now() })).toString('base64url')
+    const sig = crypto.createHmac('sha256', mobileSessionSecret).update('gmail:' + payload).digest('base64url')
+    return payload + '.' + sig
+  }
+
+  function readGmailState(token) {
+    const [payload, sig] = String(token || '').split('.')
+    if (!payload || !sig) return undefined
+    const expected = crypto.createHmac('sha256', mobileSessionSecret).update('gmail:' + payload).digest('base64url')
+    if (expected.length !== sig.length || !crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(sig))) return undefined
+    try {
+      const data = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'))
+      if (Date.now() - Number(data.at) > 10 * 60 * 1000) return undefined
+      return Number(data.userId)
+    } catch {
+      return undefined
+    }
+  }
+
+  async function gmailAccess(userId) {
+    const stored = gmail?.tokens?.get(userId)
+    if (!stored) throw new GmailError('Gmail не подключён', 'not_connected', 401)
+    const token = await gmail.client.accessToken(stored.refreshToken)
+    return { token, stored }
+  }
+
+  function gmailStatus(request, response, { userId }) {
+    request.resume()
+    const configured = Boolean(gmail?.client?.configured)
+    const stored = gmail?.tokens?.get(userId)
+    sendJson(response, 200, {
+      configured,
+      connected: Boolean(stored),
+      ...(stored?.email ? { email: stored.email } : {}),
+      redirectUri: gmail?.client?.redirectUri ?? '',
+    })
+  }
+
+  function gmailAuth(request, response, { userId }) {
+    request.resume()
+    if (!gmail?.client?.configured) return badRequest(response, 'Gmail OAuth не настроен на сервере')
+    sendJson(response, 200, { url: gmail.client.authUrl(gmailState(userId)) })
+  }
+
+  async function gmailCallback(request, response, url) {
+    request.resume()
+    const userId = readGmailState(url.searchParams.get('state'))
+    const code = url.searchParams.get('code')
+    const fallback = '/mobile/?gmail=error'
+    if (!userId || !code || !gmail?.client?.configured) {
+      response.writeHead(302, { location: fallback })
+      return response.end()
+    }
+    try {
+      const data = await gmail.client.exchangeCode(code)
+      if (!data.refresh_token) throw new GmailError('Google не выдал refresh token')
+      await gmail.tokens.set(userId, { refreshToken: data.refresh_token, scope: data.scope ?? '' })
+      response.writeHead(302, { location: '/mobile/?gmail=connected' })
+      response.end()
+    } catch (error) {
+      logger?.warn?.('gmail callback failed', { error: error?.message ?? error })
+      response.writeHead(302, { location: fallback })
+      response.end()
+    }
+  }
+
+  async function gmailMessages(request, response, { userId, url }) {
+    request.resume()
+    if (!gmail?.tokens) return missingStore(response, 'Gmail')
+    try {
+      const { token } = await gmailAccess(userId)
+      const messages = await gmail.client.list(token, { q: url.searchParams.get('q') ?? '', max: 15 })
+      sendJson(response, 200, { messages })
+    } catch (error) {
+      if (error?.code === 'reauth' || error?.code === 'not_connected') {
+        await gmail.tokens.remove(userId).catch(() => {})
+        return sendError(response, 401, 'gmail_reauth', 'Подключите Gmail заново')
+      }
+      sendError(response, 502, ERROR_CODES.unavailable, 'Не удалось получить письма')
+    }
+  }
+
+  async function gmailMessage(request, response, { userId, params }) {
+    request.resume()
+    if (!gmail?.tokens) return missingStore(response, 'Gmail')
+    try {
+      const { token } = await gmailAccess(userId)
+      const message = await gmail.client.message(token, params[0])
+      sendJson(response, 200, { message })
+    } catch (error) {
+      if (error?.code === 'reauth' || error?.code === 'not_connected') return sendError(response, 401, 'gmail_reauth', 'Подключите Gmail заново')
+      sendError(response, 502, ERROR_CODES.unavailable, 'Не удалось открыть письмо')
+    }
   }
 
   function calendarToken(userId) {
@@ -2394,6 +2496,8 @@ export function createMiniApp({
       }
       return exportCalendar(request, response, { userId: id, chatId: Number(chatIdOf(id)) })
     }
+
+    if (pathname === '/api/gmail/callback' && method === 'GET') return gmailCallback(request, response, url)
 
     const authRoute = AUTH_ROUTES[pathname]
     if (authRoute) {

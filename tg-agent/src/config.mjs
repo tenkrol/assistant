@@ -600,6 +600,11 @@ export function loadConfig(env = process.env) {
       host: '127.0.0.1',
       token: read(env, 'OUTBOX_TOKEN').trim(),
     },
+    gmail: {
+      clientId: read(env, 'GMAIL_CLIENT_ID').trim(),
+      clientSecret: read(env, 'GMAIL_CLIENT_SECRET').trim(),
+      redirectUri: read(env, 'GMAIL_REDIRECT_URI').trim() || 'https://tenkrol.ru/api/gmail/callback',
+    },
     yandexDisk: {
       token: read(env, 'YANDEX_DISK_TOKEN').trim(),
       dir: read(env, 'YANDEX_DISK_DIR').trim() || 'Агент',

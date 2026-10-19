@@ -67,6 +67,7 @@
       <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 5v5h-5"/><path d="M19.2 10A8 8 0 1 0 20 15"/></symbol>
       <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5.5v13L19 12 8 5.5Z"/></symbol>
       <symbol id="i-paperclip" viewBox="0 0 24 24"><path d="M20 11.5 12 19.5a5 5 0 0 1-7-7l8.5-8.5a3.5 3.5 0 0 1 5 5L9.5 17.5a2 2 0 0 1-3-3L15 6"/></symbol>
+      <symbol id="i-mail" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="m4 7 8 6 8-6"/></symbol>
       <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 2 4 14h6l-1 8 9-12h-6l1-8Z"/></symbol>
       <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2.5"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></symbol>
       <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z"/><circle cx="12" cy="12" r="3"/></symbol>
@@ -392,6 +393,10 @@
             <span class="tile-ic blue"><svg class="ic"><use href="#i-settings"/></svg></span>
             <b>Настройки</b><span>характер, режим, голос</span>
           </button>
+          <button class="tile" data-go="mail">
+            <span class="tile-ic blue"><svg class="ic"><use href="#i-mail"/></svg></span>
+            <b>Почта</b><span>Gmail</span>
+          </button>
           <button class="tile" data-go="automations">
             <span class="tile-ic amber"><svg class="ic"><use href="#i-bolt"/></svg></span>
             <b>Автоматизации</b><span>по расписанию</span>
@@ -599,6 +604,25 @@
           Выйти из аккаунта
         </button>
         <p class="hint center">Версия 1.0 · tenkrol.ru/mobile</p>
+      </div>
+    </section>
+
+    <!-- ================= ПОЧТА ================= -->
+    <section class="screen" data-screen="mail" hidden>
+      <header class="topbar sub-head">
+        <button class="icon-btn" data-back="more" aria-label="Назад">
+          <svg class="ic"><use href="#i-chevron-left"/></svg>
+        </button>
+        <div><h2>Почта</h2><p class="sub" id="mail-sub">Gmail</p></div>
+        <button class="icon-btn" id="mail-refresh" aria-label="Обновить">
+          <svg class="ic"><use href="#i-refresh"/></svg>
+        </button>
+      </header>
+      <div class="search-row" id="mail-search-row" hidden>
+        <input class="input" id="mail-search" placeholder="Поиск по почте" aria-label="Поиск по почте">
+      </div>
+      <div class="scroll screen-scroll" id="mail-scroll">
+        <div id="mail-list"><p class="hint">Загружаю…</p></div>
       </div>
     </section>
 

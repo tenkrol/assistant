@@ -159,6 +159,8 @@ const state = {
   filesTab: 'documents',
   inbox: null,
   automations: null,
+  gmail: null,
+  mailMessages: null,
   system: null,
   proactive: null,
   chatReply: null,
@@ -398,6 +400,7 @@ function go(name, options = {}) {
   if (name === 'files') ensureFiles()
   if (name === 'inbox') ensureInbox()
   if (name === 'automations') ensureAutomations()
+  if (name === 'mail') ensureMail()
   if (name === 'system') ensureSystem()
   if (name === 'agent') ensureAgent()
   if (name === 'chat') ensureChat()
@@ -2232,6 +2235,109 @@ function formatFileSize(size) {
   return (value / (1024 * 1024)).toFixed(1) + ' МБ'
 }
 
+let mailSearchTimer
+
+async function ensureMail() {
+  if (state.gmail === null) await loadGmail()
+}
+
+async function loadGmail() {
+  try {
+    state.gmail = await api('GET', '/api/gmail/status')
+    if (state.gmail.connected) await loadMailMessages()
+    else renderMail()
+  } catch (error) {
+    $('mail-list').replaceChildren(h('p', 'hint', error.message || 'Почта недоступна'))
+  }
+}
+
+async function loadMailMessages(query = '') {
+  $('mail-list').replaceChildren(h('p', 'hint', 'Загружаю письма…'))
+  try {
+    const data = await api('GET', '/api/gmail/messages' + (query ? '?q=' + encodeURIComponent(query) : ''))
+    state.mailMessages = Array.isArray(data.messages) ? data.messages : []
+    renderMail()
+  } catch (error) {
+    if (error.code === 'gmail_reauth') {
+      state.gmail = { ...(state.gmail || {}), connected: false }
+      renderMail()
+      toast('Подключите Gmail заново')
+      return
+    }
+    $('mail-list').replaceChildren(h('p', 'hint', error.message || 'Не удалось загрузить письма'))
+  }
+}
+
+function renderMail() {
+  const gmail = state.gmail || {}
+  $('mail-search-row').hidden = !gmail.connected
+  if (!gmail.configured) {
+    $('mail-sub').textContent = 'не настроена'
+    const wrap = h('div', 'card info-card')
+    wrap.append(h('b', null, 'Gmail ещё не настроен'))
+    wrap.append(h('p', null, 'В Google Cloud создайте OAuth-клиент, включите Gmail API и добавьте redirect URI:'))
+    wrap.append(h('code', 'totp-secret', 'https://tenkrol.ru/api/gmail/callback'))
+    wrap.append(h('p', null, 'Затем добавьте GMAIL_CLIENT_ID и GMAIL_CLIENT_SECRET в .env на сервере.'))
+    $('mail-list').replaceChildren(wrap)
+    return
+  }
+  if (!gmail.connected) {
+    $('mail-sub').textContent = 'не подключена'
+    const wrap = h('div', 'card info-card')
+    wrap.append(h('b', null, 'Подключите Gmail'))
+    wrap.append(h('p', null, 'Доступ только на чтение писем. Пароль Google сайту не передаётся.'))
+    const button = h('button', 'btn btn-primary', 'Подключить Gmail')
+    button.type = 'button'
+    button.addEventListener('click', async () => {
+      try {
+        const data = await api('GET', '/api/gmail/auth')
+        window.location.href = data.url
+      } catch (error) {
+        toast(error.message || 'Gmail OAuth не настроен')
+      }
+    })
+    wrap.append(button)
+    $('mail-list').replaceChildren(wrap)
+    return
+  }
+  $('mail-sub').textContent = gmail.email || 'подключена'
+  const messages = state.mailMessages || []
+  const box = $('mail-list')
+  box.replaceChildren()
+  if (messages.length === 0) {
+    box.append(h('p', 'hint', 'Писем нет.'))
+    return
+  }
+  messages.forEach((message) => {
+    const card = h('button', 'plan-card')
+    card.type = 'button'
+    const ic = h('span', 'plan-ic')
+    ic.append(icon('mail'))
+    const body = h('div', 'plan-body')
+    body.append(h('b', null, message.subject), h('span', 'plan-meta', (message.from || '') + (message.unread ? ' · новое' : '')))
+    body.append(h('span', 'plan-meta', message.snippet || ''))
+    card.append(ic, body)
+    card.addEventListener('click', () => void openMailMessage(message))
+    box.append(card)
+  })
+}
+
+async function openMailMessage(message) {
+  const wrap = h('div')
+  wrap.append(h('p', 'hint', 'Загружаю письмо…'))
+  openSheet({ title: message.subject || 'Письмо', body: wrap })
+  try {
+    const data = await api('GET', '/api/gmail/messages/' + encodeURIComponent(message.id))
+    const mail = data.message
+    wrap.replaceChildren()
+    wrap.append(h('p', 'plan-meta', mail.from + '\n' + mail.date))
+    const pre = h('pre', 'mail-text', mail.text || '(текст не найден)')
+    wrap.append(pre)
+  } catch (error) {
+    wrap.replaceChildren(h('p', 'hint', error.message || 'Не удалось открыть письмо'))
+  }
+}
+
 const AUTOMATION_TEMPLATES = [
   {
     title: 'Утренний дайджест',
@@ -4056,6 +4162,12 @@ function bind() {
     } catch (error) {
       toast(error.message || 'Не удалось получить ссылку')
     }
+  })
+  $('mail-refresh').addEventListener('click', () => { state.gmail = null; void loadGmail() })
+  $('mail-search').addEventListener('input', (event) => {
+    clearTimeout(mailSearchTimer)
+    const value = event.target.value
+    mailSearchTimer = setTimeout(() => void loadMailMessages(value), 350)
   })
   $('automation-add').addEventListener('click', () => openAutomationSheet())
   $('inbox-add').addEventListener('click', () => void addInbox())

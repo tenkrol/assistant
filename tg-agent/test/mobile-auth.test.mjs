@@ -186,6 +186,7 @@ async function createHarness(t, options = {}) {
     agentFiles: options.agentFiles,
     mobileAuthLog: options.mobileAuthLog,
     mobileAutomations: options.mobileAutomations,
+    gmail: options.gmail,
     automationRunner: options.automationRunner,
     systemStatus: options.systemStatus,
     proactiveSettings: options.proactiveSettings,
@@ -774,6 +775,18 @@ test('агент: отмена задачи', async (t) => {
     method: 'POST', cookieJar: cookies, headers: { 'X-Mobile-Client': '1' }, body: {},
   })
   assert.equal(empty.status, 400)
+})
+
+test('Gmail: статус без настройки', async (t) => {
+  const { base } = await createHarness(t, {
+    gmail: { client: { configured: false, redirectUri: 'https://tenkrol.ru/api/gmail/callback' }, tokens: { get: () => undefined, remove: async () => {} } },
+  })
+  const cookies = jar()
+  await request(base, '/api/auth/login', { method: 'POST', body: { password: PASSWORD }, cookieJar: cookies })
+  const status = await request(base, '/api/gmail/status', { cookieJar: cookies })
+  assert.equal(status.status, 200)
+  assert.equal(status.json.configured, false)
+  assert.equal(status.json.connected, false)
 })
 
 test('автоматизации: создать, переключить и запустить', async (t) => {
