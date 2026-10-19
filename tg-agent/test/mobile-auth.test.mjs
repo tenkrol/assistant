@@ -1055,6 +1055,21 @@ test('история сохраняет цитату ответа', async (t) =>
   assert.equal(chat.json.messages[0].replyTo.author, 'Ассистент')
 })
 
+test('календарь: ссылка-подписка без cookie', async (t) => {
+  const { base } = await createHarness(t)
+  const cookies = jar()
+  await request(base, '/api/auth/login', { method: 'POST', body: { password: PASSWORD }, cookieJar: cookies })
+  const link = await request(base, '/api/calendar/link', { cookieJar: cookies })
+  assert.equal(link.status, 200)
+  assert.match(link.json.url, /\/api\/calendar\.ics\?token=/)
+  const pathOnly = new URL(link.json.url).pathname + new URL(link.json.url).search
+  const feed = await fetch(base + pathOnly)
+  assert.equal(feed.status, 200)
+  assert.match(await feed.text(), /BEGIN:VCALENDAR/)
+  const forged = await fetch(base + '/api/calendar.ics?token=wrong')
+  assert.equal(forged.status, 403)
+})
+
 test('экспорт календаря в .ics', async (t) => {
   const { base, reminders, events } = await createHarness(t)
   reminders.add({ chatId: USER_ID, userId: USER_ID, text: 'позвонить', dueAt: new Date(Date.now() + 3600_000).toISOString(), repeat: 'none' })

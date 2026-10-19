@@ -227,7 +227,10 @@
             <span><i class="legend-dot"></i>напоминание</span>
             <span><i class="legend-dot event"></i>событие</span>
           </div>
-          <a class="pill-btn cal-export" href="/api/calendar.ics" download>Экспорт в календарь (.ics)</a>
+          <div class="cal-export-row">
+            <a class="pill-btn cal-export" href="/api/calendar.ics" download>Экспорт (.ics)</a>
+            <button class="pill-btn" id="cal-subscribe" type="button">Ссылка для подписки</button>
+          </div>
           <div class="group-head"><span id="cal-day-title">—</span><span class="group-count" id="cal-day-count">0</span></div>
           <div id="cal-day-list"></div>
         </div>

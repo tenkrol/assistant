@@ -4509,3 +4509,15 @@ html.large-text .setting-row span {
   letter-spacing: 0.08em;
   overflow-wrap: anywhere;
 }
+
+.cal-export-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 10px 0 4px;
+}
+
+.cal-export-row .cal-export {
+  margin: 0;
+  display: inline-flex;
+}

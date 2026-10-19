@@ -3680,6 +3680,15 @@ function bind() {
   document.querySelectorAll('[data-files-tab]').forEach((button) => {
     button.addEventListener('click', () => switchFilesTab(button.dataset.filesTab))
   })
+  $('cal-subscribe').addEventListener('click', async () => {
+    try {
+      const data = await api('GET', '/api/calendar/link')
+      await navigator.clipboard.writeText(data.url)
+      toast('Ссылка скопирована — добавьте её в календарь как подписку')
+    } catch (error) {
+      toast(error.message || 'Не удалось получить ссылку')
+    }
+  })
   $('inbox-add').addEventListener('click', () => void addInbox())
   $('inbox-input').addEventListener('keydown', (event) => { if (event.key === 'Enter') { event.preventDefault(); void addInbox() } })
   $('files-search').addEventListener('input', (event) => {

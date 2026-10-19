@@ -2132,6 +2132,7 @@ export function createMiniApp({
     { method: 'PATCH', pattern: /^\/api\/inbox$/, handler: updateInboxItem },
     { method: 'DELETE', pattern: /^\/api\/inbox$/, handler: deleteInboxItem },
     { method: 'GET', pattern: /^\/api\/calendar\.ics$/, handler: exportCalendar },
+    { method: 'GET', pattern: /^\/api\/calendar\/link$/, handler: calendarLink },
     { method: 'GET', pattern: /^\/api\/system$/, handler: getSystem },
     { method: 'GET', pattern: /^\/api\/files\/search$/, handler: searchFiles },
     { method: 'GET', pattern: /^\/api\/disk$/, handler: listDiskFiles },
@@ -2178,9 +2179,44 @@ export function createMiniApp({
     '/api/auth/session': { method: 'GET', run: sessionInfo },
   }
 
+  function calendarToken(userId) {
+    return crypto.createHmac('sha256', mobileSessionSecret).update('calendar:' + String(userId)).digest('base64url').slice(0, 32)
+  }
+
+  function userIdForCalendarToken(token) {
+    const users = accounts ? accounts.list().map((user) => user.userId) : [passwordUserNumber]
+    for (const id of users) {
+      if (!Number.isInteger(Number(id))) continue
+      const expected = calendarToken(id)
+      if (expected.length === String(token).length && crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(String(token)))) {
+        return Number(id)
+      }
+    }
+    return undefined
+  }
+
+  /** Ссылка-подписка для Apple Calendar / Google Calendar. */
+  function calendarLink(request, response, { userId }) {
+    request.resume()
+    const host = request.headers['x-forwarded-host'] || request.headers.host || 'tenkrol.ru'
+    const proto = request.headers['x-forwarded-proto'] || 'https'
+    sendJson(response, 200, {
+      url: proto + '://' + host + '/api/calendar.ics?token=' + calendarToken(userId),
+    })
+  }
+
   async function handleApi(request, response, url) {
     const method = (request.method ?? 'GET').toUpperCase()
     const pathname = url.pathname
+
+    if (pathname === '/api/calendar.ics' && method === 'GET' && url.searchParams.get('token')) {
+      const id = userIdForCalendarToken(url.searchParams.get('token'))
+      if (!id) {
+        request.resume()
+        return sendError(response, 403, ERROR_CODES.forbidden, 'Неверная ссылка календаря')
+      }
+      return exportCalendar(request, response, { userId: id, chatId: Number(chatIdOf(id)) })
+    }
 
     const authRoute = AUTH_ROUTES[pathname]
     if (authRoute) {
