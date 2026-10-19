@@ -168,6 +168,7 @@ const state = {
   factQuery: '',
   plansView: 'reminders',
   calendar: { year: TODAY.getFullYear(), month: TODAY.getMonth(), selected: TODAY.getDate(), view: 'month' },
+  statsDays: 7,
   loaded: { plans: false, memory: false, settings: false, stats: false, chat: false, files: false, system: false, inbox: false },
   loading: { plans: false, memory: false, settings: false, stats: false, chat: false }
 }
@@ -3356,7 +3357,7 @@ async function loadStats() {
   if (state.loading.stats) return
   state.loading.stats = true
   try {
-    const data = await api('GET', '/api/stats?days=7')
+    const data = await api('GET', '/api/stats?days=' + state.statsDays)
     state.stats = data
     state.loaded.stats = true
     renderStats()
@@ -3395,11 +3396,15 @@ function renderStats() {
 
   const chartCard = h('div', 'card chart-card')
   const chartHead = h('div', 'card-head')
-  chartHead.append(h('b', null, 'За 7 дней'), h('span', null, 'токены'))
+  chartHead.append(h('b', null, 'За ' + days.length + ' дней'), h('span', null, 'токены'))
   chartCard.append(chartHead)
   const chart = h('div', 'chart')
   const labels = h('div', 'chart-labels')
   const days = Array.isArray(stats.days) ? stats.days : []
+  const periodTotal = days.reduce((sum, day) => sum + (day.total || 0), 0)
+  const periodRequests = days.reduce((sum, day) => sum + (day.requests || 0), 0)
+  const average = days.length > 0 ? Math.round(periodTotal / days.length) : 0
+  const best = days.slice().sort((a, b) => (b.total || 0) - (a.total || 0))[0]
   const max = Math.max(1, ...days.map((day) => day.total || 0))
   days.forEach((day, index) => {
     const wrap = h('div', 'bar-wrap')
@@ -3414,6 +3419,18 @@ function renderStats() {
   })
   chartCard.append(chart, labels)
   box.append(chartCard)
+
+  const periodCard = h('div', 'card')
+  const periodHead = h('div', 'card-head')
+  periodHead.append(h('b', null, 'За период'), h('span', null, periodTotal + ' токенов'))
+  const periodSplit = h('div', 'stat-split')
+  periodSplit.append(
+    statCell(Math.round(periodTotal / Math.max(1, days.length)), 'в среднем в день'),
+    statCell(periodRequests, 'запросов'),
+    statCell(best ? best.total : 0, best ? 'лучший день' : 'нет данных')
+  )
+  periodCard.append(periodHead, periodSplit)
+  box.append(periodCard)
 
   const limit = Number(stats.limit) || 0
   if (limit > 0) {
@@ -3749,6 +3766,14 @@ function bind() {
   $('recorder-cancel').addEventListener('click', cancelVoiceRecording)
   document.querySelectorAll('[data-files-tab]').forEach((button) => {
     button.addEventListener('click', () => switchFilesTab(button.dataset.filesTab))
+  })
+  document.querySelectorAll('[data-stats-days]').forEach((button) => {
+    button.addEventListener('click', () => {
+      state.statsDays = Number(button.dataset.statsDays) || 7
+      document.querySelectorAll('[data-stats-days]').forEach((item) => item.classList.toggle('is-active', item === button))
+      state.loaded.stats = false
+      void loadStats()
+    })
   })
   $('cal-subscribe').addEventListener('click', async () => {
     try {
