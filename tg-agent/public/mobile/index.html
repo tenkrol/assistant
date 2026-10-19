@@ -414,6 +414,10 @@
             <span class="tile-ic blue"><svg class="ic"><use href="#i-settings"/></svg></span>
             <b>Настройки</b><span>характер, режим, голос</span>
           </button>
+          <button class="tile" data-go="photos">
+            <span class="tile-ic pink"><svg class="ic"><use href="#i-image"/></svg></span>
+            <b>Фото</b><span>поиск и генерация</span>
+          </button>
           <button class="tile" data-go="youtube">
             <span class="tile-ic red"><svg class="ic"><use href="#i-youtube"/></svg></span>
             <b>YouTube</b><span>поиск и просмотр</span>
@@ -673,6 +677,39 @@
       </header>
       <div class="scroll screen-scroll" id="dashboard-scroll">
         <div class="loading-inline"><span class="spinner"></span>Собираю сводку…</div>
+      </div>
+    </section>
+
+    <!-- ================= ФОТО ================= -->
+    <section class="screen" data-screen="photos" hidden>
+      <header class="topbar sub-head">
+        <button class="icon-btn" data-back="more" aria-label="Назад">
+          <svg class="ic"><use href="#i-chevron-left"/></svg>
+        </button>
+        <div><h2>Фото</h2><p class="sub">поиск и генерация</p></div>
+      </header>
+      <div class="segmented small" id="photos-tabs">
+        <button class="seg is-active" data-photos-tab="search">Поиск</button>
+        <button class="seg" data-photos-tab="generate">Сгенерировать</button>
+      </div>
+      <div id="photos-search-panel">
+        <div class="search-row">
+          <input class="input" id="photos-search-input" placeholder="Например: закат, горы, кот" aria-label="Поиск фото">
+          <button class="icon-btn accent" id="photos-search-btn" aria-label="Найти">
+            <svg class="ic"><use href="#i-search"/></svg>
+          </button>
+        </div>
+      </div>
+      <div id="photos-generate-panel" hidden>
+        <div class="search-row">
+          <input class="input" id="photos-prompt" placeholder="Опишите картинку: кот-космонавт в стиле Pixar" aria-label="Описание изображения">
+          <button class="icon-btn accent" id="photos-generate-btn" aria-label="Сгенерировать">
+            <svg class="ic"><use href="#i-bolt"/></svg>
+          </button>
+        </div>
+      </div>
+      <div class="scroll screen-scroll" id="photos-scroll">
+        <div id="photos-list"><p class="hint">Найдите фото или сгенерируйте изображение.</p></div>
       </div>
     </section>
 

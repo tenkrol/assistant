@@ -61,7 +61,7 @@ const MOBILE_CLIENT_HEADER = 'x-mobile-client'
 const MOBILE_PATH_PREFIX = '/mobile'
 const MOBILE_CSP = [
   "default-src 'self'",
-  "img-src 'self' data: https://i.ytimg.com https://img.youtube.com",
+  "img-src 'self' data: https:",
   "frame-src https://www.youtube.com https://www.youtube-nocookie.com",
   "style-src 'self' 'unsafe-inline'",
   "script-src 'self'",
@@ -1532,6 +1532,68 @@ export function createMiniApp({
     sendJson(response, 200, { files })
   }
 
+  const photoCache = new Map()
+
+  /** GET /api/photos/search — поиск фотографий через Openverse. */
+  async function searchPhotos(request, response, { url }) {
+    request.resume()
+    const query = String(url.searchParams.get('q') ?? '').trim()
+    if (query.length < 2) return badRequest(response, 'Запрос минимум из 2 символов')
+    const cached = photoCache.get(query.toLowerCase())
+    if (cached && Date.now() - cached.at < 5 * 60 * 1000) return sendJson(response, 200, { query, photos: cached.photos })
+    try {
+      const target = new URL('https://api.openverse.org/v1/images/')
+      target.searchParams.set('q', query)
+      target.searchParams.set('page_size', '20')
+      target.searchParams.set('mature', 'false')
+      const api = await fetch(target, { headers: { 'user-agent': 'TenKrol/1.0 (https://tenkrol.ru)' } })
+      if (!api.ok) throw new Error('Openverse HTTP ' + api.status)
+      const data = await api.json()
+      const photos = (Array.isArray(data.results) ? data.results : []).map((item) => ({
+        id: String(item.id ?? ''),
+        title: String(item.title || 'Без названия').slice(0, 200),
+        thumbnail: String(item.thumbnail || item.url || ''),
+        url: String(item.url || ''),
+        source: String(item.source || item.provider || ''),
+        creator: String(item.creator || ''),
+        license: String(item.license || '').toUpperCase(),
+        page: String(item.foreign_landing_url || ''),
+      })).filter((item) => /^https:\/\//.test(item.thumbnail))
+      photoCache.set(query.toLowerCase(), { at: Date.now(), photos })
+      while (photoCache.size > 30) photoCache.delete(photoCache.keys().next().value)
+      sendJson(response, 200, { query, photos })
+    } catch (error) {
+      logger?.warn?.('photo search failed', { error: error?.message ?? error })
+      sendError(response, 502, ERROR_CODES.unavailable, 'Не удалось найти фотографии')
+    }
+  }
+
+  /** GET /api/photos/generate?prompt=... — генерация изображения через внешний сервис. */
+  async function generatePhoto(request, response, { url }) {
+    request.resume()
+    const prompt = String(url.searchParams.get('prompt') ?? '').trim().slice(0, 500)
+    if (prompt.length < 3) return badRequest(response, 'Опишите изображение')
+    try {
+      const target = new URL('https://image.pollinations.ai/prompt/' + encodeURIComponent(prompt))
+      target.searchParams.set('width', '768')
+      target.searchParams.set('height', '768')
+      target.searchParams.set('nologo', 'true')
+      target.searchParams.set('safe', 'true')
+      const image = await fetch(target, { signal: AbortSignal.timeout(90_000), headers: { 'user-agent': 'TenKrol/1.0' } })
+      if (!image.ok) throw new Error('Image service HTTP ' + image.status)
+      const bytes = Buffer.from(await image.arrayBuffer())
+      response.writeHead(200, {
+        'content-type': image.headers.get('content-type') || 'image/jpeg',
+        'content-length': String(bytes.length),
+        'cache-control': 'private, max-age=300',
+      })
+      response.end(bytes)
+    } catch (error) {
+      logger?.warn?.('photo generation failed', { error: error?.message ?? error })
+      sendError(response, 502, ERROR_CODES.unavailable, 'Не удалось сгенерировать изображение')
+    }
+  }
+
   const youtubeSearchCache = new Map()
   const youtubeThumbCache = new Map()
 
@@ -2573,6 +2635,8 @@ export function createMiniApp({
     { method: 'GET', pattern: /^\/api\/calendar\/link$/, handler: calendarLink },
     { method: 'GET', pattern: /^\/api\/system$/, handler: getSystem },
     { method: 'GET', pattern: /^\/api\/files\/search$/, handler: searchFiles },
+    { method: 'GET', pattern: /^\/api\/photos\/search$/, handler: searchPhotos },
+    { method: 'GET', pattern: /^\/api\/photos\/generate$/, handler: generatePhoto },
     { method: 'GET', pattern: /^\/api\/youtube\/thumb$/, handler: youtubeThumb },
     { method: 'GET', pattern: /^\/api\/youtube\/search$/, handler: searchYoutube },
     { method: 'GET', pattern: /^\/api\/disk$/, handler: listDiskFiles },

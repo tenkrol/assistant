@@ -2581,6 +2581,97 @@ function formatFileSize(size) {
 
 let mailSearchTimer
 
+function switchPhotosTab(tab) {
+  document.querySelectorAll('[data-photos-tab]').forEach((button) => {
+    button.classList.toggle('is-active', button.dataset.photosTab === tab)
+  })
+  $('photos-search-panel').hidden = tab !== 'search'
+  $('photos-generate-panel').hidden = tab !== 'generate'
+  if (tab === 'generate') $('photos-list').replaceChildren(h('p', 'hint', 'Опишите картинку — генерация займёт несколько секунд.'))
+  else $('photos-list').replaceChildren(h('p', 'hint', 'Введите запрос для поиска фотографий.'))
+}
+
+async function searchPhotos() {
+  const query = $('photos-search-input').value.trim()
+  if (query.length < 2) {
+    toast('Введите хотя бы 2 символа')
+    return
+  }
+  const box = $('photos-list')
+  box.replaceChildren(h('p', 'hint', 'Ищу фотографии…'))
+  try {
+    const data = await api('GET', '/api/photos/search?q=' + encodeURIComponent(query))
+    const photos = Array.isArray(data.photos) ? data.photos : []
+    box.replaceChildren()
+    if (photos.length === 0) {
+      box.append(h('p', 'hint', 'Ничего не найдено.'))
+      return
+    }
+    const grid = h('div', 'photo-grid')
+    photos.forEach((photo) => {
+      const card = h('button', 'photo-card')
+      card.type = 'button'
+      const img = document.createElement('img')
+      img.src = photo.thumbnail
+      img.alt = photo.title
+      img.loading = 'lazy'
+      card.append(img, h('span', null, photo.title))
+      card.addEventListener('click', () => openPhoto(photo))
+      grid.append(card)
+    })
+    box.append(grid)
+  } catch (error) {
+    box.replaceChildren(h('p', 'hint', error.message || 'Поиск не удался'))
+  }
+}
+
+function generatePhoto() {
+  const prompt = $('photos-prompt').value.trim()
+  if (prompt.length < 3) {
+    toast('Опишите изображение подробнее')
+    return
+  }
+  const box = $('photos-list')
+  box.replaceChildren(h('p', 'hint', 'Генерирую изображение…'))
+  const image = document.createElement('img')
+  image.className = 'photo-full'
+  image.alt = prompt
+  image.src = '/api/photos/generate?prompt=' + encodeURIComponent(prompt)
+  image.addEventListener('load', () => {
+    box.replaceChildren(image)
+  })
+  image.addEventListener('error', () => {
+    box.replaceChildren(h('p', 'hint', 'Не удалось сгенерировать изображение. Попробуйте ещё раз.'))
+  })
+}
+
+function openPhoto(photo) {
+  const wrap = h('div')
+  const image = document.createElement('img')
+  image.className = 'photo-full'
+  image.src = photo.url || photo.thumbnail
+  image.alt = photo.title
+  wrap.append(image)
+  const meta = [photo.creator, photo.source, photo.license].filter(Boolean).join(' · ')
+  if (meta) wrap.append(h('p', 'plan-meta', meta))
+  const actions = h('div', 'file-actions')
+  const download = document.createElement('a')
+  download.className = 'pill-btn'
+  download.href = photo.url || photo.thumbnail
+  download.target = '_blank'
+  download.rel = 'noopener noreferrer'
+  download.textContent = 'Открыть оригинал'
+  const page = document.createElement('a')
+  page.className = 'pill-btn'
+  page.href = photo.page || '#'
+  page.target = '_blank'
+  page.rel = 'noopener noreferrer'
+  page.textContent = 'Источник'
+  actions.append(download, page)
+  wrap.append(actions)
+  openSheet({ title: photo.title || 'Фото', body: wrap })
+}
+
 async function searchYoutube() {
   const input = $('youtube-search-input')
   const query = input.value.trim()
@@ -4875,6 +4966,13 @@ function bind() {
   })
   $('project-add').addEventListener('click', () => openProjectSheet())
   $('dashboard-refresh').addEventListener('click', () => { state.dashboardStale = true; void ensureDashboard() })
+  document.querySelectorAll('[data-photos-tab]').forEach((button) => {
+    button.addEventListener('click', () => switchPhotosTab(button.dataset.photosTab))
+  })
+  $('photos-search-btn').addEventListener('click', () => void searchPhotos())
+  $('photos-search-input').addEventListener('keydown', (event) => { if (event.key === 'Enter') { event.preventDefault(); void searchPhotos() } })
+  $('photos-generate-btn').addEventListener('click', generatePhoto)
+  $('photos-prompt').addEventListener('keydown', (event) => { if (event.key === 'Enter') { event.preventDefault(); generatePhoto() } })
   $('youtube-search-btn').addEventListener('click', () => void searchYoutube())
   $('youtube-search-input').addEventListener('keydown', (event) => { if (event.key === 'Enter') { event.preventDefault(); void searchYoutube() } })
   $('mail-refresh').addEventListener('click', () => { state.gmail = null; void loadGmail() })
