@@ -12,6 +12,7 @@ const logger = { debug() {}, info() {}, warn() {}, error() {} }
 test('mediaKind', () => {
   assert.equal(mediaKind('image/jpeg'), 'photo')
   assert.equal(mediaKind('video/mp4'), 'video')
+  assert.equal(mediaKind('audio/webm'), 'voice')
   assert.equal(mediaKind('application/pdf'), 'document')
 })
 
@@ -29,6 +30,8 @@ test('MobileMediaStore: фото сохраняется, отдаётся и п�
     const read = await store.read(item.id)
     assert.deepEqual(read.bytes, Buffer.from([1, 2, 3]))
     assert.equal(store.publicItem(item).url, `/api/media/${item.id}`)
+    const voice = await store.add({ userId: 777, bytes: Buffer.from('voice'), name: 'voice.webm', mime: 'audio/webm' })
+    assert.equal(voice.kind, 'voice')
     await assert.rejects(() => store.add({ userId: 777, bytes: Buffer.from('pdf'), name: 'x.pdf', mime: 'application/pdf' }), MobileMediaError)
 
     const other = new MobileMediaStore({ file, dir: mediaDir, logger })

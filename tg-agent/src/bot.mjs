@@ -315,7 +315,7 @@ export class Assistant {
       .filter((item) => item && Buffer.isBuffer(item.bytes) && item.bytes.length > 0)
       .slice(0, 4)
       .map((item) => ({
-        kind: item.kind === 'video' ? 'video' : 'photo',
+        kind: ['photo', 'video', 'voice'].includes(item.kind) ? item.kind : 'photo',
         bytes: item.bytes,
         name: String(item.name || (item.kind === 'video' ? 'video.mp4' : 'photo.jpg')).slice(0, 120),
         mime: String(item.mime || (item.kind === 'video' ? 'video/mp4' : 'image/jpeg')).slice(0, 100),
@@ -351,7 +351,7 @@ export class Assistant {
       const caption = [`💬 ${message.from.name} (с сайта):`, quoted.trim(), message.text.trim()].filter(Boolean).join('\n')
       if (message.attachments.length > 0) {
         for (const [index, attachment] of message.attachments.entries()) {
-          const method = attachment.kind === 'video' ? 'sendVideo' : 'sendPhoto'
+          const method = attachment.kind === 'video' ? 'sendVideo' : attachment.kind === 'voice' ? 'sendVoice' : 'sendPhoto'
           const captionText = index === 0 ? caption.slice(0, 1024) : undefined
           let relay
           try {
@@ -362,6 +362,7 @@ export class Assistant {
                 fileName: attachment.name,
                 mime: attachment.mime,
                 caption: captionText,
+                ...(attachment.kind === 'voice' ? { durationSec: attachment.durationSec } : {}),
               })
               : await this.platform.sendDocument({
                 chatId: message.chat.id,

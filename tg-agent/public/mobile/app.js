@@ -944,7 +944,14 @@ function chatMediaNode(attachments) {
   const box = h('div', 'chat-media-box')
   attachments.forEach((attachment) => {
     if (!attachment || !attachment.url) return
-    if (attachment.kind === 'video') {
+    if (attachment.kind === 'voice') {
+      const audio = document.createElement('audio')
+      audio.className = 'chat-audio'
+      audio.src = attachment.url
+      audio.controls = true
+      audio.preload = 'metadata'
+      box.append(audio)
+    } else if (attachment.kind === 'video') {
       const video = document.createElement('video')
       video.className = 'chat-media'
       video.src = attachment.url
@@ -1009,7 +1016,7 @@ function chatMessageNode(role, text, author, replyTo, avatar, attachments, at) {
   }
   if (text) bubble.append(h('div', 'bubble-text', text))
   if (at) bubble.append(h('span', 'msg-time', formatTime(at)))
-  const replyText = text || (media.length > 0 ? (media[0].kind === 'video' ? '[видео]' : '[фото]') : '')
+  const replyText = text || (media.length > 0 ? (media[0].kind === 'video' ? '[видео]' : media[0].kind === 'voice' ? '[голосовое]' : '[фото]') : '')
   bindMessageGesture(bubble, { role, text: replyText, author })
   return article
 }
@@ -1106,7 +1113,10 @@ function updateChatSend() {
 }
 
 function mediaKind(file) {
-  return String(file.type || '').startsWith('video/') ? 'video' : 'photo'
+  const type = String(file.type || '')
+  if (type.startsWith('video/')) return 'video'
+  if (type.startsWith('audio/')) return 'voice'
+  return 'photo'
 }
 
 function renderAttachPreview() {
@@ -1119,7 +1129,11 @@ function renderAttachPreview() {
   box.hidden = false
   state.pendingMedia.forEach((item, index) => {
     const thumb = h('div', 'attach-thumb')
-    if (item.kind === 'video') {
+    if (item.kind === 'voice') {
+      const kind = h('span', 'attach-kind')
+      kind.append(icon('mic'))
+      thumb.append(kind)
+    } else if (item.kind === 'video') {
       const video = document.createElement('video')
       video.src = item.url
       video.muted = true
@@ -1151,8 +1165,8 @@ function addPendingMedia(files) {
       toast('Можно прикрепить до 4 файлов')
       break
     }
-    if (!String(file.type || '').startsWith('image/') && !String(file.type || '').startsWith('video/')) {
-      toast('Можно прикрепить только фото или видео')
+    if (!String(file.type || '').startsWith('image/') && !String(file.type || '').startsWith('video/') && !String(file.type || '').startsWith('audio/')) {
+      toast('Можно прикрепить только фото, видео или голосовое')
       continue
     }
     if (file.size > 20 * 1024 * 1024) {
@@ -1202,6 +1216,71 @@ async function uploadPendingMedia() {
   const uploaded = []
   for (const item of state.pendingMedia) uploaded.push(await uploadMediaFile(item))
   return uploaded
+}
+
+let voiceRecording = null
+
+function recorderTime(seconds) {
+  const total = Math.max(0, Math.floor(seconds))
+  return Math.floor(total / 60) + ':' + String(total % 60).padStart(2, '0')
+}
+
+async function startVoiceRecording() {
+  if (voiceRecording) return
+  if (!navigator.mediaDevices || typeof MediaRecorder === 'undefined') {
+    toast('Запись голоса не поддерживается этим браузером')
+    return
+  }
+  let stream
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+  } catch {
+    toast('Нет доступа к микрофону')
+    return
+  }
+  const candidates = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4']
+  const mime = candidates.find((value) => MediaRecorder.isTypeSupported(value)) || ''
+  const chunks = []
+  const recorder = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream)
+  const started = Date.now()
+  let timer
+  recorder.addEventListener('dataavailable', (event) => {
+    if (event.data && event.data.size > 0) chunks.push(event.data)
+  })
+  recorder.addEventListener('stop', () => {
+    stream.getTracks().forEach((track) => track.stop())
+    if (timer) clearInterval(timer)
+    const discarded = voiceRecording?.discard === true
+    $('recorder-bar').hidden = true
+    voiceRecording = null
+    if (discarded || chunks.length === 0) return
+    const type = recorder.mimeType || mime || 'audio/webm'
+    const extension = type.includes('mp4') ? 'm4a' : 'webm'
+    const file = new File([new Blob(chunks, { type })], 'voice.' + extension, { type })
+    addPendingMedia([file])
+  })
+  recorder.start()
+  voiceRecording = { recorder, stream, started }
+  $('recorder-bar').hidden = false
+  $('recorder-time').textContent = '0:00'
+  timer = setInterval(() => {
+    if (!voiceRecording) return
+    $('recorder-time').textContent = recorderTime((Date.now() - voiceRecording.started) / 1000)
+  }, 250)
+}
+
+function stopVoiceRecording() {
+  if (!voiceRecording) return
+  try { voiceRecording.recorder.stop() } catch { /* уже остановлен */ }
+}
+
+function cancelVoiceRecording() {
+  if (!voiceRecording) return
+  voiceRecording.discard = true
+  try { voiceRecording.recorder.stop() } catch { /* уже остановлен */ }
+  voiceRecording.stream.getTracks().forEach((track) => track.stop())
+  voiceRecording = null
+  $('recorder-bar').hidden = true
 }
 
 async function sendSiteMessage() {
@@ -2947,6 +3026,9 @@ function bind() {
   })
   $('chat-send').addEventListener('click', () => void sendSiteMessage())
   $('chat-attach').addEventListener('click', () => $('chat-files').click())
+  $('chat-mic').addEventListener('click', () => { if (voiceRecording) stopVoiceRecording(); else void startVoiceRecording() })
+  $('recorder-send').addEventListener('click', stopVoiceRecording)
+  $('recorder-cancel').addEventListener('click', cancelVoiceRecording)
   $('chat-files').addEventListener('change', (event) => {
     addPendingMedia(event.target.files)
     event.target.value = ''

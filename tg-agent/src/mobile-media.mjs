@@ -26,6 +26,7 @@ export function mediaKind(mime) {
   const value = String(mime ?? '').toLowerCase()
   if (value.startsWith('image/')) return 'photo'
   if (value.startsWith('video/')) return 'video'
+  if (value.startsWith('audio/')) return 'voice'
   return 'document'
 }
 
@@ -66,7 +67,7 @@ export class MobileMediaStore {
     if (bytes.length > MOBILE_MEDIA_MAX_BYTES) throw new MobileMediaError('Файл больше 20 МБ')
     const id = crypto.randomUUID()
     const kind = mediaKind(mime)
-    if (kind === 'document') throw new MobileMediaError('Можно прикреплять только фото и видео')
+    if (kind === 'document') throw new MobileMediaError('Можно прикреплять только фото, видео и голосовые')
     const cleanName = String(name || (kind === 'photo' ? 'photo.jpg' : 'video.mp4')).slice(0, 120)
     const item = {
       id,

@@ -1152,9 +1152,9 @@ export function createMiniApp({
       return missingStore(response, 'медиа')
     }
     const mime = String(request.headers['content-type'] ?? '').toLowerCase()
-    if (!mime.startsWith('image/') && !mime.startsWith('video/')) {
+    if (!mime.startsWith('image/') && !mime.startsWith('video/') && !mime.startsWith('audio/')) {
       request.resume()
-      return badRequest(response, 'Можно прикреплять только фото и видео')
+      return badRequest(response, 'Можно прикреплять только фото, видео и голосовые')
     }
     const rawName = request.headers['x-file-name']
     const name = typeof rawName === 'string' ? safeDecode(rawName) : undefined
@@ -1306,7 +1306,7 @@ export function createMiniApp({
               attachments: message.attachments
                 .filter((item) => item && typeof item.url === 'string' && item.url.startsWith('/api/media/'))
                 .map((item) => ({
-                  id: String(item.id ?? ''), kind: item.kind === 'video' ? 'video' : 'photo',
+                  id: String(item.id ?? ''), kind: ['photo', 'video', 'voice'].includes(item.kind) ? item.kind : 'photo',
                   name: safeText(item.name, 120), mime: safeText(item.mime, 100),
                   size: Number(item.size) || 0, url: item.url,
                 })),

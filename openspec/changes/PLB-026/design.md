@@ -84,6 +84,10 @@ Cmd/Ctrl+K открывает клиентскую палитру раздело
 который подставляет команду в чат. `/api/proactive` читает и сохраняет личные
 настройки `ProactiveStore` (enabled/reviewAt/quiet/dayLimit).
 
+**Голос.** MediaRecorder пишет audio/webm (или mp4), файл идёт через тот же
+`/api/chat/upload` с `kind=voice`; в истории и Telegram — голосовое/аудио, в модели —
+расшифровка через `media.transcribe`, если она подключена.
+
 **Медиа.** `POST /api/chat/upload` принимает сырые байты фото/видео (до 20 МБ),
 `MobileMediaStore` пишет файл и метаданные; `/api/media/:id` отдаёт с Range для `<video>`.
 Вложения передаются в конвейер с готовыми байтами и сохраняются в истории; в Telegram

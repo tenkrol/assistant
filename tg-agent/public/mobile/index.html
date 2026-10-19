@@ -144,6 +144,13 @@
         </div>
       </div>
       <div class="composer-wrap">
+        <div class="recorder-bar" id="recorder-bar" hidden>
+          <span class="recorder-dot"></span>
+          <span class="recorder-time" id="recorder-time">0:00</span>
+          <span class="recorder-hint">Запись голосового…</span>
+          <button class="recorder-btn" id="recorder-send" type="button" aria-label="Отправить голосовое"><svg class="ic"><use href="#i-send"/></svg></button>
+          <button class="recorder-btn" id="recorder-cancel" type="button" aria-label="Отменить"><svg class="ic"><use href="#i-close"/></svg></button>
+        </div>
         <div class="attach-preview" id="attach-preview" hidden></div>
         <input type="file" id="chat-files" accept="image/*,video/*" multiple hidden>
         <div class="reply-bar" id="reply-bar" hidden>
@@ -159,6 +166,9 @@
         <div class="composer">
           <button class="composer-add" id="chat-attach" type="button" aria-label="Прикрепить фото или видео">
             <svg class="ic"><use href="#i-paperclip"/></svg>
+          </button>
+          <button class="composer-add" id="chat-mic" type="button" aria-label="Записать голосовое">
+            <svg class="ic"><use href="#i-mic"/></svg>
           </button>
           <div class="composer-field">
             <textarea id="chat-input" rows="1" placeholder="Написать ассистенту…" autocomplete="off" maxlength="4000" aria-label="Сообщение ассистенту" enterkeyhint="send"></textarea>
