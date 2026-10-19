@@ -1060,7 +1060,10 @@ function chatMessageNode(role, text, author, replyTo, avatar, attachments, at, m
   }
   const placeholder = /^\[(фото|видео|голосовое)(,\s*(фото|видео|голосовое))*\]$/i.test(String(text || '').trim())
   if (text && !(media.length > 0 && placeholder)) bubble.append(h('div', 'bubble-text', text))
-  if (reaction) bubble.append(h('div', 'msg-reaction', reaction))
+  if (reaction) {
+    bubble.append(h('div', 'msg-reaction', reaction))
+    article.classList.add('has-reaction')
+  }
   if (at) bubble.append(h('span', 'msg-time', formatTime(at)))
   const replyText = text || (media.length > 0 ? (media[0].kind === 'video' ? '[видео]' : media[0].kind === 'voice' ? '[голосовое]' : '[фото]') : '')
   bindMessageGesture(bubble, { role, text: replyText, author, id: messageId, reaction })

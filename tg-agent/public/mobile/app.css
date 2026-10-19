@@ -1079,6 +1079,7 @@ textarea.input {
 }
 
 .bubble {
+  position: relative;
   padding: 10px 14px;
   border-radius: 18px;
   font-size: 14.5px;
@@ -4259,14 +4260,33 @@ html.large-text .setting-row span {
   height: 40px;
 }
 
+.msg.reaction {
+  margin-bottom: 20px;
+}
+
 .msg-reaction {
-  display: inline-block;
-  margin-top: 6px;
+  position: absolute;
+  bottom: -11px;
+  z-index: 3;
   padding: 2px 7px;
   border-radius: 999px;
-  background: rgba(127, 127, 127, 0.16);
-  font-size: 14px;
-  line-height: 1.4;
+  background: var(--card);
+  border: 1px solid var(--border-2);
+  font-size: 13px;
+  line-height: 1.35;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.18);
+}
+
+.msg-user .msg-reaction {
+  right: 8px;
+}
+
+.msg-bot .msg-reaction {
+  left: 8px;
+}
+
+.msg.has-reaction {
+  margin-bottom: 22px;
 }
 
 .msg-reactions {
