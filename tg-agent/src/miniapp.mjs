@@ -2977,7 +2977,7 @@ export function createMiniApp({
     }
     if (mobile) {
       headers['content-security-policy'] = MOBILE_CSP
-      headers['referrer-policy'] = 'no-referrer'
+      headers['referrer-policy'] = 'strict-origin-when-cross-origin'
       headers['x-frame-options'] = 'DENY'
       headers['permissions-policy'] = 'camera=(), microphone=(self), geolocation=()'
     }

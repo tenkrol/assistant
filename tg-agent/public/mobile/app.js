@@ -2727,7 +2727,7 @@ function openYoutubeVideo(video) {
     modestbranding: '1',
     origin: location.origin,
   })
-  frame.src = 'https://www.youtube.com/embed/' + encodeURIComponent(video.id) + '?' + params.toString()
+  frame.src = 'https://www.youtube-nocookie.com/embed/' + encodeURIComponent(video.id) + '?' + params.toString()
   frame.title = video.title
   frame.referrerPolicy = 'strict-origin-when-cross-origin'
   frame.allow = 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen'
@@ -2736,6 +2736,14 @@ function openYoutubeVideo(video) {
   const info = h('div', 'plan-body')
   info.append(h('b', null, video.title), h('span', 'plan-meta', [video.channel, video.views, video.duration].filter(Boolean).join(' · ')))
   wrap.append(info)
+  const fallback = document.createElement('a')
+  fallback.className = 'pill-btn'
+  fallback.href = 'https://www.youtube.com/watch?v=' + encodeURIComponent(video.id)
+  fallback.target = '_blank'
+  fallback.rel = 'noopener noreferrer'
+  fallback.textContent = 'Если видео не открылось — открыть на YouTube'
+  fallback.style.marginTop = '10px'
+  wrap.append(fallback)
   openSheet({ title: 'YouTube', body: wrap })
 }
 
