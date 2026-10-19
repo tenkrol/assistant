@@ -173,7 +173,7 @@ function redact(text, secrets = []) {
  *
  * @returns {Promise<{ok: boolean, channel: string, error?: string}>}
  */
-export async function createNotifier({ exec, env = {}, fetchImpl = globalThis.fetch, logger } = {}) {
+export function createNotifier({ exec, env = {}, fetchImpl = globalThis.fetch, logger } = {}) {
   return async ({ title, text }) => {
     if (typeof exec === 'function') {
       try {

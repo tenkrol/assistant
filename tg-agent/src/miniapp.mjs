@@ -790,6 +790,29 @@ export function createMiniApp({
     }
   }
 
+  /** POST /api/session/revoke-all — выйти на всех устройствах. */
+  async function revokeAllSessions(request, response, { auth }) {
+    if (!accounts) {
+      request.resume()
+      return missingStore(response, 'аккаунты')
+    }
+    const body = await readJsonBody(request, bodyLimit)
+    if (!body.ok) return sendError(response, body.status, body.code, body.error)
+    const password = typeof body.value?.currentPassword === 'string' ? body.value.currentPassword : ''
+    if (!accounts.authenticate(auth.login, password)) {
+      return sendError(response, 403, ERROR_CODES.forbidden, 'Неверный текущий пароль')
+    }
+    try {
+      await accounts.revokeSessions(auth.login)
+      logger?.info?.('mobile sessions revoked', { login: auth.login })
+      sendJson(response, 200, { ok: true }, {
+        'set-cookie': clearSessionCookie({ secure: cookieSecure }),
+      })
+    } catch (error) {
+      accountError(response, error)
+    }
+  }
+
   /** PATCH /api/account — сменить свой логин, пароль или имя. */
   async function updateAccount(request, response, { auth }) {
     if (!accounts) return missingStore(response, 'аккаунты')
@@ -1785,6 +1808,7 @@ export function createMiniApp({
     { method: 'GET', pattern: /^\/api\/accounts$/, handler: listAccounts },
     { method: 'POST', pattern: /^\/api\/accounts$/, handler: createAccount },
     { method: 'PATCH', pattern: /^\/api\/account$/, handler: updateAccount },
+    { method: 'POST', pattern: /^\/api\/session\/revoke-all$/, handler: revokeAllSessions },
   ]
 
   /** Метод для auth-путей проверяется отдельно: вход не требует уже открытой сессии. */

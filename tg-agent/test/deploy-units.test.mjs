@@ -44,7 +44,7 @@ test('бот перезапускается сам и не упирается в
 
 test('сторож ставится отдельным юнитом и таймером', () => {
   const service = sections(read('tg-agent-watch.service'))
-  assert.equal(service.Service.Type, 'oneshot')
+  assert.deepEqual(service.Service.Type, ['oneshot'])
   assert.deepEqual(service.Service.ExecStart, ['/usr/bin/node tools/watchdog-service.mjs'])
   assert.deepEqual(service.Service.SuccessExitStatus, ['0 1'])
   assert.deepEqual(service.Service.StateDirectory, ['tg-agent'])

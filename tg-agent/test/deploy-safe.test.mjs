@@ -104,9 +104,10 @@ function createClock(start = Date.now(), stepMs = 1000) {
  * `journalErrors` are returned in the error window until the second restart.
  */
 function createFakeSystem({ clock, activeQueue = null, journalErrors = [] }) {
-  const state = { active: 'active', restarts: [] }
+  const state = { active: 'active', restarts: [], systemctl: [] }
   const queue = activeQueue ? [...activeQueue] : null
   const runner = (command, args) => {
+    if (command === 'systemctl') state.systemctl.push([...args])
     if (command === 'systemctl' && args[0] === 'is-active') {
       return { status: 0, stdout: `${state.active}\n`, stderr: '' }
     }
@@ -307,6 +308,59 @@ test('код выхода 1 и при отказе без источника, и
   assert.equal(rolledBack.code, 1)
   assert.match(rolledBack.output, /--no-tests/)
   assert.equal(fs.readlinkSync(rollbackInstall.currentLink), rollbackInstall.previous)
+})
+
+test('откат, если после перезапуска HTTP-панель не отвечает', async () => {
+  const install = createInstall({ releaseNames: ['release-20200101-000000', 'release-20200102-000000'] })
+  const clock = createClock()
+  const system = createFakeSystem({ clock })
+  const fetchImpl = async () => ({ status: 500, ok: false })
+
+  const { code, output } = await invoke(install, {
+    clock,
+    system,
+    healthUrl: 'http://127.0.0.1:8787/api/reminders',
+    fetchImpl,
+  })
+
+  assert.equal(code, 1)
+  assert.match(output, /HTTP 500/)
+  assert.match(output, /ОТКАТ/)
+  assert.equal(fs.readlinkSync(install.currentLink), install.previous, 'симлинк вернулся на прежний релиз')
+  assert.deepEqual(system.state.restarts, [SERVICE, SERVICE])
+})
+
+test('зелёный старт: HTTP 401 и установка сторожа при деплое', async () => {
+  const install = createInstall()
+  const clock = createClock()
+  const system = createFakeSystem({ clock })
+  const systemdDir = path.join(install.root, 'systemd')
+  const fetchImpl = async () => ({ status: 401, ok: false })
+
+  const { code, output } = await invoke(install, {
+    clock,
+    system,
+    healthUrl: 'http://127.0.0.1:8787/api/reminders',
+    fetchImpl,
+    installUnits: true,
+    systemdDir,
+  })
+
+  assert.equal(code, 0, output)
+  assert.match(output, /HTTP 401/)
+  assert.match(output, /сторож установлен/)
+
+  const unit = fs.readFileSync(path.join(systemdDir, 'tg-agent-watch.service'), 'utf8')
+  const escape = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  assert.match(unit, new RegExp(`^ExecStart=${escape(process.execPath)} tools/watchdog-service\\.mjs$`, 'm'))
+  assert.match(unit, new RegExp(`^WorkingDirectory=${escape(install.currentLink)}$`, 'm'))
+  assert.match(unit, /^User=tgagent$/m)
+  assert.match(unit, /^StateDirectory=tg-agent$/m)
+  assert.ok(fs.existsSync(path.join(systemdDir, 'tg-agent-watch.timer')))
+
+  const calls = system.state.systemctl.map((args) => args.join(' '))
+  assert.ok(calls.includes('daemon-reload'))
+  assert.ok(calls.includes('enable --now tg-agent-watch.timer'))
 })
 
 test('macOS sidecar files are ignored and never block a deploy', async () => {

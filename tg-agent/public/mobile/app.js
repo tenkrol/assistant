@@ -2343,6 +2343,39 @@ function accountRow(account, currentLogin) {
   return row
 }
 
+function openRevokeAllSheet() {
+  const wrap = h('div')
+  const password = document.createElement('input')
+  password.className = 'input'
+  password.type = 'password'
+  password.autocomplete = 'current-password'
+  password.placeholder = 'Текущий пароль'
+  const error = h('div', 'login-error')
+  error.hidden = true
+  const confirm = h('button', 'btn btn-danger-ghost btn-block', 'Выйти везде')
+  confirm.type = 'button'
+  confirm.addEventListener('click', async () => {
+    if (password.value === '') {
+      error.hidden = false
+      error.textContent = 'Введите текущий пароль'
+      return
+    }
+    confirm.disabled = true
+    try {
+      await api('POST', '/api/session/revoke-all', { currentPassword: password.value })
+      closeSheet()
+      showLogin('Все сессии сброшены — войдите заново.')
+    } catch (err) {
+      confirm.disabled = false
+      error.hidden = false
+      error.textContent = err.message || 'Не удалось сбросить сессии'
+    }
+  })
+  wrap.append(field('Текущий пароль', password), error, confirm)
+  wrap.append(h('p', 'sheet-note', 'Все браузеры и PWA выйдут из аккаунта. Новый вход потребует пароль.'))
+  openSheet({ title: 'Выйти на всех устройствах', body: wrap })
+}
+
 function openCredentialsSheet() {
   const user = (state.settings && state.settings.user) || (state.session && state.session.user) || {}
   const wrap = h('div')

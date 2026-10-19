@@ -770,6 +770,23 @@ test('агент: отмена задачи', async (t) => {
   assert.equal(empty.status, 400)
 })
 
+test('выйти на всех устройствах отзывает сессию', async (t) => {
+  const { base } = await createHarness(t, { accounts: true })
+  const cookies = jar()
+  await request(base, '/api/auth/login', { method: 'POST', body: { username: 'tenkrol', password: PASSWORD }, cookieJar: cookies })
+  const wrong = await request(base, '/api/session/revoke-all', {
+    method: 'POST', cookieJar: cookies, headers: { 'X-Mobile-Client': '1' }, body: { currentPassword: 'неверный' },
+  })
+  assert.equal(wrong.status, 403)
+  const done = await request(base, '/api/session/revoke-all', {
+    method: 'POST', cookieJar: cookies, headers: { 'X-Mobile-Client': '1' }, body: { currentPassword: PASSWORD },
+  })
+  assert.equal(done.status, 200)
+  assert.match(done.response.headers.get('set-cookie'), /tg_mobile_session=;/)
+  const old = await request(base, '/api/state', { cookieJar: cookies })
+  assert.equal(old.status, 401)
+})
+
 test('настройки: чтение, смена и проверка значений', async (t) => {
   const { base } = await createHarness(t)
   const cookies = jar()

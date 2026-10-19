@@ -36,6 +36,7 @@ test('owner and scope from the agent are normalized into taskPrincipal fields', 
   const bridge = createAgentBridge({
     url: 'http://127.0.0.1:8787/bridge',
     token: 'secret',
+    contract: 'v2',
     fetchImpl,
     logger: silent,
   })

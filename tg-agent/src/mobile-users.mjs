@@ -179,6 +179,16 @@ export class MobileUserStore {
     return publicUser(user)
   }
 
+  /** Отозвать все сессии: версия учётных данных растёт без смены пароля. */
+  async revokeSessions(login) {
+    const user = this.findByLogin(login)
+    if (!user) throw new MobileUsersError('Аккаунт не найден', 'not_found')
+    user.version = (Number(user.version) || 1) + 1
+    user.updatedAt = new Date().toISOString()
+    await this.storage.flush()
+    return { user: publicUser(user) }
+  }
+
   /**
    * Изменить текущий аккаунт: логин, пароль, имя.
    *
