@@ -1,0 +1,38 @@
+# Внешний сторож бота: отдельный юнит systemd, а не сам бот.
+#
+# Проверяет, что tg-agent активен и что HTTP-панель отвечает `/api/reminders`
+# (401 — ожидаемый ответ без входа, значит процесс жив). Алерт уходит владельцу
+# через agent-notify, если он установлен, иначе напрямую в Telegram. Повторный
+# алерт — не чаще раза в час; отметка лежит в DATA_DIR/watchdog-service.json.
+#
+# Установка (пути и User подставляет deploy-remote.sh / deploy-safe.mjs):
+#   sudo cp deploy/tg-agent-watch.service deploy/tg-agent-watch.timer /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now tg-agent-watch.timer
+
+[Unit]
+Description=External watchdog for the tg-agent bot
+Documentation=file:/opt/tg-agent/README.md
+After=network-online.target tg-agent.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=tgagent
+WorkingDirectory=/opt/tg-agent
+EnvironmentFile=/opt/tg-agent/.env
+Environment=DATA_DIR=/var/lib/tg-agent
+Environment=WATCHDOG_SERVICE=tg-agent
+ExecStart=/usr/bin/node tools/watchdog-service.mjs
+# 1 — бот недоступен, но таймер не должен краснеть каждые пять минут.
+SuccessExitStatus=0 1
+
+# Те же ограничения, что у бота: сторожу нужен только каталог состояния.
+StateDirectory=tg-agent
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+ReadWritePaths=/var/lib/tg-agent

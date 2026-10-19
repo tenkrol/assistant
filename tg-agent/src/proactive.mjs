@@ -1810,7 +1810,17 @@ export class ProactiveService {
       userId: owner,
       ...(candidate?.scope_id === undefined ? {} : { scope_id: candidate.scope_id }),
     }
-    return typeof this.access.canRead === 'function' ? this.access.canRead(target.userId, record) : false
+    if (typeof this.access.canRead !== 'function') return false
+    if (this.access.canRead(target.userId, record)) return true
+    // Старая запись без области из известной беседы: доступ решает участие в
+    // чате. Для задачи это не применяется — у неё должен быть проверенный
+    // владелец, иначе она не становится общей.
+    if (candidate?.type === 'task') return false
+    const scoped = candidate?.scope_id !== undefined && candidate?.scope_id !== null && candidate?.scope_id !== ''
+    if (scoped) return false
+    return candidate?.chatId !== undefined
+      && candidate?.chatId !== null
+      && this.chatIdsOf(target).includes(String(candidate.chatId))
   }
 
   /** Инициативные уведомления: приоритет, бюджет, тихие часы, актуальность. */

@@ -14,6 +14,9 @@ Description=Telegram agent bot
 Documentation=file:/opt/tg-agent/README.md
 After=network-online.target
 Wants=network-online.target
+# Автоперезапуск без лимита попыток: серия падений не должна упираться в
+# StartLimit и оставлять бота лежать до ручного вмешательства.
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple

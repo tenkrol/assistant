@@ -516,7 +516,22 @@ export async function createInstance({ config, logger, instance, shared, platfor
   // входит в ключ получателя, чтобы id Telegram и VK не слились в одного.
   const proactivePlatformIds = botConfig.access.allowedByPlatform?.[instance.platform] ?? new Set()
   const proactiveTargetIds = proactivePlatformIds.size > 0 ? proactivePlatformIds : botConfig.access.allowedUserIds
-  const proactiveTargets = [...proactiveTargetIds].map((id) => ({ userId: id, chatId: id, channel: instance.platform }))
+  // Беседы, где участники — те же люди: настроенный общий чат мобильного сайта и
+  // явные адресаты дайджеста. Обзор по ним нужен для старых записей без
+  // `scope_id`: у новых область уже проверяется через access.
+  const proactiveSharedChats = [
+    config.miniapp?.mobile?.groupChatId,
+    ...(config.digest?.chatIds ?? []),
+  ]
+    .map(Number)
+    .filter((id) => Number.isFinite(id) && id !== 0)
+  const proactiveTargets = [...proactiveTargetIds].map((id) => ({
+    userId: id,
+    chatId: id,
+    channel: instance.platform,
+    // Личка и известные общие чаты: чужие беседы в этот список не попадают.
+    chats: [id, ...proactiveSharedChats],
+  }))
   // Проактивность: один файл состояния и один планировщик. Сервис не создаёт
   // свой таймер — его тик зовёт существующий `ReminderScheduler`. Флаг
   // `PROACTIVE_ENABLED=false` оставляет только журнал решений (dry-run).

@@ -109,7 +109,7 @@ fi
 chmod 600 "$INSTALL_DIR/.env"
 printf 'состояние: %s (прописано в .env)\n' "$STATE_DIR"
 
-log "5/8 systemd-юнит"
+log "5/9 systemd-юнит"
 UNIT_PATH="/etc/systemd/system/${SERVICE_NAME}.service"
 sed -e "s|^ExecStart=.*|ExecStart=${NODE_BIN} src/index.mjs|" \
     -e "s|^User=.*|User=${SERVICE_USER}|" \
@@ -127,7 +127,7 @@ systemctl daemon-reload
 systemctl enable --now "$SERVICE_NAME" >/dev/null
 printf 'юнит: %s\n' "$UNIT_PATH"
 
-log "6/8 ежедневный бэкап состояния"
+log "6/9 ежедневный бэкап состояния"
 BACKUP_DIR=${BACKUP_DIR:-/var/backups/tg-agent}
 # Каталог создаётся здесь от root: его родитель принадлежит root, а сервис
 # работает под непривилегированным пользователем.
@@ -152,7 +152,30 @@ else
   printf 'юниты бэкапа не найдены — пропускаю\n'
 fi
 
-log "7/8 сервис MAX (если задан MAX_TOKEN)"
+log "7/9 внешний сторож бота"
+if [ -f "$INSTALL_DIR/deploy/tg-agent-watch.service" ] && [ -f "$INSTALL_DIR/deploy/tg-agent-watch.timer" ]; then
+  sed -e "s|^User=.*|User=${SERVICE_USER}|" \
+      -e "s|^WorkingDirectory=.*|WorkingDirectory=${INSTALL_DIR}|" \
+      -e "s|^EnvironmentFile=.*|EnvironmentFile=${INSTALL_DIR}/.env|" \
+      -e "s|^Environment=DATA_DIR=.*|Environment=DATA_DIR=${STATE_DIR}|" \
+      -e "s|^Environment=WATCHDOG_SERVICE=.*|Environment=WATCHDOG_SERVICE=${SERVICE_NAME}|" \
+      -e "s|^ReadWritePaths=.*|ReadWritePaths=${STATE_DIR}|" \
+      -e "s|^ExecStart=.*|ExecStart=${NODE_BIN} tools/watchdog-service.mjs|" \
+      -e "s|^Documentation=.*|Documentation=file:${INSTALL_DIR}/README.md|" \
+      "$INSTALL_DIR/deploy/tg-agent-watch.service" > /etc/systemd/system/tg-agent-watch.service
+  sed -i "s|^StateDirectory=.*|StateDirectory=$(basename "$STATE_DIR")|" /etc/systemd/system/tg-agent-watch.service
+  case "$INSTALL_DIR" in /root/*|/home/*) sed -i 's|^ProtectHome=.*|ProtectHome=false|' /etc/systemd/system/tg-agent-watch.service ;; esac
+  cp "$INSTALL_DIR/deploy/tg-agent-watch.timer" /etc/systemd/system/tg-agent-watch.timer
+  systemctl daemon-reload
+  systemctl enable --now tg-agent-watch.timer >/dev/null
+  printf 'сторож: %s (следующий запуск: %s)\n' \
+    "$(systemctl is-active tg-agent-watch.timer)" \
+    "$(systemctl show tg-agent-watch.timer -p NextElapseUSecRealtime --value)"
+else
+  printf 'юниты сторожа не найдены — пропускаю\n'
+fi
+
+log "8/9 сервис MAX (если задан MAX_TOKEN)"
 if grep -q '^MAX_TOKEN=..*' "$INSTALL_DIR/.env"; then
   sed -e "s|^ExecStart=.*|ExecStart=${NODE_BIN} src/index.mjs|" \
       -e "s|^User=.*|User=${SERVICE_USER}|" \
@@ -169,7 +192,7 @@ else
   printf 'MAX_TOKEN не задан — сервис MAX не включаю (добавьте токен в .env и запустите скрипт снова)\n'
 fi
 
-log "8/8 состояние сервиса"
+log "9/9 состояние сервиса"
 sleep 4
 systemctl --no-pager --full status "$SERVICE_NAME" | head -12 || true
 printf '\nпоследние строки журнала:\n'

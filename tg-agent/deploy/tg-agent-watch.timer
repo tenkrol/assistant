@@ -1,0 +1,17 @@
+# Таймер внешнего сторожа: раз в пять минут, с пропуском догона после ребута.
+#
+#   sudo cp deploy/tg-agent-watch.service deploy/tg-agent-watch.timer /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now tg-agent-watch.timer
+#   systemctl list-timers tg-agent-watch.timer
+
+[Unit]
+Description=Check the tg-agent bot every five minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+Persistent=true
+Unit=tg-agent-watch.service
+
+[Install]
+WantedBy=timers.target

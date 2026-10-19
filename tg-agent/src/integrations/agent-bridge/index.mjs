@@ -106,9 +106,69 @@ function createAgentBridgeLegacy({
 }
 
 
+/**
+ * Область задачи из моста в терминах пространств бота.
+ *
+ * Агент живёт на другом сервере и своих `scope_id` бота не знает: он отдаёт
+ * область задачи из проверенного контекста (чат/рабочее место). Пространства
+ * бота — отдельная модель, поэтому задача, пришедшая по мосту, личная для
+ * проверенного владельца. Готовый `personal-…`/`project-…` не переписываем:
+ * он уже называет пространство бота.
+ *
+ * @param {string|number} raw - `scopeId` из активности агента.
+ * @param {string|number} userId - проверенный владелец задачи.
+ * @returns {string} `scopeId` для ACL бота.
+ */
+function normalizeScopeId(raw, userId) {
+  const value = String(raw ?? '').trim()
+  if (value === '') return ''
+  if (/^(?:personal|project)-/.test(value)) return value
+  return `personal-${userId}`
+}
+
+/**
+ * Привести событие активности агента к виду задачи для проактивности.
+ *
+ * Поля `userId`/`scopeId` приходят из проверенного контекста задачи на стороне
+ * агента. Без `userId` событие остаётся как есть: проактивность отфильтрует
+ * его как задачу без владельца, а не сделает общедоступной.
+ *
+ * @param {object} event - событие `/v1/activity`.
+ * @param {object} [options] - `channel` (не используется для id, оставлен для
+ *   совместимости с будущими каналами).
+ * @returns {object} событие с `taskPrincipal`-полями.
+ */
+export function normalizeActivityEvent(event, options = {}) {
+  if (!event || typeof event !== 'object' || Array.isArray(event)) return event
+  const userId = event.userId ?? event.ownerId
+  if (userId === undefined || userId === null || userId === '') return event
+  const rawScope = event.scopeId ?? event.scope_id
+  const scopeId = normalizeScopeId(rawScope, userId)
+  return {
+    ...event,
+    userId,
+    ...(scopeId === '' ? {} : { scopeId }),
+  }
+}
+
+/** Обернуть клиент так, чтобы его активность уже несла владельца и область. */
+function withNormalizedActivity(bridge, options) {
+  if (typeof bridge?.activity !== 'function') return bridge
+  return {
+    ...bridge,
+    async activity(query) {
+      const events = await bridge.activity(query)
+      return Array.isArray(events)
+        ? events.map((event) => normalizeActivityEvent(event, options))
+        : events
+    },
+  }
+}
+
 /** Выбрать режим контракта: v2 (по умолчанию) или прежний /bridge. */
 export function createAgentBridge(options = {}) {
-  return String(options.contract ?? 'v1').toLowerCase() === 'v1'
+  const bridge = String(options.contract ?? 'v1').toLowerCase() === 'v1'
     ? createAgentBridgeLegacy(options)
     : createAgentBridgeV2(options)
+  return withNormalizedActivity(bridge, options)
 }
