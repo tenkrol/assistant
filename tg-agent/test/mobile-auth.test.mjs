@@ -185,6 +185,8 @@ async function createHarness(t, options = {}) {
     inbox: options.inbox,
     agentFiles: options.agentFiles,
     mobileAuthLog: options.mobileAuthLog,
+    mobileAutomations: options.mobileAutomations,
+    automationRunner: options.automationRunner,
     systemStatus: options.systemStatus,
     proactiveSettings: options.proactiveSettings,
     updateProactive: options.updateProactive,
@@ -772,6 +774,32 @@ test('агент: отмена задачи', async (t) => {
     method: 'POST', cookieJar: cookies, headers: { 'X-Mobile-Client': '1' }, body: {},
   })
   assert.equal(empty.status, 400)
+})
+
+test('автоматизации: создать, переключить и запустить', async (t) => {
+  const items = []
+  const runs = []
+  const { base } = await createHarness(t, {
+    mobileAutomations: {
+      list: (userId) => items.filter((item) => item.userId === userId),
+      add: async ({ userId, title, prompt, time, weekdays }) => { const item = { id: 'a1', userId, title, prompt, time, weekdays, enabled: true, nextRunAt: new Date().toISOString(), history: [] }; items.push(item); return item },
+      update: async ({ itemId, enabled }) => { const item = items.find((entry) => entry.id === itemId); item.enabled = enabled; return item },
+      remove: async () => true,
+      find: (userId, id) => items.find((item) => item.id === id && item.userId === userId),
+      markRun: async (item, result) => { item.lastStatus = result.ok ? 'ok' : 'failed' },
+      due: () => [],
+    },
+    automationRunner: async ({ text }) => { runs.push(text); return { sends: [] } },
+  })
+  const cookies = jar()
+  await request(base, '/api/auth/login', { method: 'POST', body: { password: PASSWORD }, cookieJar: cookies })
+  const created = await request(base, '/api/automations', { method: 'POST', cookieJar: cookies, headers: { 'X-Mobile-Client': '1' }, body: { title: 'Утро', prompt: 'Дайджест', time: '09:00' } })
+  assert.equal(created.status, 200)
+  const listed = await request(base, '/api/automations', { cookieJar: cookies })
+  assert.equal(listed.json.items.length, 1)
+  const run = await request(base, '/api/automations/a1/run', { method: 'POST', cookieJar: cookies, headers: { 'X-Mobile-Client': '1' } })
+  assert.equal(run.status, 200)
+  assert.deepEqual(runs, ['Дайджест'])
 })
 
 test('журнал входов показывает записи аккаунта', async (t) => {

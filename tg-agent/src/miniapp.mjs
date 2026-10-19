@@ -428,6 +428,8 @@ export function createMiniApp({
   agentFiles,
   yandexDisk,
   mobileAuthLog,
+  mobileAutomations,
+  automationRunner,
   editChatMessage,
   deleteChatMessage,
   documents,
@@ -843,6 +845,107 @@ export function createMiniApp({
     } catch (error) {
       accountError(response, error)
     }
+  }
+
+  const mapAutomation = (item) => ({
+    id: String(item.id),
+    title: String(item.title),
+    prompt: String(item.prompt),
+    time: String(item.time),
+    weekdays: Array.isArray(item.weekdays) ? item.weekdays : [],
+    enabled: Boolean(item.enabled),
+    nextRunAt: item.nextRunAt ?? null,
+    lastRunAt: item.lastRunAt ?? null,
+    lastStatus: item.lastStatus ?? null,
+    history: Array.isArray(item.history) ? item.history : [],
+  })
+
+  function listAutomations(request, response, { userId }) {
+    request.resume()
+    if (!mobileAutomations || typeof mobileAutomations.list !== 'function') return missingStore(response, 'автоматизации')
+    sendJson(response, 200, { items: mobileAutomations.list(userId).map(mapAutomation) })
+  }
+
+  async function createAutomation(request, response, { userId }) {
+    if (!mobileAutomations || typeof mobileAutomations.add !== 'function') return missingStore(response, 'автоматизации')
+    const body = await readJsonBody(request, bodyLimit)
+    if (!body.ok) return sendError(response, body.status, body.code, body.error)
+    try {
+      const item = await mobileAutomations.add({
+        userId,
+        title: body.value?.title,
+        prompt: body.value?.prompt,
+        time: body.value?.time,
+        weekdays: body.value?.weekdays,
+      })
+      sendJson(response, 200, { item: mapAutomation(item) })
+    } catch (error) {
+      return badRequest(response, error?.message || 'Не удалось создать автоматизацию')
+    }
+  }
+
+  async function updateAutomation(request, response, { userId, params }) {
+    if (!mobileAutomations || typeof mobileAutomations.update !== 'function') return missingStore(response, 'автоматизации')
+    const body = await readJsonBody(request, bodyLimit)
+    if (!body.ok) return sendError(response, body.status, body.code, body.error)
+    try {
+      const item = await mobileAutomations.update({ userId, id: params[0], enabled: body.value?.enabled })
+      sendJson(response, 200, { item: mapAutomation(item) })
+    } catch (error) {
+      if (error?.code === 'not_found') return notFound(response)
+      return badRequest(response, error?.message || 'Не удалось обновить автоматизацию')
+    }
+  }
+
+  async function deleteAutomation(request, response, { userId, params }) {
+    request.resume()
+    if (!mobileAutomations || typeof mobileAutomations.remove !== 'function') return missingStore(response, 'автоматизации')
+    try {
+      await mobileAutomations.remove({ userId, id: params[0] })
+      sendJson(response, 200, { ok: true })
+    } catch (error) {
+      if (error?.code === 'not_found') return notFound(response)
+      return badRequest(response, error?.message || 'Не удалось удалить автоматизацию')
+    }
+  }
+
+  async function runAutomation(request, response, { userId, params }) {
+    request.resume()
+    if (!mobileAutomations || !automationRunner) return missingStore(response, 'автоматизации')
+    const item = mobileAutomations.find(userId, params[0])
+    if (!item) return notFound(response)
+    try {
+      await automationRunner({ userId, text: item.prompt })
+      await mobileAutomations.markRun(item, { ok: true })
+      sendJson(response, 200, { ok: true, item: mapAutomation(item) })
+    } catch (error) {
+      await mobileAutomations.markRun(item, { ok: false, error: error?.message ?? error }).catch(() => {})
+      sendError(response, 502, ERROR_CODES.unavailable, 'Автоматизация не выполнилась')
+    }
+  }
+
+  let automationBusy = false
+  function startAutomationLoop() {
+    if (!mobileAutomations || typeof automationRunner !== 'function') return
+    const timer = setInterval(async () => {
+      if (automationBusy) return
+      automationBusy = true
+      try {
+        for (const item of mobileAutomations.due()) {
+          try {
+            await automationRunner({ userId: item.userId, text: item.prompt })
+            await mobileAutomations.markRun(item, { ok: true })
+            logger?.info?.('automation ran', { id: item.id, userId: item.userId })
+          } catch (error) {
+            await mobileAutomations.markRun(item, { ok: false, error: error?.message ?? error }).catch(() => {})
+            logger?.warn?.('automation failed', { id: item.id, error: error?.message ?? error })
+          }
+        }
+      } finally {
+        automationBusy = false
+      }
+    }, 30_000)
+    timer.unref?.()
   }
 
   /** GET /api/security/log — последние входы текущего аккаунта. */
@@ -2235,6 +2338,11 @@ export function createMiniApp({
     { method: 'POST', pattern: /^\/api\/accounts$/, handler: createAccount },
     { method: 'PATCH', pattern: /^\/api\/account$/, handler: updateAccount },
     { method: 'GET', pattern: /^\/api\/security\/log$/, handler: securityLog },
+    { method: 'GET', pattern: /^\/api\/automations$/, handler: listAutomations },
+    { method: 'POST', pattern: /^\/api\/automations$/, handler: createAutomation },
+    { method: 'PATCH', pattern: /^\/api\/automations\/([^/]+)$/, handler: updateAutomation },
+    { method: 'DELETE', pattern: /^\/api\/automations\/([^/]+)$/, handler: deleteAutomation },
+    { method: 'POST', pattern: /^\/api\/automations\/([^/]+)\/run$/, handler: runAutomation },
     { method: 'POST', pattern: /^\/api\/2fa\/setup$/, handler: setupTotp },
     { method: 'POST', pattern: /^\/api\/2fa\/enable$/, handler: enableTotp },
     { method: 'POST', pattern: /^\/api\/2fa\/disable$/, handler: disableTotp },
@@ -2476,6 +2584,8 @@ export function createMiniApp({
       server.close(() => resolve())
     })
   }
+
+  startAutomationLoop()
 
   return {
     server,

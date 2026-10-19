@@ -392,6 +392,10 @@
             <span class="tile-ic blue"><svg class="ic"><use href="#i-settings"/></svg></span>
             <b>Настройки</b><span>характер, режим, голос</span>
           </button>
+          <button class="tile" data-go="automations">
+            <span class="tile-ic amber"><svg class="ic"><use href="#i-bolt"/></svg></span>
+            <b>Автоматизации</b><span>по расписанию</span>
+          </button>
           <button class="tile" data-go="inbox">
             <span class="tile-ic mint"><svg class="ic"><use href="#i-checklist"/></svg></span>
             <b>Инбокс</b><span>заметки и задачи</span>
@@ -595,6 +599,29 @@
           Выйти из аккаунта
         </button>
         <p class="hint center">Версия 1.0 · tenkrol.ru/mobile</p>
+      </div>
+    </section>
+
+    <!-- ================= АВТОМАТИЗАЦИИ ================= -->
+    <section class="screen" data-screen="automations" hidden>
+      <header class="topbar sub-head">
+        <button class="icon-btn" data-back="more" aria-label="Назад">
+          <svg class="ic"><use href="#i-chevron-left"/></svg>
+        </button>
+        <div><h2>Автоматизации</h2><p class="sub">регулярные задачи агенту</p></div>
+        <button class="icon-btn accent" id="automation-add" aria-label="Добавить">
+          <svg class="ic"><use href="#i-plus"/></svg>
+        </button>
+      </header>
+      <div class="scroll screen-scroll" id="automations-scroll">
+        <div class="card info-card">
+          <b>Как это работает</b>
+          <p>В указанное время сайт отправит промпт ассистенту от вашего имени. Результат придёт в личный чат и Telegram.</p>
+        </div>
+        <div class="group-head"><span>Шаблоны</span></div>
+        <div id="automation-templates"></div>
+        <div class="group-head"><span>Мои автоматизации</span><span class="group-count" id="automations-count">0</span></div>
+        <div id="automations-list"><p class="hint">Загружаю…</p></div>
       </div>
     </section>
 

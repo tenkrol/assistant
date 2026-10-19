@@ -36,6 +36,7 @@ import { MobileInboxStore } from './mobile-inbox.mjs'
 import { AgentFileStore } from './agent-files.mjs'
 import { YandexDisk } from './yandex-disk.mjs'
 import { MobileAuthLogStore } from './mobile-auth-log.mjs'
+import { AutomationStore } from './mobile-automations.mjs'
 import { createOutbox } from './outbox.mjs'
 import { createAgentEventsStore } from './storage/agent-events.mjs'
 import { createAgentLink } from './agent-link/index.mjs'
@@ -818,6 +819,13 @@ export async function createInstance({ config, logger, instance, shared, platfor
       } catch (error) {
         logger.warn('mobile auth log disabled', { error: error?.message ?? error })
       }
+      let mobileAutomations
+      try {
+        mobileAutomations = new AutomationStore({ file: stateFile(botConfig.dataDir, 'mobile-automations', instance.namespace), logger })
+        await mobileAutomations.load()
+      } catch (error) {
+        logger.warn('mobile automations disabled', { error: error?.message ?? error })
+      }
       const yandexDisk = new YandexDisk({
         token: config.yandexDisk?.token,
         dir: config.yandexDisk?.dir,
@@ -852,6 +860,12 @@ export async function createInstance({ config, logger, instance, shared, platfor
         agentFiles,
         yandexDisk,
         mobileAuthLog,
+        mobileAutomations,
+        automationRunner: async ({ userId, text }) => {
+          const targetId = Number(userId)
+          if (!botConfig.access.allowedUserIds.has(targetId)) throw new Error('Чужой пользователь')
+          return bot.handleWebMessage({ userId: targetId, chatId: targetId, text, chatType: 'private', name: 'Автоматизация' })
+        },
         documents,
         systemStatus: async () => {
           let serverText = 'Модуль состояния сервера выключен.'

@@ -4660,3 +4660,20 @@ html.large-text .setting-row span {
   color: #ffffff;
   text-shadow: 0 0 6px rgba(255, 255, 255, 0.45);
 }
+
+.automation-days {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin: 6px 0 12px;
+}
+
+.automation-day {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  font-size: 11.5px;
+}

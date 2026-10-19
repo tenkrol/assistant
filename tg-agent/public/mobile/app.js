@@ -158,6 +158,7 @@ const state = {
   diskMode: false,
   filesTab: 'documents',
   inbox: null,
+  automations: null,
   system: null,
   proactive: null,
   chatReply: null,
@@ -396,6 +397,7 @@ function go(name, options = {}) {
   if (name === 'stats') ensureStats()
   if (name === 'files') ensureFiles()
   if (name === 'inbox') ensureInbox()
+  if (name === 'automations') ensureAutomations()
   if (name === 'system') ensureSystem()
   if (name === 'agent') ensureAgent()
   if (name === 'chat') ensureChat()
@@ -2230,6 +2232,186 @@ function formatFileSize(size) {
   return (value / (1024 * 1024)).toFixed(1) + ' МБ'
 }
 
+const AUTOMATION_TEMPLATES = [
+  {
+    title: 'Утренний дайджест',
+    prompt: 'Собери короткий утренний дайджест: погода в Москве, мои напоминания на сегодня и 2–3 важные новости. Пиши кратко.',
+    time: '08:00',
+  },
+  {
+    title: 'Проверка сервера',
+    prompt: 'Проверь состояние сервера: диск, память, сервисы и свежие ошибки. Если всё в порядке — одна строка, если нет — подробности.',
+    time: '09:00',
+  },
+  {
+    title: 'Итоги дня',
+    prompt: 'Собери итоги дня: что было в планах, что выполнено, что перенести на завтра. Коротко, списком.',
+    time: '21:00',
+  },
+]
+
+const WEEKDAY_LABELS = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс']
+
+function formatAutomationSchedule(item) {
+  const days = Array.isArray(item.weekdays) && item.weekdays.length > 0
+    ? item.weekdays.map((day) => WEEKDAY_LABELS[day - 1]).join(', ')
+    : 'каждый день'
+  return days + ' в ' + item.time
+}
+
+async function ensureAutomations() {
+  if (state.automations !== null) return
+  await loadAutomations()
+}
+
+async function loadAutomations() {
+  try {
+    const data = await api('GET', '/api/automations')
+    state.automations = Array.isArray(data.items) ? data.items : []
+    renderAutomations()
+  } catch (error) {
+    $('automations-list').replaceChildren(h('p', 'hint', error.message || 'Не удалось загрузить автоматизации'))
+  }
+}
+
+function renderAutomationTemplates() {
+  const box = $('automation-templates')
+  if (!box) return
+  box.replaceChildren()
+  AUTOMATION_TEMPLATES.forEach((template) => {
+    const card = h('button', 'plan-card')
+    card.type = 'button'
+    const ic = h('span', 'plan-ic')
+    ic.append(icon('bolt'))
+    const body = h('div', 'plan-body')
+    body.append(h('b', null, template.title), h('span', 'plan-meta', template.time + ' · нажмите, чтобы настроить'))
+    card.append(ic, body)
+    card.addEventListener('click', () => openAutomationSheet(template))
+    box.append(card)
+  })
+}
+
+function renderAutomations() {
+  renderAutomationTemplates()
+  const box = $('automations-list')
+  const items = state.automations || []
+  $('automations-count').textContent = String(items.length)
+  box.replaceChildren()
+  if (items.length === 0) {
+    box.append(h('p', 'hint', 'Пока нет автоматизаций. Выберите шаблон выше или нажмите +.'))
+    return
+  }
+  items.forEach((item) => {
+    const card = h('div', 'plan-card')
+    const ic = h('span', 'plan-ic')
+    ic.append(icon('bolt'))
+    const body = h('div', 'plan-body')
+    body.append(h('b', null, item.title), h('span', 'plan-meta', formatAutomationSchedule(item)))
+    const meta = [item.nextRunAt ? 'следующий: ' + formatDateTime(item.nextRunAt) : '', item.lastStatus === 'failed' ? 'последний запуск: ошибка' : item.lastRunAt ? 'последний: ' + formatDateTime(item.lastRunAt) : ''].filter(Boolean).join(' · ')
+    if (meta) body.append(h('span', 'plan-meta', meta))
+    const actions = h('div', 'file-actions')
+    const toggle = h('button', 'pill-btn', item.enabled ? 'Выключить' : 'Включить')
+    toggle.type = 'button'
+    toggle.addEventListener('click', () => void toggleAutomation(item))
+    const run = h('button', 'pill-btn', 'Проверить')
+    run.type = 'button'
+    run.addEventListener('click', () => void runAutomation(item))
+    const remove = h('button', 'pill-btn danger', 'Удалить')
+    remove.type = 'button'
+    remove.addEventListener('click', () => { confirmSheet('Удалить автоматизацию?', item.title, 'Удалить', () => void deleteAutomation(item)) })
+    actions.append(toggle, run, remove)
+    body.append(actions)
+    card.append(ic, body)
+    box.append(card)
+  })
+}
+
+function openAutomationSheet(template = {}) {
+  const wrap = h('div')
+  const title = document.createElement('input')
+  title.className = 'input'
+  title.placeholder = 'Название'
+  title.value = template.title || ''
+  const prompt = document.createElement('textarea')
+  prompt.className = 'input'
+  prompt.rows = 5
+  prompt.placeholder = 'Что должен сделать ассистент'
+  prompt.value = template.prompt || ''
+  const time = document.createElement('input')
+  time.className = 'input'
+  time.type = 'time'
+  time.value = template.time || '09:00'
+  const daysBox = h('div', 'automation-days')
+  const dayInputs = []
+  WEEKDAY_LABELS.forEach((label, index) => {
+    const day = h('label', 'automation-day')
+    const input = document.createElement('input')
+    input.type = 'checkbox'
+    input.value = String(index + 1)
+    day.append(input, h('span', null, label))
+    daysBox.append(day)
+    dayInputs.push(input)
+  })
+  const save = h('button', 'btn btn-primary btn-block', 'Сохранить')
+  save.type = 'button'
+  save.addEventListener('click', async () => {
+    if (title.value.trim() === '' || prompt.value.trim() === '') {
+      toast('Заполните название и промпт')
+      return
+    }
+    save.disabled = true
+    try {
+      await api('POST', '/api/automations', {
+        title: title.value.trim(),
+        prompt: prompt.value.trim(),
+        time: time.value,
+        weekdays: dayInputs.filter((input) => input.checked).map((input) => Number(input.value)),
+      })
+      closeSheet()
+      state.automations = null
+      await loadAutomations()
+      toast('Автоматизация создана')
+    } catch (error) {
+      save.disabled = false
+      toast(error.message || 'Не удалось создать автоматизацию')
+    }
+  })
+  wrap.append(field('Название', title), field('Промпт', prompt), field('Время (МСК)', time), h('p', 'hint', 'Дни недели: если не выбрано — каждый день'), daysBox, save)
+  openSheet({ title: 'Новая автоматизация', body: wrap })
+}
+
+async function toggleAutomation(item) {
+  try {
+    await api('PATCH', '/api/automations/' + encodeURIComponent(item.id), { enabled: !item.enabled })
+    state.automations = null
+    await loadAutomations()
+  } catch (error) {
+    toast(error.message || 'Не удалось изменить автоматизацию')
+  }
+}
+
+async function runAutomation(item) {
+  try {
+    await api('POST', '/api/automations/' + encodeURIComponent(item.id) + '/run')
+    state.automations = null
+    await loadAutomations()
+    toast('Запущено — ответ придёт в чат')
+  } catch (error) {
+    toast(error.message || 'Не удалось запустить')
+  }
+}
+
+async function deleteAutomation(item) {
+  try {
+    await api('DELETE', '/api/automations/' + encodeURIComponent(item.id))
+    state.automations = null
+    await loadAutomations()
+    toast('Автоматизация удалена')
+  } catch (error) {
+    toast(error.message || 'Не удалось удалить')
+  }
+}
+
 async function ensureInbox() {
   if (!state.loaded.inbox && !state.loading.inbox) await loadInbox()
 }
@@ -3875,6 +4057,7 @@ function bind() {
       toast(error.message || 'Не удалось получить ссылку')
     }
   })
+  $('automation-add').addEventListener('click', () => openAutomationSheet())
   $('inbox-add').addEventListener('click', () => void addInbox())
   $('inbox-input').addEventListener('keydown', (event) => { if (event.key === 'Enter') { event.preventDefault(); void addInbox() } })
   $('files-search').addEventListener('input', (event) => {
