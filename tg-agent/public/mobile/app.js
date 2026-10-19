@@ -691,7 +691,18 @@ function renderDesktopChats() {
 
 function updateChatHeader() {
   const group = state.chatTarget && state.chatTarget.type !== 'private'
-  $('chat-input').placeholder = group ? 'В общий чат… (@бот или ответ)' : 'Написать ассистенту…'
+  const project = state.chatTarget && state.chatTarget.type === 'project'
+  $('chat-input').placeholder = project
+    ? 'Написать в проект…'
+    : group
+      ? 'В общий чат… (@бот или ответ)'
+      : 'Написать ассистенту…'
+  const name = document.querySelector('.chat-head-name')
+  const status = document.querySelector('.chat-head-status')
+  if (name) name.textContent = project ? state.chatTarget.title : 'Ассистент'
+  if (status) status.innerHTML = project
+    ? '<span class="dot"></span>проект · отдельный контекст'
+    : '<span class="dot"></span>онлайн · можно писать'
 }
 
 function selectChat(chat) {
@@ -4133,6 +4144,7 @@ async function openProjectChat(project) {
   state.chatTarget = { id: 'project:' + project.id, type: 'project', title: project.name }
   state.loaded.chat = false
   state.chat = null
+  updateChatHeader()
   await loadChat()
   renderChatSwitch()
 }
