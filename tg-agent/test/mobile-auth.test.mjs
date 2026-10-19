@@ -187,6 +187,7 @@ async function createHarness(t, options = {}) {
     chatResponder: options.chatResponder,
     agentResponder: options.agentResponder,
     agentStatus: options.agentStatus,
+    agentCancel: options.agentCancel,
     publicDir,
     logger: silentLogger,
     mobilePasswordHash: options.mobilePasswordHash ?? HASH,
@@ -748,6 +749,25 @@ test('проактивность: чтение и сохранение наст�
     body: { reviewAt: '25:00' },
   })
   assert.equal(invalid.status, 400)
+})
+
+test('агент: отмена задачи', async (t) => {
+  const cancelled = []
+  const { base } = await createHarness(t, {
+    agentCancel: async ({ taskId }) => { cancelled.push(taskId); return { ok: true } },
+  })
+  const cookies = jar()
+  await request(base, '/api/auth/login', { method: 'POST', body: { password: PASSWORD }, cookieJar: cookies })
+  const done = await request(base, '/api/agent/cancel', {
+    method: 'POST', cookieJar: cookies, headers: { 'X-Mobile-Client': '1' },
+    body: { taskId: 'task-1' },
+  })
+  assert.equal(done.status, 200)
+  assert.deepEqual(cancelled, ['task-1'])
+  const empty = await request(base, '/api/agent/cancel', {
+    method: 'POST', cookieJar: cookies, headers: { 'X-Mobile-Client': '1' }, body: {},
+  })
+  assert.equal(empty.status, 400)
 })
 
 test('настройки: чтение, смена и проверка значений', async (t) => {

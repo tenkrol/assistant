@@ -870,6 +870,12 @@ export async function createInstance({ config, logger, instance, shared, platfor
           await bot.history.append(String(chatId), { role: 'assistant', content: text })
           return { ok: true, text }
         },
+        agentCancel: async ({ taskId }) => {
+          if (!bot.agentBridge?.enabled || typeof bot.agentBridge.cancelTask !== 'function') {
+            throw new Error('Мост к агенту выключен')
+          }
+          return bot.agentBridge.cancelTask(String(taskId))
+        },
         agentStatus: async () => {
           if (!bot.agentBridge?.enabled) return { enabled: false, agents: [], events: [] }
           const [agents, events] = await Promise.all([

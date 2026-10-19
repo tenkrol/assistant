@@ -430,6 +430,7 @@ export function createMiniApp({
   chatResponder,
   agentResponder,
   agentStatus,
+  agentCancel,
   timeZone = '',
   now = () => Date.now(),
 } = {}) {
@@ -964,6 +965,25 @@ export function createMiniApp({
     } catch (error) {
       logger?.warn?.('agent status failed', { error: error?.message ?? error })
       sendJson(response, 200, { enabled: false, agents: [], events: [], error: 'Агент не отвечает' })
+    }
+  }
+
+  /** POST /api/agent/cancel — отменить задачу агента по taskId. */
+  async function cancelAgentTask(request, response) {
+    if (typeof agentCancel !== 'function') {
+      request.resume()
+      return missingStore(response, 'агент')
+    }
+    const body = await readJsonBody(request, bodyLimit)
+    if (!body.ok) return sendError(response, body.status, body.code, body.error)
+    const taskId = typeof body.value?.taskId === 'string' ? body.value.taskId.trim() : ''
+    if (taskId === '') return badRequest(response, 'Нет taskId')
+    try {
+      const result = await agentCancel({ taskId })
+      sendJson(response, 200, { ok: true, result: result ?? null })
+    } catch (error) {
+      logger?.warn?.('agent cancel failed', { error: error?.message ?? error, taskId })
+      sendError(response, 502, 'agent_unavailable', 'Не удалось отменить задачу')
     }
   }
 
@@ -1756,6 +1776,7 @@ export function createMiniApp({
     { method: 'POST', pattern: /^\/api\/push\/test$/, handler: testPush },
     { method: 'GET', pattern: /^\/api\/agent\/status$/, handler: getAgentStatus },
     { method: 'POST', pattern: /^\/api\/agent\/task$/, handler: submitAgentTask },
+    { method: 'POST', pattern: /^\/api\/agent\/cancel$/, handler: cancelAgentTask },
     { method: 'GET', pattern: /^\/api\/proactive$/, handler: getProactive },
     { method: 'PATCH', pattern: /^\/api\/proactive$/, handler: patchProactive },
     { method: 'GET', pattern: /^\/api\/settings$/, handler: getSettings },

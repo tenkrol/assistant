@@ -2711,6 +2711,16 @@ const AGENT_CAPABILITY_GROUPS = [
   { label: 'Быстро', caps: ['quick'] }
 ]
 
+async function cancelAgentTask(taskId) {
+  try {
+    await api('POST', '/api/agent/cancel', { taskId })
+    toast('Задача отменена')
+    await loadAgentStatus()
+  } catch (error) {
+    toast(error.message || 'Не удалось отменить задачу')
+  }
+}
+
 function renderAgentCapabilities(data) {
   const box = $('agent-capabilities')
   if (!box) return
@@ -2760,6 +2770,12 @@ function renderAgentStatus(data) {
     body.append(h('div', 'agent-event-title', String(title)))
     const meta = [event.agent, event.type, event.status, event.tokens ? event.tokens + ' ток.' : ''].filter(Boolean).join(' · ')
     body.append(h('div', 'agent-event-meta', meta || 'событие агента'))
+    if (event.taskId && !['done', 'failed', 'cancelled', 'expired'].includes(String(event.status))) {
+      const cancel = h('button', 'agent-cancel', 'Отменить')
+      cancel.type = 'button'
+      cancel.addEventListener('click', () => void cancelAgentTask(event.taskId))
+      body.append(cancel)
+    }
     card.append(ic, body)
     box.append(card)
   })

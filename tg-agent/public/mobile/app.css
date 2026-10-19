@@ -4333,3 +4333,14 @@ html.large-text .setting-row span {
   font-size: 12px;
   font-weight: 600;
 }
+
+.agent-cancel {
+  margin-top: 7px;
+  padding: 5px 9px;
+  border-radius: 8px;
+  border: 1px solid var(--danger);
+  color: var(--danger);
+  font-size: 11.5px;
+  font-weight: 600;
+  width: fit-content;
+}

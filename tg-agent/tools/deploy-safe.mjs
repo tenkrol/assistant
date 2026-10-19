@@ -422,10 +422,36 @@ function recentErrors({ runner, service }) {
 }
 
 /**
- * Poll until the service is `active`, logs something fresh and prints no
- * `ERROR`. The three conditions are checked in that order, cheapest first.
+ * HTTP-проверка живой панели.
+ *
+ * 401 без входа — нормальный ответ `/api/reminders` (панель жива и требует
+ * авторизацию). 2xx/3xx тоже считаем ответом. Пустой `url` — проверка
+ * пропущена: так `deploySafe` остаётся вызываемым из тестов и скриптов.
  */
-async function waitForHealthy({ runner, service, sleep, now, timeoutMs }) {
+async function httpHealth({ fetchImpl, url, timeoutMs = 5_000 }) {
+  if (!url) return { ok: true, skipped: true }
+  if (typeof fetchImpl !== 'function') return { ok: false, reason: 'HTTP-проверка недоступна: нет fetch' }
+  try {
+    const response = await fetchImpl(url, {
+      method: 'GET',
+      redirect: 'manual',
+      signal: AbortSignal.timeout(timeoutMs),
+    })
+    const status = Number(response?.status)
+    const ok = status === 401 || (status >= 200 && status < 400)
+    return ok
+      ? { ok: true, status }
+      : { ok: false, reason: `HTTP ${Number.isFinite(status) ? status : '—'} (${url})` }
+  } catch (error) {
+    return { ok: false, reason: `HTTP недоступен (${url}): ${String(error?.message ?? error).slice(0, 140)}` }
+  }
+}
+
+/**
+ * Poll until the service is `active`, logs something fresh, prints no `ERROR`
+ * and answers HTTP. The conditions are checked cheapest first.
+ */
+async function waitForHealthy({ runner, service, sleep, now, timeoutMs, fetchImpl, healthUrl }) {
   const deadline = now() + timeoutMs
   let reason = 'нет данных'
   let attempts = 0
@@ -441,7 +467,11 @@ async function waitForHealthy({ runner, service, sleep, now, timeoutMs }) {
       } else {
         const errors = recentErrors({ runner, service })
         if (!errors.ok) reason = errors.reason
-        else return { ok: true, attempts, ageMs: fresh.ageMs }
+        else {
+          const http = await httpHealth({ fetchImpl, url: healthUrl })
+          if (!http.ok) reason = http.reason
+          else return { ok: true, attempts, ageMs: fresh.ageMs, httpStatus: http.status }
+        }
       }
     }
     if (now() >= deadline) return { ok: false, reason, attempts }
@@ -517,6 +547,71 @@ function rotateReleases({ releasesDir, keep, protectedPaths, log }) {
   if (removed === 0) log('  старых релизов сверх лимита нет')
 }
 
+/**
+ * Поставить внешний сторож из нового релиза: юнит и таймер.
+ *
+ * Вызывается только успешным деплоем CLI. Ошибка установки не откатывает уже
+ * проверенный релиз: бот работает, а сторож — отдельная страховка; причина
+ * пишется в лог и в сводку.
+ */
+export function installWatchUnits({
+  sourceDir,
+  systemdDir = '/etc/systemd/system',
+  runner,
+  nodeBin = process.execPath,
+  installDir,
+  dataDir = '/var/lib/tg-agent',
+  user = DEFAULTS.SERVICE_USER,
+  service = DEFAULTS.SERVICE,
+  log = () => {},
+  logError = () => {},
+} = {}) {
+  if (service !== 'tg-agent') {
+    return { ok: true, skipped: true, reason: `сторож ставится только для tg-agent, а не ${service}` }
+  }
+  if (!sourceDir || !installDir) return { ok: false, reason: 'не переданы sourceDir/installDir' }
+  const source = path.join(sourceDir, 'deploy')
+  const sourceService = path.join(source, 'tg-agent-watch.service')
+  const sourceTimer = path.join(source, 'tg-agent-watch.timer')
+  if (!fs.existsSync(sourceService) || !fs.existsSync(sourceTimer)) {
+    return { ok: false, skipped: true, reason: 'в релизе нет юнитов сторожа' }
+  }
+
+  const unitPath = path.join(systemdDir, 'tg-agent-watch.service')
+  const timerPath = path.join(systemdDir, 'tg-agent-watch.timer')
+  try {
+    let unit = fs.readFileSync(sourceService, 'utf8')
+      .replace(/^ExecStart=.*$/m, `ExecStart=${nodeBin} tools/watchdog-service.mjs`)
+      .replace(/^User=.*$/m, `User=${user}`)
+      .replace(/^WorkingDirectory=.*$/m, `WorkingDirectory=${installDir}`)
+      .replace(/^EnvironmentFile=.*$/m, `EnvironmentFile=${path.join(installDir, '.env')}`)
+      .replace(/^Environment=DATA_DIR=.*$/m, `Environment=DATA_DIR=${dataDir}`)
+      .replace(/^Environment=WATCHDOG_SERVICE=.*$/m, `Environment=WATCHDOG_SERVICE=${service}`)
+      .replace(/^ReadWritePaths=.*$/m, `ReadWritePaths=${dataDir}`)
+      .replace(/^StateDirectory=.*$/m, `StateDirectory=${path.basename(dataDir)}`)
+      .replace(/^Documentation=.*$/m, `Documentation=file:${path.join(installDir, 'README.md')}`)
+    if (/^\/(?:root|home)\//.test(installDir)) unit = unit.replace(/^ProtectHome=.*$/m, 'ProtectHome=false')
+    fs.mkdirSync(systemdDir, { recursive: true })
+    const temporary = `${unitPath}.tmp-${process.pid}`
+    fs.writeFileSync(temporary, unit, 'utf8')
+    fs.renameSync(temporary, unitPath)
+    fs.copyFileSync(sourceTimer, timerPath)
+    const daemon = safeRun(runner, 'systemctl', ['daemon-reload'])
+    if (daemon.status !== 0) {
+      return { ok: false, reason: `systemctl daemon-reload: ${firstLine(daemon.stderr) || `код ${daemon.status}`}` }
+    }
+    const enabled = safeRun(runner, 'systemctl', ['enable', '--now', 'tg-agent-watch.timer'])
+    if (enabled.status !== 0) {
+      return { ok: false, reason: `systemctl enable --now tg-agent-watch.timer: ${firstLine(enabled.stderr) || `код ${enabled.status}`}` }
+    }
+    log(`  сторож установлен: ${unitPath} (таймер tg-agent-watch.timer)`)
+    return { ok: true, unitPath, timerPath }
+  } catch (error) {
+    logError(`  не удалось установить сторожа: ${error.message}`)
+    return { ok: false, reason: error.message }
+  }
+}
+
 /** Read-only report: the active release and everything in the releases dir. */
 function showStatus({ currentLink, releasesDir, log }) {
   const current = readCurrent(currentLink)
@@ -573,6 +668,14 @@ export async function deploySafe(options = {}) {
   const dryRun = Boolean(options.dryRun)
   const noTests = Boolean(options.noTests)
   const notify = Boolean(options.notify)
+  // HTTP-проверка после старта: пусто — проверка пропущена (так вызывают
+  // тесты и скрипты). `main` подставляет адрес панели или WATCHDOG_HEALTH_URL.
+  const healthUrl = options.healthUrl ?? ''
+  // Юнит и таймер сторожа ставит только CLI: прямой вызов из тестов не должен
+  // писать в /etc/systemd/system.
+  const installUnits = Boolean(options.installUnits)
+  const systemdDir = path.resolve(options.systemdDir ?? '/etc/systemd/system')
+  const dataDir = path.resolve(options.dataDir ?? env.DATA_DIR ?? '/var/lib/tg-agent')
 
   if (options.status) return showStatus({ currentLink, releasesDir, log })
 
@@ -702,18 +805,40 @@ export async function deploySafe(options = {}) {
   }
 
   log('--- 5/6 проверка после запуска')
-  const health = await waitForHealthy({ runner, service, sleep, now, timeoutMs: healthTimeoutSec * 1000 })
+  const health = await waitForHealthy({
+    runner, service, sleep, now, timeoutMs: healthTimeoutSec * 1000, fetchImpl, healthUrl,
+  })
   if (!health.ok) {
     logError(`ПРОВЕРКА НЕ ПРОЙДЕНА: ${health.reason}`)
     return rollback({
       runner, sleep, now, log, logError, env, fetchImpl, service, currentLink, previous, releaseDir,
-      healthTimeoutSec, reason: health.reason, summary, done,
+      healthTimeoutSec, healthUrl, reason: health.reason, summary, done,
     })
   }
-  log(`  сервис активен, журнал свежий (${Math.round(health.ageMs / 1000)} с), ERROR нет`)
+  log(`  сервис активен, журнал свежий (${Math.round(health.ageMs / 1000)} с), ERROR нет`
+    + (health.httpStatus ? `, HTTP ${health.httpStatus}` : ', HTTP-проверка пропущена'))
 
   log('--- 6/6 очистка старых релизов')
   rotateReleases({ releasesDir, keep, protectedPaths: [releaseDir, previous], log })
+
+  // Сторож — часть схемы доступности: ставим его после зелёного старта, чтобы
+  // не откатывать рабочий релиз из-за ошибки установки таймера.
+  if (installUnits) {
+    const watchdog = installWatchUnits({
+      sourceDir: releaseDir,
+      systemdDir,
+      runner,
+      nodeBin: process.execPath,
+      installDir: currentLink,
+      dataDir,
+      user,
+      service,
+      log,
+      logError,
+    })
+    summary.watchdog = watchdog.ok ? 'установлен' : `не установлен: ${watchdog.reason}`
+    if (!watchdog.ok) logError(`ВНИМАНИЕ: внешний сторож не установлен: ${watchdog.reason}`)
+  }
 
   if (notify) {
     const text = [
