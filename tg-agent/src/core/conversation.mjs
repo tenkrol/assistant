@@ -360,6 +360,7 @@ export function createConversation(bot) {
               ? { replyTo: { text: message.replyTo.text.trim().slice(0, 600), ...(message.replyTo.author ? { author: String(message.replyTo.author).slice(0, 80) } : {}) } }
               : {}),
             ...(historyAttachments.length > 0 ? { attachments: historyAttachments } : {}),
+            ...(message.telegramMessageId ? { telegramMessageId: message.telegramMessageId } : {}),
           },
           { userId: isGroup ? undefined : userId },
         )
@@ -582,6 +583,7 @@ export function createConversation(bot) {
                 .map((item) => ({ id: item.id, kind: item.kind, name: item.name, mime: item.mime, size: item.size, url: item.url })),
             }
             : {}),
+          ...(message.telegramMessageId ? { telegramMessageId: message.telegramMessageId } : {}),
         },
         { userId: isGroup ? undefined : userId },
       )

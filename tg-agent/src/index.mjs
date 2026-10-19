@@ -917,6 +917,14 @@ export async function createInstance({ config, logger, instance, shared, platfor
         mobileSessionSecret: config.miniapp.mobile.sessionSecret,
         mobileUserId: config.miniapp.mobile.userId || [...botConfig.access.allowedUserIds][0],
         mobileUserName: config.miniapp.mobile.userName,
+        editChatMessage: async ({ chatId, messageId, text }) => {
+          if (typeof bot.platform?.editText !== 'function') throw new Error('Платформа не умеет редактировать')
+          return bot.platform.editText({ chatId, messageId, markdown: text })
+        },
+        deleteChatMessage: async ({ chatId, messageId }) => {
+          if (typeof bot.platform?.deleteMessage !== 'function') throw new Error('Платформа не умеет удалять')
+          return bot.platform.deleteMessage({ chatId, messageId })
+        },
         botUsername: bot.username,
         mobileUsername: config.miniapp.mobile.username,
         sessionTtlSec: config.miniapp.mobile.sessionTtlSec,

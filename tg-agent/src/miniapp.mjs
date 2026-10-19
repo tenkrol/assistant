@@ -425,6 +425,8 @@ export function createMiniApp({
   mediaStore,
   inbox,
   agentFiles,
+  editChatMessage,
+  deleteChatMessage,
   documents,
   proactiveSettings,
   updateProactive,
@@ -1418,6 +1420,45 @@ export function createMiniApp({
     response.end(bytes)
   }
 
+  /** PATCH /api/chat/message/:id — изменить текст своего сообщения. */
+  async function editChatMessageHandler(request, response, { userId, auth, params }) {
+    if (!history || typeof history.edit !== 'function') return missingStore(response, 'история чата')
+    const body = await readJsonBody(request, bodyLimit)
+    if (!body.ok) return sendError(response, body.status, body.code, body.error)
+    const target = resolveChat(body.value?.chatId, auth)
+    if (!target) return sendError(response, 403, ERROR_CODES.forbidden, 'Чужой чат')
+    const text = String(body.value?.text ?? '').trim()
+    if (text === '' || text.length > CHAT_MESSAGE_MAX) return badRequest(response, 'Некорректный текст')
+    const message = history.message(target.chatId, params?.[0])
+    if (!message) return notFound(response)
+    if (message.role !== 'user') return sendError(response, 403, ERROR_CODES.forbidden, 'Можно менять только свои сообщения')
+    const updated = await history.edit(target.chatId, params[0], text)
+    if (message.telegramMessageId && typeof editChatMessage === 'function') {
+      await editChatMessage({ chatId: target.chatId, messageId: message.telegramMessageId, text }).catch((error) => {
+        logger?.warn?.('telegram edit failed', { error: error?.message ?? error })
+      })
+    }
+    sendJson(response, 200, { ok: true, message: { id: updated.id, text: updated.content } })
+  }
+
+  /** DELETE /api/chat/message/:id — удалить сообщение из истории и Telegram. */
+  async function deleteChatMessageHandler(request, response, { auth, params }) {
+    if (!history || typeof history.remove !== 'function') return missingStore(response, 'история чата')
+    request.resume()
+    const target = resolveChat(new URL(request.url, 'http://localhost').searchParams.get('chatId'), auth)
+    if (!target) return sendError(response, 403, ERROR_CODES.forbidden, 'Чужой чат')
+    const message = history.message(target.chatId, params?.[0])
+    if (!message) return notFound(response)
+    if (message.role !== 'user') return sendError(response, 403, ERROR_CODES.forbidden, 'Можно удалять только свои сообщения')
+    await history.remove(target.chatId, params[0])
+    if (message.telegramMessageId && typeof deleteChatMessage === 'function') {
+      await deleteChatMessage({ chatId: target.chatId, messageId: message.telegramMessageId }).catch((error) => {
+        logger?.warn?.('telegram delete failed', { error: error?.message ?? error })
+      })
+    }
+    sendJson(response, 200, { ok: true })
+  }
+
   /** POST /api/chat/react — поставить/снять реакцию на сообщение. */
   async function reactMessage(request, response, { userId, auth }) {
     if (!history || typeof history.react !== 'function') return missingStore(response, 'история чата')
@@ -1970,6 +2011,8 @@ export function createMiniApp({
     { method: 'GET', pattern: /^\/api\/files\/([^/]+)\/download$/, handler: downloadFile },
     { method: 'POST', pattern: /^\/api\/chat\/upload$/, handler: uploadMedia },
     { method: 'GET', pattern: /^\/api\/media\/([^/]+)$/, handler: getMedia },
+    { method: 'PATCH', pattern: /^\/api\/chat\/message\/([^/]+)$/, handler: editChatMessageHandler },
+    { method: 'DELETE', pattern: /^\/api\/chat\/message\/([^/]+)$/, handler: deleteChatMessageHandler },
     { method: 'POST', pattern: /^\/api\/chat\/react$/, handler: reactMessage },
     { method: 'GET', pattern: /^\/api\/chat\/search$/, handler: searchChat },
     { method: 'GET', pattern: /^\/api\/chat\/history$/, handler: chatHistory },

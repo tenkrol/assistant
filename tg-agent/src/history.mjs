@@ -179,6 +179,35 @@ export class HistoryStore {
     this.schedule()
   }
 
+  /** Найти сообщение по id. */
+  message(chatId, messageId) {
+    const record = this.chats.get(String(chatId))
+    return record?.messages.find((item) => String(item.id) === String(messageId))
+  }
+
+  /** Изменить текст пользовательского сообщения. */
+  async edit(chatId, messageId, text) {
+    const message = this.message(chatId, messageId)
+    if (!message || message.role !== 'user') return undefined
+    message.content = String(text)
+    message.editedAt = new Date().toISOString()
+    this.touch(String(chatId))
+    this.schedule()
+    return message
+  }
+
+  /** Удалить сообщение из истории. */
+  async remove(chatId, messageId) {
+    const record = this.chats.get(String(chatId))
+    if (!record) return undefined
+    const index = record.messages.findIndex((item) => String(item.id) === String(messageId))
+    if (index === -1) return undefined
+    const [removed] = record.messages.splice(index, 1)
+    this.touch(String(chatId))
+    this.schedule()
+    return removed
+  }
+
   /** Поставить реакцию на сообщение; возвращает обновлённое сообщение. */
   async react(chatId, messageId, reaction) {
     const record = this.chats.get(String(chatId))

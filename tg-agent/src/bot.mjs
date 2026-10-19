@@ -421,6 +421,7 @@ export class Assistant {
       )
       return { sends: [], files: [], silent: true }
     }
+    if (relayedMessageId) message.telegramMessageId = relayedMessageId
     const task = this.delivery.run(delivery, () => this.enqueueUpdate(message))
     await task
     if (delivery.sends.length === 0 && delivery.files.length === 0) {

@@ -963,6 +963,29 @@ test('аватар: отдаётся только своим, история с�
   assert.equal(chat.json.messages[0].avatar, `/api/avatar/${USER_ID}`)
 })
 
+test('редактировать и удалить своё сообщение', async (t) => {
+  const calls = []
+  const { base, history } = await createHarness(t, {
+    editChatMessage: async (input) => calls.push(['edit', input]),
+    deleteChatMessage: async (input) => calls.push(['delete', input]),
+  })
+  await history.append(USER_ID, { role: 'user', content: 'старый текст' }, { userId: USER_ID })
+  await history.flush()
+  const cookies = jar()
+  await request(base, '/api/auth/login', { method: 'POST', body: { password: PASSWORD }, cookieJar: cookies })
+  const chat = await request(base, '/api/chat/history', { cookieJar: cookies })
+  const id = chat.json.messages[0].id
+  const edited = await request(base, '/api/chat/message/' + id, {
+    method: 'PATCH', cookieJar: cookies, headers: { 'X-Mobile-Client': '1' }, body: { text: 'новый текст' },
+  })
+  assert.equal(edited.status, 200)
+  assert.equal(edited.json.message.text, 'новый текст')
+  const removed = await request(base, '/api/chat/message/' + id, { method: 'DELETE', cookieJar: cookies, headers: { 'X-Mobile-Client': '1' } })
+  assert.equal(removed.status, 200)
+  const after = await request(base, '/api/chat/history', { cookieJar: cookies })
+  assert.equal(after.json.messages.length, 0)
+})
+
 test('реакция на сообщение сохраняется', async (t) => {
   const { base, history } = await createHarness(t)
   await history.append(USER_ID, { role: 'user', content: 'поставь лайк' }, { userId: USER_ID })

@@ -306,6 +306,11 @@ export class TelegramPlatform {
     })
   }
 
+  /** Удалить сообщение, отправленное ботом. */
+  async deleteMessage({ chatId, messageId }) {
+    return this.client.call('deleteMessage', { chat_id: chatId, message_id: messageId })
+  }
+
   /** Acknowledge a button tap; Telegram shows `text` as a toast. */
   async answerCallback({ callbackId, text, alert = false }) {
     return this.client.answerCallbackQuery({ callbackQueryId: callbackId, text, showAlert: alert })

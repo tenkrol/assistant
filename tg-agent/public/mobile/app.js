@@ -833,6 +833,48 @@ async function copyMessageText(text) {
   }
 }
 
+function openEditMessage(message) {
+  const wrap = h('div')
+  const input = document.createElement('textarea')
+  input.className = 'input'
+  input.rows = 3
+  input.value = message.text || ''
+  const save = h('button', 'btn btn-primary btn-block', 'Сохранить')
+  save.type = 'button'
+  save.addEventListener('click', async () => {
+    if (input.value.trim() === '') return
+    save.disabled = true
+    try {
+      await api('PATCH', '/api/chat/message/' + encodeURIComponent(message.id), {
+        chatId: state.chatTarget && state.chatTarget.id !== null ? state.chatTarget.id : undefined,
+        text: input.value.trim(),
+      })
+      closeSheet()
+      const target = state.chat?.messages?.find((item) => item.id === message.id)
+      if (target) target.text = input.value.trim()
+      renderChat()
+      toast('Сообщение изменено')
+    } catch (error) {
+      save.disabled = false
+      toast(error.message || 'Не удалось изменить сообщение')
+    }
+  })
+  wrap.append(field('Текст', input), save)
+  openSheet({ title: 'Изменить сообщение', body: wrap })
+}
+
+async function deleteChatMessage(message) {
+  try {
+    const chatId = state.chatTarget && state.chatTarget.id !== null ? state.chatTarget.id : ''
+    await api('DELETE', '/api/chat/message/' + encodeURIComponent(message.id) + '?chatId=' + encodeURIComponent(chatId))
+    if (state.chat?.messages) state.chat.messages = state.chat.messages.filter((item) => item.id !== message.id)
+    renderChat()
+    toast('Сообщение удалено')
+  } catch (error) {
+    toast(error.message || 'Не удалось удалить сообщение')
+  }
+}
+
 async function setMessageReaction(message, reaction) {
   if (!message || !message.id) {
     toast('Реакции доступны для сообщений из истории — обновите чат')
@@ -894,6 +936,20 @@ function openMessageMenu(message) {
     updateChatSend()
     input.focus()
   })
+  if (message.role === 'user' && message.id) {
+    const edit = h('button', null)
+    edit.type = 'button'
+    edit.append(icon('pencil'), h('span', null, 'Изменить'))
+    edit.addEventListener('click', () => { closeSheet(); openEditMessage(message) })
+    const remove = h('button', null)
+    remove.type = 'button'
+    remove.append(icon('trash'), h('span', null, 'Удалить'))
+    remove.addEventListener('click', () => {
+      closeSheet()
+      confirmSheet('Удалить сообщение?', 'Оно исчезнет из сайта и из Telegram.', 'Удалить', () => void deleteChatMessage(message))
+    })
+    wrap.append(edit, remove)
+  }
   wrap.append(quote, reactions, reply, forward, copy)
   openSheet({ title: 'Сообщение', body: wrap })
 }
