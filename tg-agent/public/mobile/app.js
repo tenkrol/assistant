@@ -4205,20 +4205,43 @@ function renderAgentStatus(data) {
   renderAgentCapabilities(data)
   const box = $('agent-events')
   const events = data && Array.isArray(data.events) ? data.events : []
-  $('agent-events-count').textContent = String(events.length)
+  // Одна задача присылает несколько событий (queued, started, completed…).
+  // Показываем последнее состояние каждой задачи, иначе список выглядит
+  // как одна и та же задача, повторённая много раз.
+  const tasks = []
+  const seen = new Map()
+  for (const event of events) {
+    const key = event.taskId ? String(event.taskId) : 'event:' + String(event.type) + ':' + String(event.at)
+    const existing = seen.get(key)
+    if (existing) {
+      existing.events += 1
+      existing.tokens = Math.max(existing.tokens || 0, Number(event.tokens) || 0)
+      if (event.status) existing.status = event.status
+      continue
+    }
+    const task = {
+      ...event,
+      title: event.title || event.taskId || 'Задача агента',
+      status: event.status,
+      events: 1,
+    }
+    seen.set(key, task)
+    tasks.push(task)
+  }
+  $('agent-events-count').textContent = String(tasks.length)
   box.replaceChildren()
-  if (events.length === 0) {
+  if (tasks.length === 0) {
     box.append(h('p', 'hint', data && data.enabled ? 'Пока нет задач. Выберите блок выше.' : 'Агент не отвечает: мост выключен или недоступен.'))
     return
   }
-  events.slice(0, 8).forEach((event) => {
+  tasks.slice(0, 8).forEach((event) => {
     const card = h('div', 'agent-event')
     const ic = h('span', 'plan-ic' + (event.status === 'failed' ? ' event' : ''))
     ic.append(icon(event.type === 'question' ? 'help' : 'cpu'))
     const body = h('div', 'agent-event-body')
     const title = event.title || event.taskId || 'Задача агента'
     body.append(h('div', 'agent-event-title', String(title)))
-    const meta = [event.agent, event.type, event.status, event.tokens ? event.tokens + ' ток.' : ''].filter(Boolean).join(' · ')
+    const meta = [event.agent, event.status || event.type, event.tokens ? event.tokens + ' ток.' : '', event.events > 1 ? event.events + ' событий' : ''].filter(Boolean).join(' · ')
     body.append(h('div', 'agent-event-meta', meta || 'событие агента'))
     if (event.taskId) {
       card.classList.add('is-clickable')
