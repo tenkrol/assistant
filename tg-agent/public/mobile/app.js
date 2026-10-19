@@ -964,15 +964,21 @@ function openMessageMenu(message) {
   })
   const forward = h('button', null)
   forward.type = 'button'
-  forward.append(icon('send'), h('span', null, 'Переслать в заметки'))
-  forward.addEventListener('click', () => {
+  forward.append(icon('send'), h('span', null, 'Сохранить в заметки'))
+  forward.addEventListener('click', async () => {
+    const text = String(message.text || '').trim()
+    if (text === '') {
+      toast('В сообщении нет текста для заметки')
+      return
+    }
     closeSheet()
-    go('chat')
-    const input = $('chat-input')
-    input.value = message.text || ''
-    input.style.height = 'auto'
-    updateChatSend()
-    input.focus()
+    try {
+      await api('POST', '/api/inbox', { text })
+      state.loaded.inbox = false
+      toast('Сохранено в инбокс')
+    } catch (error) {
+      toast(error.message || 'Не удалось сохранить в заметки')
+    }
   })
   if (message.role === 'user' && message.id) {
     const edit = h('button', null)
