@@ -2803,6 +2803,52 @@ function bindCmdk() {
   $('cmdk').addEventListener('click', (event) => { if (event.target === $('cmdk')) closeCmdk() })
 }
 
+function openChatSearch() {
+  const wrap = h('div')
+  const input = h('input', 'input')
+  input.placeholder = 'Найти в этом чате…'
+  input.autocomplete = 'off'
+  const results = h('div', 'search-results')
+  results.append(h('p', 'hint', 'Введите минимум 2 символа.'))
+  wrap.append(field('Поиск', input), results)
+  let timer
+  let seq = 0
+  const run = async () => {
+    const query = input.value.trim()
+    if (query.length < 2) {
+      results.replaceChildren(h('p', 'hint', 'Введите минимум 2 символа.'))
+      return
+    }
+    const current = ++seq
+    const chatId = state.chatTarget && state.chatTarget.id !== null && state.chatTarget.id !== undefined
+      ? '&chatId=' + encodeURIComponent(state.chatTarget.id)
+      : ''
+    try {
+      const data = await api('GET', '/api/chat/search?q=' + encodeURIComponent(query) + chatId)
+      if (current !== seq) return
+      const rows = Array.isArray(data.results) ? data.results : []
+      results.replaceChildren()
+      if (rows.length === 0) {
+        results.append(h('p', 'hint', 'Ничего не найдено.'))
+        return
+      }
+      rows.forEach((row) => {
+        const item = h('div', 'plan-card')
+        const body = h('div', 'plan-body')
+        body.append(h('b', null, (row.author || (row.role === 'assistant' ? 'Ассистент' : 'Вы')) + (row.at ? ' · ' + formatDateTime(row.at) : '')))
+        body.append(h('span', 'plan-meta', row.text))
+        item.append(body)
+        results.append(item)
+      })
+    } catch (error) {
+      if (current === seq) results.replaceChildren(h('p', 'hint', error.message || 'Ошибка поиска'))
+    }
+  }
+  input.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(run, 300) })
+  openSheet({ title: 'Поиск в чате', body: wrap })
+  setTimeout(() => input.focus(), 80)
+}
+
 function bind() {
   $('login-form').addEventListener('submit', login)
 
@@ -2836,6 +2882,7 @@ function bind() {
     renderCalendar()
   })
 
+  $('chat-search').addEventListener('click', openChatSearch)
   $('chat-refresh').addEventListener('click', () => {
     state.loaded.chat = false
     void loadChat()

@@ -864,6 +864,21 @@ test('аватар: отдаётся только своим, история с�
   assert.equal(chat.json.messages[0].avatar, `/api/avatar/${USER_ID}`)
 })
 
+test('поиск по истории чата', async (t) => {
+  const { base, history } = await createHarness(t)
+  await history.append(USER_ID, { role: 'user', content: 'купить молоко' }, { userId: USER_ID })
+  await history.append(USER_ID, { role: 'assistant', content: 'молоко уже есть' })
+  await history.flush()
+  const cookies = jar()
+  await request(base, '/api/auth/login', { method: 'POST', body: { password: PASSWORD }, cookieJar: cookies })
+  const found = await request(base, '/api/chat/search?q=молоко', { cookieJar: cookies })
+  assert.equal(found.status, 200)
+  assert.equal(found.json.results.length, 2)
+  assert.match(found.json.results[0].text, /молоко/)
+  const short = await request(base, '/api/chat/search?q=м', { cookieJar: cookies })
+  assert.equal(short.status, 400)
+})
+
 test('история сохраняет цитату ответа', async (t) => {
   const { base, history } = await createHarness(t)
   await history.append(USER_ID, {

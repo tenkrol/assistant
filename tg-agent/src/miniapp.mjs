@@ -1190,6 +1190,27 @@ export function createMiniApp({
     response.end(bytes)
   }
 
+  /** GET /api/chat/search — поиск по истории выбранного чата. */
+  function searchChat(request, response, { userId, auth, url }) {
+    request.resume()
+    if (!history || typeof history.messages !== 'function') return missingStore(response, 'история чата')
+    const target = resolveChat(url.searchParams.get('chatId'), auth)
+    if (!target) return sendError(response, 403, ERROR_CODES.forbidden, 'Чужой чат')
+    const query = String(url.searchParams.get('q') ?? '').trim().toLowerCase()
+    if (query.length < 2) return badRequest(response, 'Запрос минимум из 2 символов')
+    const results = history.messages(target.chatId, target.type === 'private' ? userId : undefined)
+      .filter((message) => String(message.content ?? '').toLowerCase().includes(query))
+      .slice(-50)
+      .reverse()
+      .map((message) => ({
+        role: message.role === 'assistant' ? 'assistant' : 'user',
+        text: safeText(message.content, 600),
+        ...(typeof message.author === 'string' && message.author !== '' ? { author: safeText(message.author, 80) } : {}),
+        ...(typeof message.at === 'string' ? { at: message.at } : {}),
+      }))
+    sendJson(response, 200, { query, results })
+  }
+
   /** GET /api/avatar/:userId — фото профиля Telegram для автора сообщения. */
   async function getAvatar(request, response, { params }) {
     request.resume()
@@ -1694,6 +1715,7 @@ export function createMiniApp({
     { method: 'GET', pattern: /^\/api\/files\/([^/]+)\/download$/, handler: downloadFile },
     { method: 'POST', pattern: /^\/api\/chat\/upload$/, handler: uploadMedia },
     { method: 'GET', pattern: /^\/api\/media\/([^/]+)$/, handler: getMedia },
+    { method: 'GET', pattern: /^\/api\/chat\/search$/, handler: searchChat },
     { method: 'GET', pattern: /^\/api\/chat\/history$/, handler: chatHistory },
     { method: 'POST', pattern: /^\/api\/chat\/message$/, handler: sendChatMessage },
     { method: 'GET', pattern: /^\/api\/push\/config$/, handler: getPushConfig },
