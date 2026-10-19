@@ -543,7 +543,6 @@ async function logout() {
 async function boot() {
   applyTheme()
   applyLargeText(store.get(LARGE_TEXT_KEY) === '1')
-  bindCmdk()
 
   window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
     if (themeMode === 'auto') applyTheme()
