@@ -1534,7 +1534,7 @@ export function createMiniApp({
 
   const photoCache = new Map()
 
-  /** GET /api/photos/search — поиск фотографий через Openverse. */
+  /** GET /api/photos/search — обычный поиск картинок через Bing Images. */
   async function searchPhotos(request, response, { url }) {
     request.resume()
     const query = String(url.searchParams.get('q') ?? '').trim()
@@ -1542,23 +1542,40 @@ export function createMiniApp({
     const cached = photoCache.get(query.toLowerCase())
     if (cached && Date.now() - cached.at < 5 * 60 * 1000) return sendJson(response, 200, { query, photos: cached.photos })
     try {
-      const target = new URL('https://api.openverse.org/v1/images/')
+      const target = new URL('https://www.bing.com/images/search')
       target.searchParams.set('q', query)
-      target.searchParams.set('page_size', '20')
-      target.searchParams.set('mature', 'false')
-      const api = await fetch(target, { headers: { 'user-agent': 'TenKrol/1.0 (https://tenkrol.ru)' } })
-      if (!api.ok) throw new Error('Openverse HTTP ' + api.status)
-      const data = await api.json()
-      const photos = (Array.isArray(data.results) ? data.results : []).map((item) => ({
-        id: String(item.id ?? ''),
-        title: String(item.title || 'Без названия').slice(0, 200),
-        thumbnail: String(item.thumbnail || item.url || ''),
-        url: String(item.url || ''),
-        source: String(item.source || item.provider || ''),
-        creator: String(item.creator || ''),
-        license: String(item.license || '').toUpperCase(),
-        page: String(item.foreign_landing_url || ''),
-      })).filter((item) => /^https:\/\//.test(item.thumbnail))
+      target.searchParams.set('form', 'HDRSC2')
+      target.searchParams.set('first', '1')
+      target.searchParams.set('count', '24')
+      const page = await fetch(target, {
+        headers: {
+          'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36',
+          'accept-language': 'ru-RU,ru;q=0.9,en;q=0.8',
+        },
+        signal: AbortSignal.timeout(20_000),
+      })
+      if (!page.ok) throw new Error('Bing HTTP ' + page.status)
+      const html = await page.text()
+      const decode = (value) => String(value || '')
+        .replace(/&quot;/g, '"').replace(/&amp;/g, '&').replace(/&#39;/g, "'")
+        .replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+      const urls = [...html.matchAll(/murl&quot;:&quot;(.*?)&quot;/g)].map((match) => decode(match[1]))
+      const thumbs = [...html.matchAll(/turl&quot;:&quot;(.*?)&quot;/g)].map((match) => decode(match[1]))
+      const pages = [...html.matchAll(/purl&quot;:&quot;(.*?)&quot;/g)].map((match) => decode(match[1]))
+      const photos = urls.map((imageUrl, index) => {
+        let title = 'Фото'
+        try { title = decodeURIComponent(new URL(imageUrl).pathname.split('/').pop() || 'Фото').replace(/\.[a-z0-9]+$/i, '') } catch { /* URL может быть нестандартным */ }
+        return {
+          id: String(index),
+          title: title.slice(0, 160),
+          thumbnail: thumbs[index] || imageUrl,
+          url: imageUrl,
+          page: pages[index] || imageUrl,
+          source: 'Bing Images',
+          creator: '',
+          license: '',
+        }
+      }).filter((item) => /^https?:\/\//.test(item.thumbnail) && /^https?:\/\//.test(item.url)).slice(0, 24)
       photoCache.set(query.toLowerCase(), { at: Date.now(), photos })
       while (photoCache.size > 30) photoCache.delete(photoCache.keys().next().value)
       sendJson(response, 200, { query, photos })
