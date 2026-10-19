@@ -378,6 +378,15 @@ body[data-screen="auth"] .statusbar {
 
 /* ---------- Нижняя навигация ---------- */
 
+.desktop-brand,
+.desktop-profile {
+  display: none;
+}
+
+.tab-list {
+  display: contents;
+}
+
 .tabbar {
   flex: 0 0 auto;
   display: grid;
@@ -3609,4 +3618,373 @@ html.large-text .setting-row span {
   opacity: 0.62;
   margin-top: 5px;
   user-select: none;
+}
+
+/* ============================================================
+   Десктоп: полноценное веб-приложение в стиле продуктов iOS.
+   Мобильная вёрстка остаётся ниже 1024px без изменений.
+   ============================================================ */
+@media (min-width: 1024px) {
+  html {
+    position: static;
+    height: auto;
+    overflow: auto;
+  }
+
+  body {
+    position: static;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100vh;
+    padding: 22px;
+    overflow: hidden;
+    background:
+      radial-gradient(1200px 700px at 8% 0%, var(--accent-soft), transparent 62%),
+      radial-gradient(900px 600px at 100% 100%, var(--violet-soft), transparent 62%),
+      var(--bg-soft);
+  }
+
+  .app {
+    width: min(1480px, 100%);
+    max-width: 1480px;
+    height: calc(100vh - 44px);
+    min-height: 0;
+    margin: 0;
+    display: grid;
+    grid-template-columns: 264px minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
+    border: 1px solid var(--border-2);
+    border-radius: 26px;
+    box-shadow: 0 30px 80px rgba(0, 0, 0, 0.32), 0 2px 8px rgba(0, 0, 0, 0.2);
+    overflow: hidden;
+  }
+
+  .statusbar {
+    display: none;
+  }
+
+  .viewport {
+    grid-column: 2;
+    grid-row: 1;
+    height: 100%;
+    min-height: 0;
+    background: var(--bg);
+  }
+
+  .screen {
+    border-radius: 0;
+  }
+
+  /* ---------- Боковая панель ---------- */
+
+  .tabbar {
+    grid-column: 1;
+    grid-row: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
+    height: 100%;
+    padding: 22px 14px 18px;
+    border: 0;
+    border-right: 1px solid var(--border);
+    border-radius: 0;
+    background: color-mix(in srgb, var(--bg-soft) 78%, transparent);
+    backdrop-filter: blur(30px) saturate(1.25);
+    -webkit-backdrop-filter: blur(30px) saturate(1.25);
+  }
+
+  body[data-screen="auth"] .app {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  body[data-screen="auth"] .viewport {
+    grid-column: 1;
+  }
+
+  .desktop-brand {
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    padding: 2px 10px 22px;
+    flex: 0 0 auto;
+  }
+
+  .desktop-logo {
+    display: grid;
+    place-items: center;
+    width: 40px;
+    height: 40px;
+    border-radius: 13px;
+    color: #fff;
+    background: linear-gradient(145deg, #40b4ff, #4f6dff);
+    box-shadow: 0 8px 20px var(--accent-glow);
+  }
+
+  .desktop-logo svg.ic {
+    width: 21px;
+    height: 21px;
+  }
+
+  .desktop-brand b {
+    display: block;
+    font-size: 15px;
+    font-weight: 720;
+    letter-spacing: -0.01em;
+  }
+
+  .desktop-brand span span {
+    display: block;
+    color: var(--muted);
+    font-size: 11.5px;
+    margin-top: 1px;
+  }
+
+  .tab-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .tab {
+    flex-direction: row;
+    justify-content: flex-start;
+    gap: 12px;
+    min-height: 46px;
+    padding: 0 12px;
+    border-radius: 13px;
+    color: var(--fg-2);
+    font-size: 13.5px;
+    font-weight: 620;
+    text-align: left;
+    transition: background 0.16s ease, color 0.16s ease;
+  }
+
+  .tab:hover {
+    background: var(--border);
+  }
+
+  .tab-ic {
+    width: 24px;
+    height: 24px;
+    border-radius: 7px;
+    background: transparent;
+  }
+
+  .tab-ic svg.ic {
+    width: 20px;
+    height: 20px;
+    stroke-width: 1.7;
+  }
+
+  .tab.is-active {
+    color: var(--accent);
+    background: var(--accent-soft);
+  }
+
+  .tab.is-active .tab-ic {
+    background: transparent;
+  }
+
+  .desktop-profile {
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    width: 100%;
+    margin-top: auto;
+    padding: 11px 10px;
+    border-radius: 15px;
+    border: 1px solid var(--border);
+    background: color-mix(in srgb, var(--card) 72%, transparent);
+    text-align: left;
+  }
+
+  .desktop-profile .avatar {
+    width: 34px;
+    height: 34px;
+    font-size: 13px;
+  }
+
+  .desktop-profile > span:nth-child(2) {
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+
+  .desktop-profile b {
+    display: block;
+    font-size: 13px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .desktop-profile span span {
+    display: block;
+    color: var(--muted);
+    font-size: 11px;
+    margin-top: 1px;
+  }
+
+  .desktop-profile > svg.ic {
+    width: 16px;
+    height: 16px;
+    color: var(--faint);
+  }
+
+  /* ---------- Контент ---------- */
+
+  .screen {
+    background: var(--bg);
+  }
+
+  .topbar {
+    padding: 26px clamp(26px, 3.6vw, 52px) 14px;
+    background: transparent;
+  }
+
+  .title-head h1 {
+    font-size: 30px;
+  }
+
+  .sub {
+    font-size: 13px;
+  }
+
+  .screen-scroll {
+    width: 100%;
+    max-width: 980px;
+    margin: 0 auto;
+    padding: 2px clamp(26px, 3.6vw, 52px) 40px;
+  }
+
+  .scroll {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-2) transparent;
+  }
+
+  .scroll::-webkit-scrollbar {
+    width: 8px;
+    display: block;
+  }
+
+  .scroll::-webkit-scrollbar-thumb {
+    background: var(--border-2);
+    border-radius: 99px;
+  }
+
+  /* Чат: широкая колонка по центру */
+  .chat-scroll {
+    padding: 0;
+  }
+
+  #chat-messages {
+    width: min(100%, 900px);
+    margin: 0 auto;
+    padding: 0 24px;
+  }
+
+  .chat-switch {
+    width: min(100%, 900px);
+    margin: 0 auto;
+    padding: 0 24px 12px;
+  }
+
+  .composer-wrap {
+    width: min(100%, 900px);
+    margin: 0 auto;
+    padding: 0 24px 16px;
+    background: transparent;
+  }
+
+  .reply-bar {
+    border: 1px solid var(--border);
+    border-bottom: 0;
+    border-radius: 18px 18px 0 0;
+    background: var(--card);
+  }
+
+  .composer {
+    padding: 8px;
+    border: 1px solid var(--border-2);
+    border-radius: 24px;
+    background: color-mix(in srgb, var(--card) 86%, transparent);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    box-shadow: 0 8px 26px rgba(0, 0, 0, 0.12);
+  }
+
+  .composer-field {
+    min-height: 42px;
+    border: 0;
+    background: var(--input);
+  }
+
+  .chat-empty {
+    margin-top: 12vh;
+  }
+
+  /* Настройки и списки — книга, а не телефон */
+  .settings-scroll {
+    max-width: 780px;
+  }
+
+  .tile-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .screen[data-screen="more"] .tile-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .agent-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .tile {
+    min-height: 120px;
+  }
+
+  /* Модалки как в macOS/iPadOS */
+  .sheet-backdrop {
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+  }
+
+  .sheet {
+    left: 50%;
+    right: auto;
+    bottom: auto;
+    top: 50%;
+    width: min(540px, calc(100% - 48px));
+    max-height: min(720px, calc(100vh - 96px));
+    border-radius: 24px;
+    transform: translate(-50%, -50%);
+    border: 1px solid var(--border-2);
+    box-shadow: 0 30px 90px rgba(0, 0, 0, 0.4);
+  }
+
+  .sheet.is-open {
+    transform: translate(-50%, -50%);
+  }
+
+  .sheet-grab {
+    display: none;
+  }
+
+  .toast {
+    bottom: 28px;
+  }
+
+  /* Авторизация по центру окна */
+  body[data-screen="auth"] .auth-content {
+    width: min(420px, 100%);
+    margin: auto;
+    padding-top: 40px;
+    padding-bottom: 40px;
+  }
+
+  body[data-screen="auth"] .auth-bg {
+    opacity: 0.8;
+  }
 }

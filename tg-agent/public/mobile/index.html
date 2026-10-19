@@ -618,6 +618,11 @@
 
   <!-- Нижняя навигация -->
   <nav class="tabbar" aria-label="Разделы">
+    <div class="desktop-brand">
+      <span class="desktop-logo"><svg class="ic"><use href="#i-spark"/></svg></span>
+      <span><b>Ассистент</b><span>tenkrol.ru</span></span>
+    </div>
+    <div class="tab-list">
     <button class="tab is-active" data-go="chat" aria-label="Чат">
       <span class="tab-ic"><svg class="ic"><use href="#i-chat"/></svg></span>
       <span>Чат</span>
@@ -637,6 +642,12 @@
     <button class="tab" data-go="more" aria-label="Ещё">
       <span class="tab-ic"><svg class="ic"><use href="#i-grid"/></svg></span>
       <span>Ещё</span>
+    </button>
+    </div>
+    <button class="desktop-profile" data-go="more">
+      <span class="avatar avatar-user" id="desktop-profile-letter">В</span>
+      <span><b id="desktop-profile-name">Владелец</b><span id="desktop-profile-via">tenkrol.ru</span></span>
+      <svg class="ic"><use href="#i-chevron-right"/></svg>
     </button>
   </nav>
 

@@ -2101,6 +2101,12 @@ function refreshProfile() {
   $('profile-via').textContent = via === 'password'
     ? 'Вход: ' + (login || 'по паролю')
     : 'Telegram'
+  const desktopName = $('desktop-profile-name')
+  const desktopLetter = $('desktop-profile-letter')
+  const desktopVia = $('desktop-profile-via')
+  if (desktopName) desktopName.textContent = name
+  if (desktopLetter) desktopLetter.textContent = name.trim().charAt(0).toUpperCase() || 'В'
+  if (desktopVia) desktopVia.textContent = via === 'password' ? 'tenkrol.ru' : 'Telegram'
 }
 
 /* ============================ Аккаунты ============================ */
