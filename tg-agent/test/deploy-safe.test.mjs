@@ -42,6 +42,13 @@ function makeSource({ broken = false, failingTest = false } = {}) {
   write(path.join(root, 'src', 'index.mjs'), broken ? 'const = ;\n' : "console.log('ok')\n")
   write(path.join(root, 'tools', 'helper.mjs'), 'export const value = 1\n')
   write(path.join(root, 'test', 'sample.test.mjs'), failingTest ? FAILING_TEST : PASSING_TEST)
+  // Юниты сторожа берутся из настоящего deploy/: тест проверяет ту же установку,
+  // которую делает CLI, не подменяя содержимое юнита.
+  const deployDir = path.resolve(import.meta.dirname, '..', 'deploy')
+  for (const name of ['tg-agent-watch.service', 'tg-agent-watch.timer']) {
+    write(path.join(root, 'deploy', name), fs.readFileSync(path.join(deployDir, name), 'utf8'))
+  }
+  write(path.join(root, 'README.md'), '# test\n')
   write(path.join(root, 'data', 'state.json'), '{}\n')
   write(path.join(root, '.git', 'config'), '[core]\n')
   write(path.join(root, 'backups', 'state.tar.gz'), 'x')

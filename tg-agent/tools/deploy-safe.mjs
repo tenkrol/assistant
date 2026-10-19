@@ -860,7 +860,7 @@ export async function deploySafe(options = {}) {
 async function rollback(context) {
   const {
     runner, sleep, now, log, logError, env, fetchImpl, service, currentLink,
-    previous, releaseDir, healthTimeoutSec, reason, summary, done,
+    previous, releaseDir, healthTimeoutSec, healthUrl, reason, summary, done,
   } = context
 
   log('--- ОТКАТ')
@@ -889,7 +889,9 @@ async function rollback(context) {
 
   const restarted = restartService({ runner, service })
   if (!restarted.ok) logError(`  перезапуск после отката не удался: ${restarted.reason}`)
-  const health = await waitForHealthy({ runner, service, sleep, now, timeoutMs: healthTimeoutSec * 1000 })
+  const health = await waitForHealthy({
+    runner, service, sleep, now, timeoutMs: healthTimeoutSec * 1000, fetchImpl, healthUrl,
+  })
   if (health.ok) {
     log('  откат выполнен: предыдущий релиз снова активен')
   } else {
@@ -986,7 +988,19 @@ async function main() {
   const currentLink = path.resolve(options.currentLink ?? process.env.CURRENT_LINK ?? DEFAULTS.CURRENT_LINK)
   const envFile = path.resolve(options.envFile ?? process.env.ENV_FILE ?? path.join(currentLink, '.env'))
   loadEnvFile(envFile)
-  return deploySafe({ ...options, env: process.env })
+  // После перезапуска проверяем не только журнал, но и HTTP панели. Порт и хост
+  // те же, что у мини-приложения; явный WATCHDOG_HEALTH_URL побеждает. Если
+  // панель выключена (MINIAPP=false), проверка пропускается.
+  const miniappEnabled = String(process.env.MINIAPP ?? '').toLowerCase() !== 'false'
+  const port = Number(process.env.MINIAPP_PORT) > 0 ? Number(process.env.MINIAPP_PORT) : 8787
+  const rawHost = String(process.env.MINIAPP_HOST ?? '').trim()
+  const host = rawHost === '' || rawHost === '0.0.0.0' || rawHost === '::' ? '127.0.0.1' : rawHost
+  const healthUrl = options.healthUrl
+    ?? process.env.WATCHDOG_HEALTH_URL
+    ?? (miniappEnabled ? `http://${host}:${port}/api/reminders` : '')
+  // Сторож ставится при обычном деплое; прямой вызов deploySafe из тестов его
+  // не трогает (installUnits по умолчанию false).
+  return deploySafe({ ...options, env: process.env, healthUrl, installUnits: options.installUnits ?? true })
 }
 
 const invokedDirectly = process.argv[1] !== undefined
