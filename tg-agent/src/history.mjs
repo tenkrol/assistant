@@ -179,6 +179,22 @@ export class HistoryStore {
     this.schedule()
   }
 
+  /** Найти исходный текст задачи по её id в подтверждениях агента. */
+  findTaskText(taskId) {
+    const needle = String(taskId || '')
+    if (needle === '') return undefined
+    for (const record of this.chats.values()) {
+      for (let index = 0; index < record.messages.length; index += 1) {
+        const message = record.messages[index]
+        if (message.role !== 'assistant' || !String(message.content || '').includes(needle)) continue
+        for (let before = index - 1; before >= 0; before -= 1) {
+          if (record.messages[before]?.role === 'user') return String(record.messages[before].content || '')
+        }
+      }
+    }
+    return undefined
+  }
+
   /** Найти сообщение по id. */
   message(chatId, messageId) {
     const record = this.chats.get(String(chatId))

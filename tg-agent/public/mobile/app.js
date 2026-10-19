@@ -4154,7 +4154,8 @@ async function openAgentTask(event) {
     try {
       const data = await api('GET', '/api/agent/task/' + encodeURIComponent(event.taskId))
       details = data.task
-      const candidate = details?.task?.task ?? details?.task?.text ?? details?.task?.prompt
+      const candidate = details?.originalTask
+        ?? details?.task?.task ?? details?.task?.text ?? details?.task?.prompt
         ?? details?.request?.task ?? details?.task ?? details?.text ?? details?.prompt
       if (typeof candidate === 'string' && candidate.trim() !== '') original = candidate.trim()
     } catch (error) {
@@ -4164,8 +4165,8 @@ async function openAgentTask(event) {
   wrap.replaceChildren()
   const meta = [event.agent, event.status, event.tokens ? event.tokens + ' ток.' : '', event.taskId || ''].filter(Boolean).join(' · ')
   wrap.append(h('p', 'plan-meta', meta || 'событие агента'))
-  if (details?.result || details?.answer || details?.output) {
-    const resultText = String(details.result || details.answer || details.output)
+  const resultText = String(details?.task?.result?.text || details?.result?.text || details?.result || details?.answer || details?.output || '')
+  if (resultText) {
     const resultBox = h('div', 'agent-task-result')
     resultBox.append(h('b', null, 'Результат'), h('p', null, resultText.slice(0, 4000)))
     wrap.append(resultBox)
