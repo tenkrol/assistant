@@ -2475,6 +2475,15 @@ export function createMiniApp({
     }
   }
 
+  async function clearProjectChat(request, response, { userId, params }) {
+    request.resume()
+    if (!mobileProjects || typeof mobileProjects.find !== 'function') return missingStore(response, 'проекты')
+    const project = mobileProjects.find(userId, params[0])
+    if (!project) return notFound(response)
+    if (history && typeof history.reset === 'function') await history.reset('project:' + project.id)
+    sendJson(response, 200, { ok: true })
+  }
+
   async function deleteProject(request, response, { userId, params }) {
     request.resume()
     if (!mobileProjects || typeof mobileProjects.remove !== 'function') return missingStore(response, 'проекты')
@@ -2641,6 +2650,7 @@ export function createMiniApp({
     { method: 'POST', pattern: /^\/api\/projects$/, handler: createProject },
     { method: 'PATCH', pattern: /^\/api\/projects\/([^/]+)$/, handler: updateProject },
     { method: 'DELETE', pattern: /^\/api\/projects\/([^/]+)$/, handler: deleteProject },
+    { method: 'DELETE', pattern: /^\/api\/projects\/([^/]+)\/chat$/, handler: clearProjectChat },
     { method: 'GET', pattern: /^\/api\/quiz$/, handler: getQuiz },
     { method: 'POST', pattern: /^\/api\/quiz\/answer$/, handler: answerQuiz },
     { method: 'POST', pattern: /^\/api\/memory$/, handler: createFact },

@@ -792,6 +792,22 @@ test('агент: отмена задачи', async (t) => {
   assert.equal(empty.status, 400)
 })
 
+test('проекты: очистка чата', async (t) => {
+  let cleared = null
+  const { base, history } = await createHarness(t, {
+    mobileProjects: {
+      list: () => [{ id: 'p1', name: 'Работа', instructions: '' }],
+      find: (userId, id) => id === 'p1' ? { id: 'p1', name: 'Работа', instructions: '' } : undefined,
+    },
+  })
+  history.reset = async (chatId) => { cleared = chatId }
+  const cookies = jar()
+  await request(base, '/api/auth/login', { method: 'POST', body: { password: PASSWORD }, cookieJar: cookies })
+  const response = await request(base, '/api/projects/p1/chat', { method: 'DELETE', cookieJar: cookies, headers: { 'X-Mobile-Client': '1' } })
+  assert.equal(response.status, 200)
+  assert.equal(cleared, 'project:p1')
+})
+
 test('проекты: список и отдельный контекст', async (t) => {
   const seen = []
   const { base } = await createHarness(t, {

@@ -4404,10 +4404,13 @@ function renderProjects() {
     const edit = h('button', 'pill-btn', 'Изменить')
     edit.type = 'button'
     edit.addEventListener('click', () => openProjectSheet(project))
+    const clear = h('button', 'pill-btn', 'Очистить чат')
+    clear.type = 'button'
+    clear.addEventListener('click', () => { confirmSheet('Очистить чат проекта?', 'История переписки будет удалена, проект и инструкции останутся.', 'Очистить', () => void clearProjectChat(project)) })
     const remove = h('button', 'pill-btn danger', 'Удалить')
     remove.type = 'button'
     remove.addEventListener('click', () => { confirmSheet('Удалить проект?', project.name + ' — история останется на диске, но проект исчезнет.', 'Удалить', () => void deleteProject(project)) })
-    actions.append(open, edit, remove)
+    actions.append(open, edit, clear, remove)
     body.append(actions)
     card.append(ic, body)
     box.append(card)
@@ -4445,6 +4448,21 @@ function openProjectSheet(project = null) {
   })
   wrap.append(field('Название', name), field('Инструкции', instructions), save)
   openSheet({ title: project ? 'Изменить проект' : 'Новый проект', body: wrap })
+}
+
+async function clearProjectChat(project) {
+  try {
+    await api('DELETE', '/api/projects/' + encodeURIComponent(project.id) + '/chat')
+    const key = 'project:' + project.id
+    if (state.chatTarget && String(state.chatTarget.id) === key) {
+      state.chat = { chatId: key, type: 'project', title: project.name, messages: [] }
+      state.loaded.chat = true
+      renderChat()
+    }
+    toast('Чат проекта очищен')
+  } catch (error) {
+    toast(error.message || 'Не удалось очистить чат')
+  }
 }
 
 async function deleteProject(project) {
