@@ -1203,6 +1203,22 @@ export function createMiniApp({
     response.end(bytes)
   }
 
+  /** POST /api/chat/react — поставить/снять реакцию на сообщение. */
+  async function reactMessage(request, response, { userId, auth }) {
+    if (!history || typeof history.react !== 'function') return missingStore(response, 'история чата')
+    const body = await readJsonBody(request, bodyLimit)
+    if (!body.ok) return sendError(response, body.status, body.code, body.error)
+    const target = resolveChat(body.value?.chatId, auth)
+    if (!target) return sendError(response, 403, ERROR_CODES.forbidden, 'Чужой чат')
+    const messageId = String(body.value?.messageId ?? '')
+    const reaction = String(body.value?.reaction ?? '')
+    const allowed = new Set(['👍', '❤️', '🔥', '😂', '😮', ''])
+    if (messageId === '' || !allowed.has(reaction)) return badRequest(response, 'Недопустимая реакция')
+    const message = await history.react(target.chatId, messageId, reaction)
+    if (!message) return notFound(response)
+    sendJson(response, 200, { ok: true, messageId, reaction: message.reaction ?? '' })
+  }
+
   /** GET /api/chat/search — поиск по истории выбранного чата. */
   function searchChat(request, response, { userId, auth, url }) {
     request.resume()
@@ -1290,6 +1306,8 @@ export function createMiniApp({
         return {
           role: message.role === 'assistant' ? 'assistant' : 'user',
           text: safeText(message.content),
+          ...(typeof message.id === 'string' ? { id: message.id } : {}),
+          ...(typeof message.reaction === 'string' && message.reaction !== '' ? { reaction: message.reaction } : {}),
           ...(typeof message.at === 'string' ? { at: message.at } : {}),
           ...(author ? { author } : {}),
           ...(authorId ? { avatar: `/api/avatar/${authorId}` } : {}),
@@ -1728,6 +1746,7 @@ export function createMiniApp({
     { method: 'GET', pattern: /^\/api\/files\/([^/]+)\/download$/, handler: downloadFile },
     { method: 'POST', pattern: /^\/api\/chat\/upload$/, handler: uploadMedia },
     { method: 'GET', pattern: /^\/api\/media\/([^/]+)$/, handler: getMedia },
+    { method: 'POST', pattern: /^\/api\/chat\/react$/, handler: reactMessage },
     { method: 'GET', pattern: /^\/api\/chat\/search$/, handler: searchChat },
     { method: 'GET', pattern: /^\/api\/chat\/history$/, handler: chatHistory },
     { method: 'POST', pattern: /^\/api\/chat\/message$/, handler: sendChatMessage },

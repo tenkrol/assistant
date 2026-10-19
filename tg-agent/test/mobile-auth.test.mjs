@@ -864,6 +864,25 @@ test('аватар: отдаётся только своим, история с�
   assert.equal(chat.json.messages[0].avatar, `/api/avatar/${USER_ID}`)
 })
 
+test('реакция на сообщение сохраняется', async (t) => {
+  const { base, history } = await createHarness(t)
+  await history.append(USER_ID, { role: 'user', content: 'поставь лайк' }, { userId: USER_ID })
+  await history.flush()
+  const cookies = jar()
+  await request(base, '/api/auth/login', { method: 'POST', body: { password: PASSWORD }, cookieJar: cookies })
+  const chat = await request(base, '/api/chat/history', { cookieJar: cookies })
+  const id = chat.json.messages[0].id
+  assert.ok(id)
+  const reacted = await request(base, '/api/chat/react', {
+    method: 'POST', cookieJar: cookies, headers: { 'X-Mobile-Client': '1' },
+    body: { messageId: id, reaction: '👍' },
+  })
+  assert.equal(reacted.status, 200)
+  assert.equal(reacted.json.reaction, '👍')
+  const after = await request(base, '/api/chat/history', { cookieJar: cookies })
+  assert.equal(after.json.messages[0].reaction, '👍')
+})
+
 test('поиск по истории чата', async (t) => {
   const { base, history } = await createHarness(t)
   await history.append(USER_ID, { role: 'user', content: 'купить молоко' }, { userId: USER_ID })

@@ -694,7 +694,8 @@ function sameMessages(left, right) {
     && (item.replyTo && item.replyTo.text ? item.replyTo.text : '') === (right[index].replyTo && right[index].replyTo.text ? right[index].replyTo.text : '')
     && (item.avatar || '') === (right[index].avatar || '')
     && JSON.stringify((item.attachments || []).map((a) => a.id)) === JSON.stringify((right[index].attachments || []).map((a) => a.id))
-    && (item.at || '') === (right[index].at || ''))
+    && (item.at || '') === (right[index].at || '')
+    && (item.reaction || '') === (right[index].reaction || ''))
 }
 
 async function refreshChatHistory() {
@@ -780,7 +781,7 @@ function renderChat() {
   }
   const day = h('div', 'day-chip', state.chatTarget && state.chatTarget.type !== 'private' ? state.chatTarget.title : 'Диалог с ассистентом')
   box.append(day)
-  messages.forEach((message) => box.append(chatMessageNode(message.role, message.text, message.author, message.replyTo, message.avatar, message.attachments, message.at)))
+  messages.forEach((message) => box.append(chatMessageNode(message.role, message.text, message.author, message.replyTo, message.avatar, message.attachments, message.at, message.id, message.reaction)))
   chatScrollToBottom()
 }
 
@@ -828,6 +829,27 @@ async function copyMessageText(text) {
   }
 }
 
+async function setMessageReaction(message, reaction) {
+  if (!message || !message.id) {
+    toast('Реакции доступны для сообщений из истории — обновите чат')
+    return
+  }
+  try {
+    const data = await api('POST', '/api/chat/react', {
+      chatId: state.chatTarget && state.chatTarget.id !== null ? state.chatTarget.id : undefined,
+      messageId: message.id,
+      reaction,
+    })
+    if (state.chat && Array.isArray(state.chat.messages)) {
+      const target = state.chat.messages.find((item) => item.id === message.id)
+      if (target) target.reaction = data.reaction || undefined
+    }
+    renderChat()
+  } catch (error) {
+    toast(error.message || 'Не удалось поставить реакцию')
+  }
+}
+
 function openMessageMenu(message) {
   const wrap = h('div', 'message-menu')
   const quote = h('div', 'message-menu-quote', String(message.text ?? '').slice(0, 400))
@@ -846,7 +868,29 @@ function openMessageMenu(message) {
     closeSheet()
     toast(ok ? 'Скопировано' : 'Не удалось скопировать')
   })
-  wrap.append(quote, reply, copy)
+  const reactions = h('div', 'msg-reactions')
+  ;['👍', '❤️', '🔥', '😂', '😮'].forEach((emoji) => {
+    const button = h('button', 'msg-reaction-btn' + (message.reaction === emoji ? ' is-active' : ''), emoji)
+    button.type = 'button'
+    button.addEventListener('click', async () => {
+      closeSheet()
+      await setMessageReaction(message, message.reaction === emoji ? '' : emoji)
+    })
+    reactions.append(button)
+  })
+  const forward = h('button', null)
+  forward.type = 'button'
+  forward.append(icon('send'), h('span', null, 'Переслать в заметки'))
+  forward.addEventListener('click', () => {
+    closeSheet()
+    go('chat')
+    const input = $('chat-input')
+    input.value = message.text || ''
+    input.style.height = 'auto'
+    updateChatSend()
+    input.focus()
+  })
+  wrap.append(quote, reactions, reply, forward, copy)
   openSheet({ title: 'Сообщение', body: wrap })
 }
 
@@ -972,7 +1016,7 @@ function chatMediaNode(attachments) {
   return box
 }
 
-function chatMessageNode(role, text, author, replyTo, avatar, attachments, at) {
+function chatMessageNode(role, text, author, replyTo, avatar, attachments, at, messageId, reaction) {
   const ownName = state.session && state.session.user ? state.session.user.telegramName : ''
   const otherAuthor = role === 'user' && author && ownName && author !== ownName
   const article = h('article', 'msg ' + (role === 'assistant' || otherAuthor ? 'msg-bot' : 'msg-user'))
@@ -1016,9 +1060,10 @@ function chatMessageNode(role, text, author, replyTo, avatar, attachments, at) {
   }
   const placeholder = /^\[(фото|видео|голосовое)(,\s*(фото|видео|голосовое))*\]$/i.test(String(text || '').trim())
   if (text && !(media.length > 0 && placeholder)) bubble.append(h('div', 'bubble-text', text))
+  if (reaction) bubble.append(h('div', 'msg-reaction', reaction))
   if (at) bubble.append(h('span', 'msg-time', formatTime(at)))
   const replyText = text || (media.length > 0 ? (media[0].kind === 'video' ? '[видео]' : media[0].kind === 'voice' ? '[голосовое]' : '[фото]') : '')
-  bindMessageGesture(bubble, { role, text: replyText, author })
+  bindMessageGesture(bubble, { role, text: replyText, author, id: messageId, reaction })
   return article
 }
 

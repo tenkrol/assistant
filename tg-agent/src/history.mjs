@@ -6,6 +6,7 @@
  * debounced and atomic (temp file + rename) so a crash mid-write cannot corrupt
  * the file the next start reads.
  */
+import crypto from 'node:crypto'
 import { createJsonStore } from './storage/json-store.mjs'
 
 const VERSION = 1
@@ -156,14 +157,31 @@ export class HistoryStore {
   async append(chatId, message, { userId } = {}) {
     const record = this.record(chatId, { userId })
     // Время сообщения нужно веб-чату; старые записи остаются без него.
-    const entry = message && typeof message === 'object' && message.at === undefined
-      ? { ...message, at: new Date().toISOString() }
+    const entry = message && typeof message === 'object'
+      ? {
+        ...message,
+        ...(message.id === undefined ? { id: crypto.randomUUID() } : {}),
+        ...(message.at === undefined ? { at: new Date().toISOString() } : {}),
+      }
       : message
     record.messages.push(entry)
     while (record.messages.length > this.limit || (record.messages.length > 0 && record.messages[0].role !== 'user')) {
       record.messages.shift()
     }
     this.schedule()
+  }
+
+  /** Поставить реакцию на сообщение; возвращает обновлённое сообщение. */
+  async react(chatId, messageId, reaction) {
+    const record = this.chats.get(String(chatId))
+    if (!record) return undefined
+    const message = record.messages.find((item) => String(item.id) === String(messageId))
+    if (!message) return undefined
+    message.reaction = reaction || undefined
+    message.reactedAt = new Date().toISOString()
+    this.touch(String(chatId))
+    this.schedule()
+    return message
   }
 
   /** Drop the conversation but keep the chat's model override. */
