@@ -741,6 +741,8 @@ export async function deploySafe(options = {}) {
     if (summary.tests) {
       log(`  тестов: ${summary.tests.pass} пройдено${summary.tests.fail ? `, ${summary.tests.fail} провалено` : ''}`)
     }
+    if (summary.unit) log(`  юнит бота: ${summary.unit}`)
+    if (summary.watchdog) log(`  сторож: ${summary.watchdog}`)
     log(`  время: ${formatDuration(now() - startedAt)}`)
     log(`  код выхода: ${code}`)
     return code

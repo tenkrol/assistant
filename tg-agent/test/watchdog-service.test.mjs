@@ -178,6 +178,28 @@ test('после тревоги приходит одно сообщение «�
   }
 })
 
+test('при недоступности бота алерт сначала идёт через agent-notify', async () => {
+  const ctx = await sandbox()
+  try {
+    const calls = []
+    const result = await runWatchdog({
+      env,
+      exec: fakeExec({ active: false, notifyCode: 0, calls }),
+      fetchImpl: fakeFetch(500),
+      stateFile: ctx.stateFile,
+      now: () => NOW,
+      logger: silent,
+    })
+    assert.equal(result.ok, false)
+    assert.equal(result.alerted, true)
+    const notifyCall = calls.find((call) => call.command === 'agent-notify')
+    assert.ok(notifyCall, 'сторож пользуется agent-notify, если он установлен')
+    assert.ok(notifyCall.args.includes('--title'))
+  } finally {
+    await ctx.cleanup()
+  }
+})
+
 test('без agent-notify алерт уходит напрямую в Telegram', async () => {
   const messages = []
   const fetchImpl = async (url, options) => {
