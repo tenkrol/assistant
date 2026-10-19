@@ -4285,7 +4285,7 @@ function renderDashboard() {
   box.replaceChildren()
   const now = state.dashboardAt || new Date()
   $('dashboard-date').textContent = now.toLocaleDateString('ru-RU', { weekday: 'long', day: 'numeric', month: 'long' })
-  const name = state.session?.user?.name || 'Вячеслав'
+  const name = state.session?.user?.telegramName || state.session?.user?.name || 'Вячеслав'
   const hour = now.getHours()
   const greeting = hour < 6 ? 'Доброй ночи' : hour < 12 ? 'Доброе утро' : hour < 18 ? 'Добрый день' : 'Добрый вечер'
 
@@ -4348,7 +4348,7 @@ function renderDashboard() {
   cards.append(
     dashboardCard('Инбокс', String(inbox.filter((item) => !item.done).length), 'активных заметок', 'book', 'mint', () => go('inbox')),
     dashboardCard('Агент', String(agentEvents.length), agentEvents[0]?.title || 'последние задачи', 'cpu', 'violet', () => go('agent')),
-    dashboardCard('Токены', String(statsToday.total || 0), 'запросов: ' + (statsToday.requests || 0), 'chart', 'orange', () => go('stats')),
+    dashboardCard('Токены', Number(statsToday.total || 0).toLocaleString('ru-RU'), 'запросов: ' + (statsToday.requests || 0), 'chart', 'orange', () => go('stats')),
     dashboardCard('Чаты', String((data.chats?.chats || []).length), 'личный и общий', 'chat', 'blue', () => go('chat')),
   )
   box.append(cards)
