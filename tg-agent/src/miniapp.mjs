@@ -37,6 +37,7 @@ import {
   verifySession,
   verifyUsername,
 } from './mobile-auth.mjs'
+import { generateTotpSecret, totpUri, verifyTotp } from './totp.mjs'
 
 const JSON_TYPE = 'application/json; charset=utf-8'
 const DEFAULT_MAX_BODY = 32_768
@@ -661,6 +662,26 @@ export function createMiniApp({
       }, headers)
     }
 
+    if (accounts) {
+      const totp = accounts.totpState(account.login)
+      if (totp?.enabled) {
+        const code = typeof body.value?.code === 'string' ? body.value.code.replace(/\s+/g, '') : ''
+        if (code === '') {
+          return sendJson(response, 401, {
+            error: 'Введите код из приложения-аутентификатора',
+            code: 'totp_required',
+          })
+        }
+        if (!verifyTotp(totp.secret, code)) {
+          const failed = recordLoginFailure(ip, at)
+          logger?.warn?.('mobile totp failed', { attempts: failed.failures })
+          return sendJson(response, 401, {
+            error: 'Неверный код двухфакторной защиты',
+            code: 'totp_invalid',
+          })
+        }
+      }
+    }
     loginAttempts.delete(ip)
     const sessionUser = accounts
       ? {
@@ -714,6 +735,7 @@ export function createMiniApp({
       : String(auth.user.first_name ?? mobileUserName)
     sendJson(response, 200, {
       authenticated: true,
+      totpEnabled: Boolean(accounts && auth.login && accounts.totpState(auth.login)?.enabled),
       user: {
         name: String(auth.user.first_name ?? mobileUserName),
         telegramName: telegramName || String(auth.user.first_name ?? mobileUserName),
@@ -818,6 +840,55 @@ export function createMiniApp({
     } catch (error) {
       accountError(response, error)
     }
+  }
+
+  /** Двухфакторная защита: выдать секрет (ещё не включён). */
+  async function setupTotp(request, response, { auth }) {
+    if (!accounts) {
+      request.resume()
+      return missingStore(response, 'аккаунты')
+    }
+    const body = await readJsonBody(request, bodyLimit)
+    if (!body.ok) return sendError(response, body.status, body.code, body.error)
+    if (!accounts.authenticate(auth.login, body.value?.currentPassword)) {
+      return sendError(response, 403, ERROR_CODES.forbidden, 'Неверный текущий пароль')
+    }
+    const secret = generateTotpSecret()
+    await accounts.setTotp(auth.login, { secret, enabled: false })
+    sendJson(response, 200, { secret, uri: totpUri({ secret, login: auth.login }), enabled: false })
+  }
+
+  async function enableTotp(request, response, { auth }) {
+    if (!accounts) {
+      request.resume()
+      return missingStore(response, 'аккаунты')
+    }
+    const body = await readJsonBody(request, bodyLimit)
+    if (!body.ok) return sendError(response, body.status, body.code, body.error)
+    if (!accounts.authenticate(auth.login, body.value?.currentPassword)) {
+      return sendError(response, 403, ERROR_CODES.forbidden, 'Неверный текущий пароль')
+    }
+    const state = accounts.totpState(auth.login)
+    if (!state?.secret) return badRequest(response, 'Сначала получите секрет')
+    if (!verifyTotp(state.secret, body.value?.code)) return badRequest(response, 'Неверный код')
+    await accounts.setTotp(auth.login, { secret: state.secret, enabled: true })
+    sendJson(response, 200, { enabled: true })
+  }
+
+  async function disableTotp(request, response, { auth }) {
+    if (!accounts) {
+      request.resume()
+      return missingStore(response, 'аккаунты')
+    }
+    const body = await readJsonBody(request, bodyLimit)
+    if (!body.ok) return sendError(response, body.status, body.code, body.error)
+    if (!accounts.authenticate(auth.login, body.value?.currentPassword)) {
+      return sendError(response, 403, ERROR_CODES.forbidden, 'Неверный текущий пароль')
+    }
+    const state = accounts.totpState(auth.login)
+    if (state?.enabled && !verifyTotp(state.secret, body.value?.code)) return badRequest(response, 'Неверный код')
+    await accounts.setTotp(auth.login, { secret: '', enabled: false })
+    sendJson(response, 200, { enabled: false })
   }
 
   /** PATCH /api/account — сменить свой логин, пароль или имя. */
@@ -2094,6 +2165,9 @@ export function createMiniApp({
     { method: 'GET', pattern: /^\/api\/accounts$/, handler: listAccounts },
     { method: 'POST', pattern: /^\/api\/accounts$/, handler: createAccount },
     { method: 'PATCH', pattern: /^\/api\/account$/, handler: updateAccount },
+    { method: 'POST', pattern: /^\/api\/2fa\/setup$/, handler: setupTotp },
+    { method: 'POST', pattern: /^\/api\/2fa\/enable$/, handler: enableTotp },
+    { method: 'POST', pattern: /^\/api\/2fa\/disable$/, handler: disableTotp },
     { method: 'POST', pattern: /^\/api\/session\/revoke-all$/, handler: revokeAllSessions },
   ]
 

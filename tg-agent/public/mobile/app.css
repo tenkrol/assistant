@@ -4496,3 +4496,16 @@ html.large-text .setting-row span {
 .pill-btn.danger:hover {
   background: color-mix(in srgb, var(--danger) 12%, transparent);
 }
+
+.totp-secret {
+  display: block;
+  padding: 9px 11px;
+  margin: 7px 0;
+  border-radius: 9px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  overflow-wrap: anywhere;
+}

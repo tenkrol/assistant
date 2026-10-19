@@ -107,6 +107,10 @@
             <span>Пароль</span>
             <input class="input" id="login-password" type="password" autocomplete="current-password" placeholder="Пароль" required>
           </label>
+          <label class="field" id="login-code-field" hidden>
+            <span>Код из приложения</span>
+            <input class="input" id="login-code" type="text" inputmode="numeric" autocomplete="one-time-code" placeholder="6 цифр" maxlength="7">
+          </label>
           <button class="btn btn-primary btn-block btn-tg" id="login-submit" type="submit">
             <svg class="ic"><use href="#i-lock"/></svg>
             <span id="login-label">Войти</span>
@@ -496,6 +500,11 @@
           <button class="setting-row" id="account-users">
             <span class="row-ic"><svg class="ic"><use href="#i-users"/></svg></span>
             <span><b>Пользователи</b><span id="account-users-hint">владелец и второй человек</span></span>
+            <svg class="ic"><use href="#i-chevron-right"/></svg>
+          </button>
+          <button class="setting-row" id="totp-row">
+            <span class="row-ic"><svg class="ic"><use href="#i-lock"/></svg></span>
+            <span><b>Двухфакторная защита</b><span id="totp-hint">код из приложения при входе</span></span>
             <svg class="ic"><use href="#i-chevron-right"/></svg>
           </button>
           <button class="setting-row" id="revoke-sessions">

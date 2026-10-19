@@ -485,6 +485,7 @@ function showLogin(message) {
 
 function showApp(session) {
   state.session = session
+  renderTotpRow()
   $('boot').hidden = true
   applyLargeText(store.get(LARGE_TEXT_KEY) === '1')
   go('chat', { push: false })
@@ -519,15 +520,36 @@ async function login(event) {
     return
   }
   const button = $('login-submit')
+  const codeInput = $('login-code')
+  const codeField = $('login-code-field')
   button.disabled = true
   $('login-error').hidden = true
   $('login-label').textContent = 'Проверяю…'
   try {
-    await api('POST', '/api/auth/login', { username, password })
+    await api('POST', '/api/auth/login', { username, password, code: codeInput.value.trim() })
     const session = await api('GET', '/api/auth/session')
     showApp(session)
     toast('Вход выполнен')
   } catch (error) {
+    if (error.code === 'totp_required' || (error.code === 'totp_invalid' && codeField.hidden)) {
+      codeField.hidden = false
+      codeInput.focus()
+      $('login-error').hidden = false
+      $('login-error').textContent = error.code === 'totp_invalid'
+        ? 'Неверный код. Попробуйте ещё раз.'
+        : 'Введите код из приложения-аутентификатора'
+      button.disabled = false
+      $('login-label').textContent = 'Войти с кодом'
+      return
+    }
+    if (error.code === 'totp_invalid') {
+      $('login-error').hidden = false
+      $('login-error').textContent = 'Неверный код. Попробуйте ещё раз.'
+      button.disabled = false
+      $('login-label').textContent = 'Войти с кодом'
+      codeInput.select()
+      return
+    }
     $('login-error').hidden = false
     $('login-error').textContent = error.message || 'Не удалось войти'
     button.disabled = false
@@ -2686,6 +2708,88 @@ function accountRow(account, currentLogin) {
   name.style.marginLeft = '0'
   row.append(name, h('span', null, account.login + ' · ' + accountRoleLabel(account.role)))
   return row
+}
+
+function renderTotpRow() {
+  const hint = $('totp-hint')
+  if (!hint) return
+  const enabled = Boolean(state.session && state.session.totpEnabled)
+  hint.textContent = enabled ? 'включена · код при входе' : 'код из приложения при входе'
+}
+
+function openTotpSheet() {
+  const enabled = Boolean(state.session && state.session.totpEnabled)
+  const wrap = h('div')
+  const password = document.createElement('input')
+  password.className = 'input'
+  password.type = 'password'
+  password.placeholder = 'Текущий пароль'
+  const error = h('div', 'login-error')
+  error.hidden = true
+  const code = document.createElement('input')
+  code.className = 'input'
+  code.inputMode = 'numeric'
+  code.autocomplete = 'one-time-code'
+  code.placeholder = '6 цифр из приложения'
+  code.maxLength = 7
+  const codeField = field('Код из приложения', code)
+  const submit = h('button', 'btn btn-primary btn-block', enabled ? 'Отключить 2FA' : 'Получить секрет')
+  submit.type = 'button'
+  const secretBox = h('div')
+  secretBox.hidden = true
+  let step = enabled ? 'disable' : 'setup'
+  submit.addEventListener('click', async () => {
+    if (password.value === '') {
+      error.hidden = false
+      error.textContent = 'Введите текущий пароль'
+      return
+    }
+    submit.disabled = true
+    error.hidden = true
+    try {
+      if (step === 'setup') {
+        const data = await api('POST', '/api/2fa/setup', { currentPassword: password.value })
+        secretBox.hidden = false
+        secretBox.replaceChildren()
+        secretBox.append(h('p', 'hint', 'Добавьте в приложение-аутентификатор (Google Authenticator, 1Password, Keychain):'))
+        secretBox.append(h('code', 'totp-secret', data.secret))
+        const link = document.createElement('a')
+        link.className = 'pill-btn'
+        link.href = data.uri
+        link.textContent = 'Открыть в приложении'
+        secretBox.append(link)
+        codeField.hidden = false
+        step = 'enable'
+        submit.textContent = 'Включить 2FA'
+        submit.disabled = false
+        code.focus()
+        return
+      }
+      if (step === 'enable') {
+        await api('POST', '/api/2fa/enable', { currentPassword: password.value, code: code.value.trim() })
+        state.session.totpEnabled = true
+        renderTotpRow()
+        closeSheet()
+        toast('Двухфакторная защита включена')
+        return
+      }
+      await api('POST', '/api/2fa/disable', { currentPassword: password.value, code: code.value.trim() })
+      state.session.totpEnabled = false
+      renderTotpRow()
+      closeSheet()
+      toast('Двухфакторная защита отключена')
+    } catch (err) {
+      error.hidden = false
+      error.textContent = err.message || 'Не удалось изменить 2FA'
+      submit.disabled = false
+    }
+  })
+  codeField.hidden = !enabled
+  wrap.append(field('Текущий пароль', password), codeField, secretBox, error, submit)
+  wrap.append(h('p', 'sheet-note', enabled
+    ? 'Для отключения нужен текущий код из приложения.'
+    : 'Секрет показывается один раз. Без кода войти не получится — сохраните его в надёжном месте.'))
+  openSheet({ title: enabled ? 'Двухфакторная защита' : 'Включить 2FA', body: wrap })
 }
 
 function openRevokeAllSheet() {

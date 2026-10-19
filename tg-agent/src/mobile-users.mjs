@@ -56,6 +56,7 @@ const publicUser = (user) => ({
   userId: Number(user.userId),
   role: user.role === 'owner' ? 'owner' : 'member',
   version: Number(user.version) || 1,
+  totpEnabled: Boolean(user.totpEnabled),
 })
 
 export class MobileUserStore {
@@ -142,6 +143,24 @@ export class MobileUserStore {
     const user = this.findByLogin(login)
     if (!user) return null
     return verifyPassword(password, user.passwordHash) ? user : null
+  }
+
+  /** Состояние TOTP: включён ли и секрет (только для сервера). */
+  totpState(login) {
+    const user = this.findByLogin(login)
+    if (!user) return undefined
+    return { enabled: Boolean(user.totpEnabled), secret: String(user.totpSecret || '') }
+  }
+
+  /** Сохранить секрет и включить/выключить TOTP. */
+  async setTotp(login, { secret, enabled }) {
+    const user = this.findByLogin(login)
+    if (!user) throw new MobileUsersError('Аккаунт не найден', 'not_found')
+    user.totpSecret = String(secret || '')
+    user.totpEnabled = Boolean(enabled)
+    user.updatedAt = new Date().toISOString()
+    await this.storage.flush()
+    return publicUser(user)
   }
 
   /** Первый свободный Telegram id из allow-list — для «добавить Машу». */

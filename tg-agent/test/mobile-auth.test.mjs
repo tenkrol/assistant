@@ -28,6 +28,7 @@ import { ProfileStore } from '../src/profiles.mjs'
 import { UsageStore } from '../src/usage.mjs'
 import { HistoryStore } from '../src/history.mjs'
 import { MobileUserStore } from '../src/mobile-users.mjs'
+import { totpCode } from '../src/totp.mjs'
 
 const USER_ID = 777
 const MASHA_ID = 888
@@ -770,6 +771,24 @@ test('агент: отмена задачи', async (t) => {
     method: 'POST', cookieJar: cookies, headers: { 'X-Mobile-Client': '1' }, body: {},
   })
   assert.equal(empty.status, 400)
+})
+
+test('2FA: включение и вход по коду', async (t) => {
+  const { base } = await createHarness(t, { accounts: true })
+  const cookies = jar()
+  await request(base, '/api/auth/login', { method: 'POST', body: { username: 'tenkrol', password: PASSWORD }, cookieJar: cookies })
+  const setup = await request(base, '/api/2fa/setup', { method: 'POST', cookieJar: cookies, headers: { 'X-Mobile-Client': '1' }, body: { currentPassword: PASSWORD } })
+  assert.equal(setup.status, 200)
+  assert.ok(setup.json.secret)
+  const code = totpCode(setup.json.secret)
+  const enabled = await request(base, '/api/2fa/enable', { method: 'POST', cookieJar: cookies, headers: { 'X-Mobile-Client': '1' }, body: { currentPassword: PASSWORD, code } })
+  assert.equal(enabled.status, 200)
+  await request(base, '/api/auth/logout', { method: 'POST', cookieJar: cookies })
+  const noCode = await request(base, '/api/auth/login', { method: 'POST', body: { username: 'tenkrol', password: PASSWORD }, cookieJar: cookies })
+  assert.equal(noCode.status, 401)
+  assert.equal(noCode.json.code, 'totp_required')
+  const withCode = await request(base, '/api/auth/login', { method: 'POST', body: { username: 'tenkrol', password: PASSWORD, code: totpCode(setup.json.secret) }, cookieJar: cookies })
+  assert.equal(withCode.status, 200)
 })
 
 test('выйти на всех устройствах отзывает сессию', async (t) => {
