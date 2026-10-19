@@ -53,7 +53,8 @@ export class YandexDisk {
 
   async list(path) {
     const response = await this.call('/resources', {
-      query: { path, limit: MAX_FILES, sort: '-modified', fields: 'path,name,type,size,modified,created' },
+      // Без `fields`: API тогда не отдаёт `_embedded.items`, и папка выглядит пустой.
+      query: { path, limit: MAX_FILES, sort: '-modified' },
     })
     const data = await response.json()
     return Array.isArray(data?._embedded?.items) ? data._embedded.items : []
