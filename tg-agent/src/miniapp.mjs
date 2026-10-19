@@ -1153,12 +1153,14 @@ export function createMiniApp({
     } catch (error) {
       logger?.warn?.('avatar fetch failed', { userId: target, error: error?.message ?? error })
     }
+    // Отрицательный результат не кэшируем: человек может открыть фото в
+    // Telegram, и следующий запрос должен его подхватить.
+    if (!avatar || !Buffer.isBuffer(avatar.bytes) || avatar.bytes.length === 0) return notFound(response)
     avatarCache.set(target, { at: now, avatar })
     if (avatarCache.size > 30) {
       const oldest = [...avatarCache.entries()].sort((a, b) => a[1].at - b[1].at)[0]
       if (oldest) avatarCache.delete(oldest[0])
     }
-    if (!avatar || !Buffer.isBuffer(avatar.bytes) || avatar.bytes.length === 0) return notFound(response)
     response.writeHead(200, {
       'content-type': avatar.mime || 'image/jpeg',
       'content-length': String(avatar.bytes.length),
