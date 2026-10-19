@@ -548,6 +548,57 @@ function rotateReleases({ releasesDir, keep, protectedPaths, log }) {
 }
 
 /**
+ * Обновить systemd-юнит бота из релиза перед перезапуском.
+ *
+ * `Restart=always`, `RestartSec=5` и `StartLimitIntervalSec=0` должны попасть
+ * на сервер именно этим деплоем, а не остаться в старом юните. Ошибка не
+ * отменяет релиз: старый юнит продолжает работать, но причина видна в логе.
+ */
+export function installServiceUnit({
+  sourceDir,
+  systemdDir = '/etc/systemd/system',
+  runner,
+  nodeBin = process.execPath,
+  installDir,
+  dataDir = '/var/lib/tg-agent',
+  user = DEFAULTS.SERVICE_USER,
+  service = DEFAULTS.SERVICE,
+  log = () => {},
+  logError = () => {},
+} = {}) {
+  if (!sourceDir || !installDir) return { ok: false, reason: 'не переданы sourceDir/installDir' }
+  const source = path.join(sourceDir, 'deploy', 'tg-agent.service')
+  if (!fs.existsSync(source)) return { ok: false, skipped: true, reason: 'в релизе нет tg-agent.service' }
+  const unitPath = path.join(systemdDir, `${service}.service`)
+  try {
+    let unit = fs.readFileSync(source, 'utf8')
+      .replace(/^ExecStart=.*$/m, `ExecStart=${nodeBin} src/index.mjs`)
+      .replace(/^User=.*$/m, `User=${user}`)
+      .replace(/^WorkingDirectory=.*$/m, `WorkingDirectory=${installDir}`)
+      .replace(/^EnvironmentFile=.*$/m, `EnvironmentFile=${path.join(installDir, '.env')}`)
+      .replace(/^Environment=DATA_DIR=.*$/m, `Environment=DATA_DIR=${dataDir}`)
+      .replace(/^Environment=PLATFORM=.*$/m, 'Environment=PLATFORM=telegram')
+      .replace(/^ReadWritePaths=.*$/m, `ReadWritePaths=${dataDir}`)
+      .replace(/^StateDirectory=.*$/m, `StateDirectory=${path.basename(dataDir)}`)
+      .replace(/^Documentation=.*$/m, `Documentation=file:${path.join(installDir, 'README.md')}`)
+    if (/^\/(?:root|home)\//.test(installDir)) unit = unit.replace(/^ProtectHome=.*$/m, 'ProtectHome=false')
+    fs.mkdirSync(systemdDir, { recursive: true })
+    const temporary = `${unitPath}.tmp-${process.pid}`
+    fs.writeFileSync(temporary, unit, 'utf8')
+    fs.renameSync(temporary, unitPath)
+    const daemon = safeRun(runner, 'systemctl', ['daemon-reload'])
+    if (daemon.status !== 0) {
+      return { ok: false, reason: `systemctl daemon-reload: ${firstLine(daemon.stderr) || `код ${daemon.status}`}` }
+    }
+    log(`  юнит бота обновлён: ${unitPath}`)
+    return { ok: true, unitPath }
+  } catch (error) {
+    logError(`  не удалось обновить юнит бота: ${error.message}`)
+    return { ok: false, reason: error.message }
+  }
+}
+
+/**
  * Поставить внешний сторож из нового релиза: юнит и таймер.
  *
  * Вызывается только успешным деплоем CLI. Ошибка установки не откатывает уже
@@ -794,6 +845,25 @@ export async function deploySafe(options = {}) {
     return done(1, `симлинк ${currentLink} не переключён`)
   }
   log(`  симлинк: ${currentLink} -> ${releaseDir}`)
+
+  // Юнит обновляем до restart: иначе новый Restart=always/StartLimitIntervalSec
+  // остался бы только в репозитории, а на сервере работал бы старый файл.
+  if (installUnits) {
+    const unit = installServiceUnit({
+      sourceDir: releaseDir,
+      systemdDir,
+      runner,
+      nodeBin: process.execPath,
+      installDir: currentLink,
+      dataDir,
+      user,
+      service,
+      log,
+      logError,
+    })
+    summary.unit = unit.ok ? 'обновлён' : `не обновлён: ${unit.reason}`
+    if (!unit.ok) logError(`ВНИМАНИЕ: юнит бота не обновлён: ${unit.reason}`)
+  }
 
   const restarted = restartService({ runner, service })
   if (!restarted.ok) {

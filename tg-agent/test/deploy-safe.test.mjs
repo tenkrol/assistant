@@ -42,10 +42,10 @@ function makeSource({ broken = false, failingTest = false } = {}) {
   write(path.join(root, 'src', 'index.mjs'), broken ? 'const = ;\n' : "console.log('ok')\n")
   write(path.join(root, 'tools', 'helper.mjs'), 'export const value = 1\n')
   write(path.join(root, 'test', 'sample.test.mjs'), failingTest ? FAILING_TEST : PASSING_TEST)
-  // Юниты сторожа берутся из настоящего deploy/: тест проверяет ту же установку,
+  // Юниты берутся из настоящего deploy/: тест проверяет ту же установку,
   // которую делает CLI, не подменяя содержимое юнита.
   const deployDir = path.resolve(import.meta.dirname, '..', 'deploy')
-  for (const name of ['tg-agent-watch.service', 'tg-agent-watch.timer']) {
+  for (const name of ['tg-agent.service', 'tg-agent-watch.service', 'tg-agent-watch.timer']) {
     write(path.join(root, 'deploy', name), fs.readFileSync(path.join(deployDir, name), 'utf8'))
   }
   write(path.join(root, 'README.md'), '# test\n')
@@ -348,7 +348,13 @@ test('зелёный старт: HTTP 401 и установка сторожа �
 
   assert.equal(code, 0, output)
   assert.match(output, /HTTP 401/)
+  assert.match(output, /юнит бота обновлён/)
   assert.match(output, /сторож установлен/)
+
+  const botUnit = fs.readFileSync(path.join(systemdDir, 'tg-agent.service'), 'utf8')
+  assert.match(botUnit, /^StartLimitIntervalSec=0$/m)
+  assert.match(botUnit, /^Restart=always$/m)
+  assert.match(botUnit, /^RestartSec=5$/m)
 
   const unit = fs.readFileSync(path.join(systemdDir, 'tg-agent-watch.service'), 'utf8')
   const escape = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')

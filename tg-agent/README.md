@@ -62,6 +62,13 @@ node src/index.mjs                 # локальный запуск (нужен
 node tools/deploy-safe.mjs --notify --test-timeout 900000   # деплой с автооткатом
 ```
 
+`deploy-safe` после переключения релиза до 60 с проверяет `systemctl is-active`,
+свежесть журнала, отсутствие `ERROR` и HTTP `/api/reminders` (401 — жив). Любой
+сбой — откат на предыдущий релиз и сообщение владельцу. Успешный деплой также
+ставит `tg-agent-watch.service` + `tg-agent-watch.timer`: внешний сторож проверяет
+бот раз в пять минут и пишет алерт не чаще раза в час (`DATA_DIR/watchdog-service.json`).
+Юнит бота объявляет `Restart=always`, `RestartSec=5`, `StartLimitIntervalSec=0`.
+
 Секреты — только в `../secrets/prod.env.enc` (шифртекст), пароль вне репозитория.
 Расшифровка: `bash tools/secrets.sh decrypt`. Имена ключей — `../secrets/keys.md`.
 
