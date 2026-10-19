@@ -2462,6 +2462,15 @@ function renderAgentFiles() {
     body.append(h('span', 'plan-meta', meta))
     if (file.caption) body.append(h('span', 'plan-meta', file.caption))
     const actions = h('div', 'file-actions')
+    const open = h('button', 'pill-btn', 'Открыть')
+    open.type = 'button'
+    open.addEventListener('click', () => void openArtifact({
+      name: file.name,
+      url: state.diskMode
+        ? '/api/disk/download?path=' + encodeURIComponent(file.path)
+        : '/api/files/agent/' + encodeURIComponent(file.id) + '/download',
+      mime: file.mime || '',
+    }))
     const link = document.createElement('a')
     link.className = 'pill-btn'
     link.href = state.diskMode
@@ -2483,7 +2492,7 @@ function renderAgentFiles() {
         }
       })
     })
-    actions.append(link, remove)
+    actions.append(open, link, remove)
     body.append(actions)
     card.append(ic, body)
     box.append(card)
@@ -2504,6 +2513,65 @@ function switchFilesTab(tab) {
   }
 }
 
+function closeArtifact() {
+  $('artifact').hidden = true
+  $('artifact-body').replaceChildren()
+}
+
+async function openArtifact({ name, url, mime = '' } = {}) {
+  if (!url) return
+  $('artifact').hidden = false
+  $('artifact-name').textContent = name || 'Файл'
+  $('artifact-meta').textContent = mime || ''
+  $('artifact-download').href = url
+  $('artifact-download').setAttribute('download', name || 'file')
+  const body = $('artifact-body')
+  body.replaceChildren(h('p', 'artifact-note', 'Загружаю…'))
+  const type = String(mime).toLowerCase()
+  const lower = String(name || '').toLowerCase()
+  try {
+    if (type.startsWith('image/') || /\.(png|jpe?g|webp|gif|heic)$/.test(lower)) {
+      const img = document.createElement('img')
+      img.src = url
+      img.alt = name || 'Изображение'
+      body.replaceChildren(img)
+      return
+    }
+    if (type.startsWith('video/') || /\.(mp4|mov|webm)$/.test(lower)) {
+      const video = document.createElement('video')
+      video.src = url
+      video.controls = true
+      body.replaceChildren(video)
+      return
+    }
+    if (type.startsWith('audio/') || /\.(mp3|m4a|ogg|webm|wav)$/.test(lower)) {
+      const audio = document.createElement('audio')
+      audio.src = url
+      audio.controls = true
+      body.replaceChildren(audio)
+      return
+    }
+    if (type === 'application/pdf' || lower.endsWith('.pdf')) {
+      const frame = document.createElement('iframe')
+      frame.src = url
+      frame.title = name || 'PDF'
+      body.replaceChildren(frame)
+      return
+    }
+    const response = await fetch(url, { credentials: 'same-origin' })
+    if (!response.ok) throw new Error('HTTP ' + response.status)
+    const textType = type.startsWith('text/') || /\.(txt|md|json|js|mjs|cjs|py|csv|log|html|css|xml|yml|yaml|sh)$/.test(lower)
+    const text = await response.text()
+    if (textType || (!/\u0000/.test(text) && text.length > 0)) {
+      body.replaceChildren(h('pre', null, text.slice(0, 200_000)))
+    } else {
+      body.replaceChildren(h('p', 'artifact-note', 'Предпросмотр недоступен. Скачайте файл кнопкой сверху.'))
+    }
+  } catch (error) {
+    body.replaceChildren(h('p', 'artifact-note', 'Не удалось открыть предпросмотр. Скачайте файл кнопкой сверху.'))
+  }
+}
+
 function renderFiles() {
   const box = $('files-list')
   box.replaceChildren()
@@ -2513,15 +2581,27 @@ function renderFiles() {
     return
   }
   files.forEach((file) => {
-    const row = document.createElement('a')
-    row.className = 'plan-card'
-    row.href = '/api/files/' + encodeURIComponent(file.id) + '/download'
-    row.style.textDecoration = 'none'
+    const row = h('div', 'plan-card')
     const iconBox = h('span', 'plan-ic')
     iconBox.append(icon('file'))
     const body = h('div', 'plan-body')
     body.append(h('b', null, file.name || 'Документ'))
     body.append(h('span', 'plan-meta', [formatFileSize(file.size), file.status === 'ready' ? 'готов' : file.status].filter(Boolean).join(' · ')))
+    const actions = h('div', 'file-actions')
+    const open = h('button', 'pill-btn', 'Открыть')
+    open.type = 'button'
+    open.addEventListener('click', () => void openArtifact({
+      name: file.name || 'Документ',
+      url: '/api/files/' + encodeURIComponent(file.id) + '/download',
+      mime: file.mime,
+    }))
+    const download = document.createElement('a')
+    download.className = 'pill-btn'
+    download.href = '/api/files/' + encodeURIComponent(file.id) + '/download'
+    download.download = file.name || 'file'
+    download.textContent = 'Скачать'
+    actions.append(open, download)
+    body.append(actions)
     row.append(iconBox, body)
     box.append(row)
   })
@@ -3830,6 +3910,8 @@ function bind() {
   $('revoke-sessions').addEventListener('click', openRevokeAllSheet)
   $('totp-row').addEventListener('click', openTotpSheet)
   $('auth-log-row').addEventListener('click', openAuthLog)
+  $('artifact-close').addEventListener('click', closeArtifact)
+  document.addEventListener('keydown', (event) => { if (event.key === 'Escape' && !$('artifact').hidden) closeArtifact() })
   $('set-voice').addEventListener('click', () => {
     const next = !$('set-voice').classList.contains('is-on')
     $('set-voice').classList.toggle('is-on', next)

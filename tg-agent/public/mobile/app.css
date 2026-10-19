@@ -4534,3 +4534,106 @@ html.large-text .setting-row span {
 .msg-status.is-read {
   color: var(--accent);
 }
+
+/* ---------- Артефакт рядом с чатом ---------- */
+.artifact {
+  position: fixed;
+  z-index: 90;
+  top: 16px;
+  right: 16px;
+  bottom: 16px;
+  width: min(520px, calc(100vw - 32px));
+  display: flex;
+  flex-direction: column;
+  border-radius: 20px;
+  border: 1px solid var(--border-2);
+  background: var(--sheet);
+  box-shadow: 0 30px 90px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+}
+
+.artifact-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 12px 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.artifact-title {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.artifact-title b,
+.artifact-title span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.artifact-title b {
+  font-size: 13.5px;
+}
+
+.artifact-title span {
+  color: var(--muted);
+  font-size: 11px;
+  margin-top: 2px;
+}
+
+.artifact-body {
+  flex: 1 1 auto;
+  overflow: auto;
+  padding: 14px;
+  background: var(--bg);
+}
+
+.artifact-body img,
+.artifact-body video {
+  display: block;
+  max-width: 100%;
+  max-height: 70vh;
+  margin: 0 auto;
+  border-radius: 12px;
+}
+
+.artifact-body iframe {
+  width: 100%;
+  height: 100%;
+  min-height: 60vh;
+  border: 0;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.artifact-body pre {
+  margin: 0;
+  padding: 12px;
+  border-radius: 10px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.artifact-note {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+@media (max-width: 720px) {
+  .artifact {
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    border-radius: 0;
+    border: 0;
+  }
+}
