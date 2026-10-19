@@ -1523,6 +1523,11 @@ function planItemCard({ title, meta, kind, onDelete }) {
   body.append(metaRow)
   card.append(iconBox, body)
   if (onDelete) {
+    const edit = h('button', 'icon-btn sm')
+    edit.type = 'button'
+    edit.setAttribute('aria-label', 'Изменить факт')
+    edit.append(icon('pencil'))
+    edit.addEventListener('click', () => openEditFact(fact))
     const remove = h('button', 'icon-btn sm')
     remove.type = 'button'
     remove.setAttribute('aria-label', 'Удалить')
@@ -1969,7 +1974,7 @@ function renderMemory() {
         }
       })
     })
-    card.append(body, remove)
+    card.append(body, edit, remove)
     box.append(card)
   })
   $('facts-count').textContent = String(state.memory.facts.length)
@@ -1977,6 +1982,32 @@ function renderMemory() {
   const count = state.memory.facts.length
   $('memory-sub').textContent = count + ' ' + plural(count, ['факт', 'факта', 'фактов'])
     + (state.memory.city ? ' · ' + state.memory.city : '')
+}
+
+function openEditFact(fact) {
+  const wrap = h('div')
+  const input = document.createElement('textarea')
+  input.className = 'input'
+  input.rows = 3
+  input.value = fact.text
+  const save = h('button', 'btn btn-primary btn-block', 'Сохранить')
+  save.type = 'button'
+  save.addEventListener('click', async () => {
+    if (input.value.trim() === '') return
+    save.disabled = true
+    try {
+      await api('PATCH', '/api/memory/' + encodeURIComponent(fact.id), { text: input.value.trim() })
+      closeSheet()
+      state.loaded.memory = false
+      await loadMemory()
+      toast('Факт изменён')
+    } catch (error) {
+      save.disabled = false
+      toast(error.message || 'Не удалось изменить факт')
+    }
+  })
+  wrap.append(field('Факт', input), save)
+  openSheet({ title: 'Изменить факт', body: wrap })
 }
 
 async function addFact() {

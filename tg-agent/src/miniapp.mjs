@@ -2115,6 +2115,21 @@ export function createMiniApp({
     })
   }
 
+  async function updateFact(request, response, { userId, params }) {
+    const profiles = pickStore(stores.profiles)
+    if (!profiles || typeof profiles.updateFact !== 'function') return missingStore(response, 'память')
+    const id = safeDecode(params[0])
+    if (id === undefined) return notFound(response)
+    const body = await readJsonBody(request, bodyLimit)
+    if (!body.ok) return sendError(response, body.status, body.code, body.error)
+    const text = typeof body.value?.text === 'string' ? body.value.text.trim() : ''
+    if (text === '' || text.length > MAX_FACT_LENGTH) return badRequest(response, 'Некорректный текст факта')
+    const updated = profiles.updateFact(userId, id, { text })
+    if (!updated) return notFound(response)
+    await profiles.flush()
+    sendJson(response, 200, { id: String(updated.id), text: String(updated.text ?? '') })
+  }
+
   async function deleteFact(request, response, { userId, params }) {
     const profiles = pickStore(stores.profiles)
     if (!profiles || typeof profiles.removeFact !== 'function') return missingStore(response, 'память')
@@ -2136,6 +2151,7 @@ export function createMiniApp({
     { method: 'DELETE', pattern: /^\/api\/events\/([^/]+)$/, handler: deleteEvent },
     { method: 'GET', pattern: /^\/api\/memory$/, handler: getMemory },
     { method: 'POST', pattern: /^\/api\/memory$/, handler: createFact },
+    { method: 'PATCH', pattern: /^\/api\/memory\/([^/]+)$/, handler: updateFact },
     { method: 'DELETE', pattern: /^\/api\/memory\/([^/]+)$/, handler: deleteFact },
     { method: 'GET', pattern: /^\/api\/chats$/, handler: listChats },
     { method: 'GET', pattern: /^\/api\/avatar\/(\d+)$/, handler: getAvatar },

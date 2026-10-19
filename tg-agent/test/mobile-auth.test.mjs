@@ -952,6 +952,18 @@ test('файлы агента: список, скачивание и удале�
   assert.equal(removed.status, 200)
 })
 
+test('память: изменить факт', async (t) => {
+  const { base } = await createHarness(t)
+  const cookies = jar()
+  await request(base, '/api/auth/login', { method: 'POST', body: { password: PASSWORD }, cookieJar: cookies })
+  const created = await request(base, '/api/memory', { method: 'POST', cookieJar: cookies, headers: { 'X-Mobile-Client': '1' }, body: { text: 'любит чай' } })
+  assert.equal(created.status, 200)
+  const updated = await request(base, '/api/memory/' + created.json.id, { method: 'PATCH', cookieJar: cookies, headers: { 'X-Mobile-Client': '1' }, body: { text: 'любит кофе' } })
+  assert.equal(updated.status, 200)
+  const memory = await request(base, '/api/memory', { cookieJar: cookies })
+  assert.match(JSON.stringify(memory.json.facts), /любит кофе/)
+})
+
 test('файлы: поиск по содержимому', async (t) => {
   const { base } = await createHarness(t, {
     documents: {
