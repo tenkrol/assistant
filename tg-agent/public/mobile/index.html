@@ -373,12 +373,12 @@
 
         <div class="list-group">
           <div class="group-head"><span>Бот</span></div>
-          <a class="list-row" href="https://t.me/Tenkrol_bot" target="_blank" rel="noopener">
+          <button class="list-row" data-go="system">
             <span class="row-ic"><svg class="ic"><use href="#i-server"/></svg></span>
             <b>Состояние серверов</b>
-            <span>команда /server в чате</span>
+            <span>диск, сервисы и бэкапы</span>
             <svg class="ic"><use href="#i-chevron-right"/></svg>
-          </a>
+          </button>
           <a class="list-row" href="https://t.me/Tenkrol_bot" target="_blank" rel="noopener">
             <span class="row-ic"><svg class="ic"><use href="#i-file"/></svg></span>
             <b>Экспорт данных</b>
@@ -598,6 +598,23 @@
       </div>
     </section>
 
+    <!-- ================= СИСТЕМА ================= -->
+    <section class="screen" data-screen="system" hidden>
+      <header class="topbar sub-head">
+        <button class="icon-btn" data-back="more" aria-label="Назад">
+          <svg class="ic"><use href="#i-chevron-left"/></svg>
+        </button>
+        <div><h2>Состояние</h2><p class="sub">сервер, сервисы и бэкапы</p></div>
+      </header>
+      <div class="scroll screen-scroll" id="system-scroll">
+        <div class="group-head"><span>Сервер</span></div>
+        <pre class="system-text" id="system-server">Загружаю состояние…</pre>
+        <div class="group-head"><span>Бэкапы</span></div>
+        <div id="system-backups"><p class="hint">Загружаю список…</p></div>
+        <p class="hint" id="system-generated"></p>
+      </div>
+    </section>
+
     <!-- ================= СТАТИСТИКА ================= -->
     <section class="screen" data-screen="stats" hidden>
       <header class="topbar sub-head">
@@ -661,6 +678,14 @@
       </button>
     </div>
     <div class="sheet-body" id="sheet-body"></div>
+  </div>
+
+  <div class="cmdk" id="cmdk" hidden>
+    <div class="cmdk-panel">
+      <input class="cmdk-input" id="cmdk-input" placeholder="Куда перейти или что сделать…" autocomplete="off" spellcheck="false">
+      <div class="cmdk-list" id="cmdk-list"></div>
+      <div class="cmdk-foot"><span>↑↓ выбрать</span><span>Enter открыть</span><span>Esc закрыть</span></div>
+    </div>
   </div>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>

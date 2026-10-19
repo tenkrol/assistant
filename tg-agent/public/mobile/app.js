@@ -154,6 +154,7 @@ const state = {
   stats: null,
   chat: null,
   files: null,
+  system: null,
   proactive: null,
   chatReply: null,
   chatSending: false,
@@ -163,7 +164,7 @@ const state = {
   factQuery: '',
   plansView: 'reminders',
   calendar: { year: TODAY.getFullYear(), month: TODAY.getMonth(), selected: TODAY.getDate() },
-  loaded: { plans: false, memory: false, settings: false, stats: false, chat: false, files: false },
+  loaded: { plans: false, memory: false, settings: false, stats: false, chat: false, files: false, system: false },
   loading: { plans: false, memory: false, settings: false, stats: false, chat: false }
 }
 
@@ -389,6 +390,7 @@ function go(name, options = {}) {
   if (name === 'settings') ensureSettings()
   if (name === 'stats') ensureStats()
   if (name === 'files') ensureFiles()
+  if (name === 'system') ensureSystem()
   if (name === 'agent') ensureAgent()
   if (name === 'chat') ensureChat()
   const active = screens.get(name)
@@ -541,6 +543,8 @@ async function logout() {
 async function boot() {
   applyTheme()
   applyLargeText(store.get(LARGE_TEXT_KEY) === '1')
+  bindCmdk()
+
   window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
     if (themeMode === 'auto') applyTheme()
   })
@@ -1849,6 +1853,44 @@ function formatFileSize(size) {
   return (value / (1024 * 1024)).toFixed(1) + ' МБ'
 }
 
+async function ensureSystem() {
+  if (state.loaded.system) return
+  try {
+    state.system = await api('GET', '/api/system')
+    state.loaded.system = true
+    renderSystem()
+  } catch (error) {
+    if (error.status !== 401) {
+      $('system-server').textContent = 'Не удалось получить состояние: ' + (error.message || 'ошибка')
+      $('system-backups').replaceChildren(h('p', 'hint', 'Список бэкапов недоступен.'))
+    }
+  }
+}
+
+function renderSystem() {
+  const data = state.system
+  if (!data) return
+  $('system-server').textContent = data.server || 'Нет данных.'
+  const box = $('system-backups')
+  box.replaceChildren()
+  const backups = Array.isArray(data.backups) ? data.backups : []
+  if (backups.length === 0) {
+    box.append(h('p', 'hint', 'Файлов бэкапов пока нет.'))
+  } else {
+    backups.forEach((backup) => {
+      const row = h('div', 'plan-card')
+      const ic = h('span', 'plan-ic')
+      ic.append(icon('download'))
+      const body = h('div', 'plan-body')
+      body.append(h('b', null, backup.name))
+      body.append(h('span', 'plan-meta', [formatFileSize(backup.size), formatDateTime(backup.at)].filter(Boolean).join(' · ')))
+      row.append(ic, body)
+      box.append(row)
+    })
+  }
+  $('system-generated').textContent = data.generatedAt ? 'Обновлено: ' + formatDateTime(data.generatedAt) : ''
+}
+
 async function ensureFiles() {
   if (!state.loaded.files && !state.loading.files) await loadFiles()
 }
@@ -2675,6 +2717,92 @@ function renderError(text, retry) {
 
 /* ============================ Связывание ============================ */
 
+const CMDK_ACTIONS = [
+  { label: 'Чат', icon: 'chat', run: () => go('chat') },
+  { label: 'Планы и напоминания', icon: 'calendar', run: () => go('plans') },
+  { label: 'Память', icon: 'book', run: () => go('memory') },
+  { label: 'Агент', icon: 'cpu', run: () => go('agent') },
+  { label: 'Настройки', icon: 'settings', run: () => go('settings') },
+  { label: 'Файлы', icon: 'folder', run: () => go('files') },
+  { label: 'Помощь и команды', icon: 'help', run: () => go('help') },
+  { label: 'Состояние серверов', icon: 'server', run: () => go('system') },
+  { label: 'Статистика', icon: 'chart', run: () => go('stats') },
+  { label: 'Написать ассистенту', icon: 'send', run: () => { go('chat'); setTimeout(() => $('chat-input').focus(), 60) } },
+]
+
+let cmdkActive = 0
+let cmdkItems = []
+
+function renderCmdk() {
+  const query = ($('cmdk-input').value || '').trim().toLowerCase()
+  const list = $('cmdk-list')
+  cmdkItems = CMDK_ACTIONS.filter((action) => action.label.toLowerCase().includes(query))
+  cmdkActive = Math.min(cmdkActive, Math.max(0, cmdkItems.length - 1))
+  list.replaceChildren()
+  cmdkItems.forEach((action, index) => {
+    const button = h('button', 'cmdk-item' + (index === cmdkActive ? ' is-active' : ''))
+    button.type = 'button'
+    button.append(icon(action.icon), h('span', null, action.label))
+    button.addEventListener('click', () => runCmdk(index))
+    list.append(button)
+  })
+  if (cmdkItems.length === 0) list.append(h('p', 'hint', 'Ничего не найдено'))
+}
+
+function openCmdk() {
+  $('cmdk').hidden = false
+  $('cmdk-input').value = ''
+  cmdkActive = 0
+  renderCmdk()
+  $('cmdk-input').focus()
+}
+
+function closeCmdk() {
+  $('cmdk').hidden = true
+}
+
+function runCmdk(index = cmdkActive) {
+  const action = cmdkItems[index]
+  if (!action) return
+  closeCmdk()
+  action.run()
+}
+
+function bindCmdk() {
+  document.addEventListener('keydown', (event) => {
+    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+      event.preventDefault()
+      if ($('cmdk').hidden) openCmdk()
+      else closeCmdk()
+      return
+    }
+    if ($('cmdk').hidden) return
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      closeCmdk()
+      return
+    }
+    if (event.key === 'ArrowDown') {
+      event.preventDefault()
+      cmdkActive = Math.min(cmdkActive + 1, cmdkItems.length - 1)
+      renderCmdk()
+      return
+    }
+    if (event.key === 'ArrowUp') {
+      event.preventDefault()
+      cmdkActive = Math.max(cmdkActive - 1, 0)
+      renderCmdk()
+      return
+    }
+    if (event.key === 'Enter') {
+      event.preventDefault()
+      runCmdk()
+    }
+  })
+  $('cmdk-input').addEventListener('input', () => { cmdkActive = 0; renderCmdk() })
+  $('cmdk').addEventListener('click', (event) => { if (event.target === $('cmdk')) closeCmdk() })
+}
+
 function bind() {
   $('login-form').addEventListener('submit', login)
 
@@ -2808,6 +2936,8 @@ function bind() {
   $('logout-row').addEventListener('click', () => {
     confirmSheet('Выйти из аккаунта?', 'На этом устройстве придётся ввести пароль заново.', 'Выйти', () => void logout())
   })
+
+  bindCmdk()
 
   window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
     if (themeMode === 'auto') applyTheme()

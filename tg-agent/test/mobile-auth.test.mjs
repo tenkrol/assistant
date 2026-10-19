@@ -181,6 +181,7 @@ async function createHarness(t, options = {}) {
     avatarProvider: options.avatarProvider,
     mediaStore: options.mediaStore,
     documents: options.documents,
+    systemStatus: options.systemStatus,
     proactiveSettings: options.proactiveSettings,
     updateProactive: options.updateProactive,
     chatResponder: options.chatResponder,
@@ -673,6 +674,22 @@ test('push: конфиг, подписка и отписка', async (t) => {
   assert.equal(tested.status, 200)
   assert.equal(tested.json.sent, 1)
   assert.equal(tested.json.userId, USER_ID)
+})
+
+test('система: состояние сервера и бэкапы', async (t) => {
+  const { base } = await createHarness(t, {
+    systemStatus: async () => ({
+      generatedAt: '2026-10-19T10:00:00.000Z',
+      server: 'Диск: 40%\nСервисы: ok',
+      backups: [{ name: 'state.tar.gz', size: 1024, at: '2026-10-19T03:00:00.000Z' }],
+    }),
+  })
+  const cookies = jar()
+  await request(base, '/api/auth/login', { method: 'POST', body: { password: PASSWORD }, cookieJar: cookies })
+  const system = await request(base, '/api/system', { cookieJar: cookies })
+  assert.equal(system.status, 200)
+  assert.match(system.json.server, /Диск/)
+  assert.equal(system.json.backups[0].name, 'state.tar.gz')
 })
 
 test('файлы: список документов и скачивание оригинала', async (t) => {

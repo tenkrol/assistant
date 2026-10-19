@@ -425,6 +425,7 @@ export function createMiniApp({
   documents,
   proactiveSettings,
   updateProactive,
+  systemStatus,
   maxMediaBytes = 20 * 1024 * 1024,
   chatResponder,
   agentResponder,
@@ -1073,6 +1074,18 @@ export function createMiniApp({
 
   const avatarCache = new Map()
 
+  /** GET /api/system — состояние сервера и список бэкапов. */
+  async function getSystem(request, response) {
+    request.resume()
+    if (typeof systemStatus !== 'function') return missingStore(response, 'состояние сервера')
+    try {
+      sendJson(response, 200, await systemStatus())
+    } catch (error) {
+      logger?.warn?.('system status failed', { error: error?.message ?? error })
+      sendError(response, 502, ERROR_CODES.unavailable, 'Не удалось получить состояние сервера')
+    }
+  }
+
   /** GET /api/files — документы, доступные пользователю. */
   function listFiles(request, response, { userId }) {
     request.resume()
@@ -1676,6 +1689,7 @@ export function createMiniApp({
     { method: 'DELETE', pattern: /^\/api\/memory\/([^/]+)$/, handler: deleteFact },
     { method: 'GET', pattern: /^\/api\/chats$/, handler: listChats },
     { method: 'GET', pattern: /^\/api\/avatar\/(\d+)$/, handler: getAvatar },
+    { method: 'GET', pattern: /^\/api\/system$/, handler: getSystem },
     { method: 'GET', pattern: /^\/api\/files$/, handler: listFiles },
     { method: 'GET', pattern: /^\/api\/files\/([^/]+)\/download$/, handler: downloadFile },
     { method: 'POST', pattern: /^\/api\/chat\/upload$/, handler: uploadMedia },

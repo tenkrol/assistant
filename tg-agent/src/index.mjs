@@ -793,6 +793,30 @@ export async function createInstance({ config, logger, instance, shared, platfor
         avatarProvider: (userId) => (typeof bot.platform.getUserAvatar === 'function' ? bot.platform.getUserAvatar(userId) : null),
         mediaStore: mobileMedia,
         documents,
+        systemStatus: async () => {
+          let serverText = 'Модуль состояния сервера выключен.'
+          if (server && typeof server.execute === 'function') {
+            try {
+              serverText = await server.execute()
+            } catch (error) {
+              serverText = 'Не удалось прочитать состояние сервера: ' + String(error?.message ?? error)
+            }
+          }
+          const backups = []
+          for (const dir of ['/var/backups/tg-agent', path.join(botConfig.dataDir, 'backups')]) {
+            try {
+              for (const entry of await fs.promises.readdir(dir, { withFileTypes: true })) {
+                if (!entry.isFile() && !entry.isDirectory()) continue
+                const full = path.join(dir, entry.name)
+                const stat = await fs.promises.stat(full).catch(() => null)
+                if (!stat) continue
+                backups.push({ name: entry.name, size: stat.size, at: stat.mtime.toISOString(), directory: dir })
+              }
+            } catch { /* каталога нет — это не ошибка */ }
+          }
+          backups.sort((a, b) => String(b.at).localeCompare(String(a.at)))
+          return { generatedAt: new Date().toISOString(), server: serverText, backups: backups.slice(0, 20) }
+        },
         proactiveSettings: async ({ userId }) => ({
           ...proactive.settingsFor({ channel: instance.platform, userId }),
           globalEnabled: botConfig.proactive?.enabled === true,
