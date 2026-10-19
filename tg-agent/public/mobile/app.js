@@ -2466,6 +2466,60 @@ function formatFileSize(size) {
 
 let mailSearchTimer
 
+async function searchYoutube() {
+  const input = $('youtube-search-input')
+  const query = input.value.trim()
+  if (query.length < 2) {
+    toast('Введите хотя бы 2 символа')
+    return
+  }
+  const box = $('youtube-list')
+  box.replaceChildren(h('p', 'hint', 'Ищу видео…'))
+  try {
+    const data = await api('GET', '/api/youtube/search?q=' + encodeURIComponent(query))
+    const videos = Array.isArray(data.videos) ? data.videos : []
+    box.replaceChildren()
+    if (videos.length === 0) {
+      box.append(h('p', 'hint', 'Ничего не найдено.'))
+      return
+    }
+    const grid = h('div', 'youtube-grid')
+    videos.forEach((video) => {
+      const card = h('button', 'youtube-card')
+      card.type = 'button'
+      const thumb = document.createElement('img')
+      thumb.className = 'youtube-thumb'
+      thumb.src = video.thumbnail
+      thumb.alt = video.title
+      thumb.loading = 'lazy'
+      const body = h('div', 'youtube-body')
+      body.append(h('b', null, video.title))
+      body.append(h('span', null, [video.channel, video.views, video.duration].filter(Boolean).join(' · ')))
+      card.append(thumb, body)
+      card.addEventListener('click', () => openYoutubeVideo(video))
+      grid.append(card)
+    })
+    box.append(grid)
+  } catch (error) {
+    box.replaceChildren(h('p', 'hint', error.message || 'Поиск не удался'))
+  }
+}
+
+function openYoutubeVideo(video) {
+  const wrap = h('div')
+  const frame = document.createElement('iframe')
+  frame.className = 'youtube-player'
+  frame.src = 'https://www.youtube-nocookie.com/embed/' + encodeURIComponent(video.id) + '?autoplay=1&rel=0'
+  frame.title = video.title
+  frame.allow = 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share'
+  frame.allowFullscreen = true
+  wrap.append(frame)
+  const info = h('div', 'plan-body')
+  info.append(h('b', null, video.title), h('span', 'plan-meta', [video.channel, video.views, video.duration].filter(Boolean).join(' · ')))
+  wrap.append(info)
+  openSheet({ title: 'YouTube', body: wrap })
+}
+
 async function ensureMail() {
   if (state.gmail === null) await loadGmail()
 }
@@ -4416,6 +4470,8 @@ function bind() {
       toast(error.message || 'Не удалось получить ссылку')
     }
   })
+  $('youtube-search-btn').addEventListener('click', () => void searchYoutube())
+  $('youtube-search-input').addEventListener('keydown', (event) => { if (event.key === 'Enter') { event.preventDefault(); void searchYoutube() } })
   $('mail-refresh').addEventListener('click', () => { state.gmail = null; void loadGmail() })
   $('mail-search').addEventListener('input', (event) => {
     clearTimeout(mailSearchTimer)

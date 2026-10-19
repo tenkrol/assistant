@@ -4771,3 +4771,54 @@ html.large-text .setting-row span {
   width: 16px;
   height: 16px;
 }
+
+.youtube-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 10px;
+}
+
+.youtube-card {
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+  border-radius: 14px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--fg);
+}
+
+.youtube-thumb {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  display: block;
+  background: var(--card-2);
+}
+
+.youtube-body {
+  padding: 9px 10px 11px;
+}
+
+.youtube-body b {
+  display: block;
+  font-size: 12.5px;
+  line-height: 1.35;
+  margin-bottom: 4px;
+}
+
+.youtube-body span {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.youtube-player {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border: 0;
+  border-radius: 12px;
+  background: #000;
+}

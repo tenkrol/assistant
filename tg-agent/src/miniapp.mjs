@@ -61,7 +61,8 @@ const MOBILE_CLIENT_HEADER = 'x-mobile-client'
 const MOBILE_PATH_PREFIX = '/mobile'
 const MOBILE_CSP = [
   "default-src 'self'",
-  "img-src 'self' data:",
+  "img-src 'self' data: https://i.ytimg.com https://img.youtube.com",
+  "frame-src https://www.youtube.com https://www.youtube-nocookie.com",
   "style-src 'self' 'unsafe-inline'",
   "script-src 'self'",
   "connect-src 'self'",
@@ -1500,6 +1501,61 @@ export function createMiniApp({
     sendJson(response, 200, { files })
   }
 
+  const youtubeSearchCache = new Map()
+
+  /** Поиск YouTube через публичную страницу результатов (без API-ключа). */
+  async function searchYoutube(request, response, { url }) {
+    request.resume()
+    const query = String(url.searchParams.get('q') ?? '').trim()
+    if (query.length < 2) return badRequest(response, 'Запрос минимум из 2 символов')
+    const cached = youtubeSearchCache.get(query.toLowerCase())
+    if (cached && Date.now() - cached.at < 5 * 60 * 1000) return sendJson(response, 200, { query, videos: cached.videos })
+    try {
+      const target = new URL('https://www.youtube.com/results')
+      target.searchParams.set('search_query', query)
+      target.searchParams.set('hl', 'ru')
+      const page = await fetch(target, { headers: { 'user-agent': 'Mozilla/5.0 (compatible; TenKrol/1.0)' } })
+      if (!page.ok) throw new Error('YouTube HTTP ' + page.status)
+      const html = await page.text()
+      const start = html.indexOf('ytInitialData = ')
+      if (start === -1) throw new Error('Нет данных YouTube')
+      const from = start + 'ytInitialData = '.length
+      const end = html.indexOf(';</script>', from)
+      const data = JSON.parse(html.slice(from, end))
+      const videos = []
+      const seen = new Set()
+      const visit = (node) => {
+        if (!node || typeof node !== 'object' || videos.length >= 12) return
+        if (node.videoRenderer || node.compactVideoRenderer) {
+          const item = node.videoRenderer ?? node.compactVideoRenderer
+          const id = String(item.videoId ?? '')
+          if (id !== '' && !seen.has(id)) {
+            seen.add(id)
+            const thumb = item.thumbnail?.thumbnails?.at(-1)?.url
+            videos.push({
+              id,
+              title: String(item.title?.runs?.[0]?.text ?? item.title?.simpleText ?? 'Без названия'),
+              channel: String(item.ownerText?.runs?.[0]?.text ?? item.longBylineText?.runs?.[0]?.text ?? ''),
+              duration: String(item.lengthText?.simpleText ?? ''),
+              views: String(item.viewCountText?.simpleText ?? item.shortViewCountText?.simpleText ?? ''),
+              published: String(item.publishedTimeText?.simpleText ?? ''),
+              thumbnail: String(thumb ?? 'https://i.ytimg.com/vi/' + id + '/mqdefault.jpg'),
+            })
+          }
+          return
+        }
+        for (const value of Object.values(node)) visit(value)
+      }
+      visit(data)
+      youtubeSearchCache.set(query.toLowerCase(), { at: Date.now(), videos })
+      while (youtubeSearchCache.size > 30) youtubeSearchCache.delete(youtubeSearchCache.keys().next().value)
+      sendJson(response, 200, { query, videos })
+    } catch (error) {
+      logger?.warn?.('youtube search failed', { error: error?.message ?? error })
+      sendError(response, 502, ERROR_CODES.unavailable, 'Не удалось найти видео на YouTube')
+    }
+  }
+
   /** GET /api/disk — папка агента на Яндекс.Диске. */
   async function listDiskFiles(request, response) {
     request.resume()
@@ -2406,6 +2462,7 @@ export function createMiniApp({
     { method: 'GET', pattern: /^\/api\/calendar\/link$/, handler: calendarLink },
     { method: 'GET', pattern: /^\/api\/system$/, handler: getSystem },
     { method: 'GET', pattern: /^\/api\/files\/search$/, handler: searchFiles },
+    { method: 'GET', pattern: /^\/api\/youtube\/search$/, handler: searchYoutube },
     { method: 'GET', pattern: /^\/api\/disk$/, handler: listDiskFiles },
     { method: 'GET', pattern: /^\/api\/disk\/download$/, handler: downloadDiskFile },
     { method: 'DELETE', pattern: /^\/api\/disk$/, handler: deleteDiskFile },
