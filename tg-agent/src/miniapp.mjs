@@ -1209,14 +1209,28 @@ export function createMiniApp({
         // Файл до 2 МиБ отдаём сразу data-URL-ом; больший предложим забрать в Telegram.
         data: file.bytes && file.bytes.length <= 2 * 1024 * 1024 ? file.bytes.toString('base64') : null,
       }))
-      const lastUser = history && typeof history.messages === 'function'
+      let lastUser = history && typeof history.messages === 'function'
         ? history.messages(String(target.chatId), target.type === 'private' ? userId : undefined).filter((entry) => entry.role === 'user').at(-1)
         : undefined
+      if (lastUser && typeof history.patch === 'function') {
+        const deliveredAt = new Date().toISOString()
+        const readAt = !delivery?.silent && messages.length > 0 ? deliveredAt : undefined
+        lastUser = await history.patch(String(target.chatId), lastUser.id, {
+          deliveredAt,
+          ...(readAt ? { readAt } : {}),
+        }) || lastUser
+      }
       sendJson(response, 200, {
         messages,
         files,
         silent: Boolean(delivery?.silent),
-        ...(lastUser && typeof lastUser.id === 'string' ? { userMessage: { id: lastUser.id, text: lastUser.content } } : {}),
+        ...(lastUser && typeof lastUser.id === 'string' ? {
+          userMessage: {
+            id: lastUser.id,
+            text: lastUser.content,
+            status: lastUser.readAt ? 'read' : lastUser.deliveredAt ? 'delivered' : 'sent',
+          },
+        } : {}),
       })
     } catch (error) {
       logger?.warn?.('web chat failed', { error: error?.message ?? error, userId })
@@ -1706,6 +1720,8 @@ export function createMiniApp({
           text: safeText(message.content),
           ...(typeof message.id === 'string' ? { id: message.id } : {}),
           ...(typeof message.reaction === 'string' && message.reaction !== '' ? { reaction: message.reaction } : {}),
+          ...(typeof message.deliveredAt === 'string' ? { deliveredAt: message.deliveredAt } : {}),
+          ...(typeof message.readAt === 'string' ? { readAt: message.readAt } : {}),
           ...(typeof message.at === 'string' ? { at: message.at } : {}),
           ...(author ? { author } : {}),
           ...(authorId ? { avatar: `/api/avatar/${authorId}` } : {}),

@@ -808,7 +808,7 @@ function renderChat() {
   }
   const day = h('div', 'day-chip', state.chatTarget && state.chatTarget.type !== 'private' ? state.chatTarget.title : 'Диалог с ассистентом')
   box.append(day)
-  messages.forEach((message) => box.append(chatMessageNode(message.role, message.text, message.author, message.replyTo, message.avatar, message.attachments, message.at, message.id, message.reaction)))
+  messages.forEach((message) => box.append(chatMessageNode(message.role, message.text, message.author, message.replyTo, message.avatar, message.attachments, message.at, message.id, message.reaction, message.readAt ? 'read' : message.deliveredAt ? 'delivered' : message.role === 'user' ? 'sent' : undefined)))
   chatScrollToBottom()
 }
 
@@ -1099,7 +1099,7 @@ function chatMediaNode(attachments) {
   return box
 }
 
-function chatMessageNode(role, text, author, replyTo, avatar, attachments, at, messageId, reaction) {
+function chatMessageNode(role, text, author, replyTo, avatar, attachments, at, messageId, reaction, status) {
   const ownName = state.session && state.session.user ? state.session.user.telegramName : ''
   const otherAuthor = role === 'user' && author && ownName && author !== ownName
   const article = h('article', 'msg ' + (role === 'assistant' || otherAuthor ? 'msg-bot' : 'msg-user'))
@@ -1147,7 +1147,15 @@ function chatMessageNode(role, text, author, replyTo, avatar, attachments, at, m
     bubble.append(h('div', 'msg-reaction', reaction))
     article.classList.add('has-reaction')
   }
-  if (at) bubble.append(h('span', 'msg-time', formatTime(at)))
+  if (at) {
+    const time = h('span', 'msg-time', formatTime(at))
+    if (status) {
+      const tick = h('span', 'msg-status' + (status === 'read' ? ' is-read' : ''), status === 'sent' ? '✓' : '✓✓')
+      tick.title = status === 'read' ? 'прочитано' : status === 'delivered' ? 'доставлено' : 'отправлено'
+      time.append(tick)
+    }
+    bubble.append(time)
+  }
   const replyText = text || (media.length > 0 ? (media[0].kind === 'video' ? '[видео]' : media[0].kind === 'voice' ? '[голосовое]' : '[фото]') : '')
   bindMessageGesture(bubble, { role, text: replyText, author, id: messageId, reaction })
   return article
@@ -1158,11 +1166,11 @@ function chatScrollToBottom() {
   if (scroller) scroller.scrollTop = scroller.scrollHeight
 }
 
-function appendChatMessage(role, text, author, replyTo, attachments) {
+function appendChatMessage(role, text, author, replyTo, attachments, status) {
   const box = $('chat-messages')
   const empty = box.querySelector('.chat-empty')
   if (empty) empty.remove()
-  box.append(chatMessageNode(role, text, author, replyTo, undefined, attachments, new Date().toISOString()))
+  box.append(chatMessageNode(role, text, author, replyTo, undefined, attachments, new Date().toISOString(), undefined, undefined, status))
   chatScrollToBottom()
 }
 
@@ -1433,6 +1441,7 @@ async function sendSiteMessage() {
       group ? ((state.session && state.session.user && state.session.user.telegramName) || 'Вы') : undefined,
       reply,
       uploaded,
+      'sent',
     )
     clearChatReply()
     clearPendingMedia()
@@ -1460,7 +1469,11 @@ async function sendSiteMessage() {
     ;(Array.isArray(data.files) ? data.files : []).forEach(appendChatFile)
     if (state.chat && Array.isArray(state.chat.messages)) {
       const userMessage = { role: 'user', text, ...(reply ? { replyTo: reply } : {}), ...(uploaded.length > 0 ? { attachments: uploaded } : {}) }
-      if (data.userMessage && data.userMessage.id) userMessage.id = data.userMessage.id
+      if (data.userMessage && data.userMessage.id) {
+        userMessage.id = data.userMessage.id
+        userMessage.deliveredAt = data.userMessage.status === 'read' || data.userMessage.status === 'delivered' ? new Date().toISOString() : undefined
+        if (data.userMessage.status === 'read') userMessage.readAt = userMessage.deliveredAt
+      }
       state.chat.messages.push(userMessage)
       if (userMessage.id) renderChat()
       if (!silent) messages.forEach((message) => state.chat.messages.push({ role: 'assistant', text: message.text }))

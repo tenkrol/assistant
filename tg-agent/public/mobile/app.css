@@ -4521,3 +4521,16 @@ html.large-text .setting-row span {
   margin: 0;
   display: inline-flex;
 }
+
+.msg-status {
+  display: inline-block;
+  margin-left: 4px;
+  font-size: 10px;
+  letter-spacing: -1px;
+  color: var(--muted);
+  vertical-align: middle;
+}
+
+.msg-status.is-read {
+  color: var(--accent);
+}

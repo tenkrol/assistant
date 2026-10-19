@@ -185,6 +185,16 @@ export class HistoryStore {
     return record?.messages.find((item) => String(item.id) === String(messageId))
   }
 
+  /** Обновить служебные поля сообщения (статусы доставки/прочтения). */
+  async patch(chatId, messageId, patch = {}) {
+    const message = this.message(chatId, messageId)
+    if (!message) return undefined
+    Object.assign(message, patch)
+    this.touch(String(chatId))
+    this.schedule()
+    return message
+  }
+
   /** Изменить текст пользовательского сообщения. */
   async edit(chatId, messageId, text) {
     const message = this.message(chatId, messageId)
