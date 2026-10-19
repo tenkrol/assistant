@@ -4650,3 +4650,13 @@ html.large-text .setting-row span {
     border: 0;
   }
 }
+
+/* На синем пузыре свои галочки должны быть светлыми, иначе теряются. */
+.msg-user .msg-status {
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.msg-user .msg-status.is-read {
+  color: #ffffff;
+  text-shadow: 0 0 6px rgba(255, 255, 255, 0.45);
+}
