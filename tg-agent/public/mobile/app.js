@@ -1537,11 +1537,6 @@ function planItemCard({ title, meta, kind, onDelete }) {
   body.append(metaRow)
   card.append(iconBox, body)
   if (onDelete) {
-    const edit = h('button', 'icon-btn sm')
-    edit.type = 'button'
-    edit.setAttribute('aria-label', 'Изменить факт')
-    edit.append(icon('pencil'))
-    edit.addEventListener('click', () => openEditFact(fact))
     const remove = h('button', 'icon-btn sm')
     remove.type = 'button'
     remove.setAttribute('aria-label', 'Удалить')
@@ -1972,6 +1967,11 @@ function renderMemory() {
     const meta = h('div', 'fact-meta')
     meta.append(icon('book'), h('span', null, 'личный факт'))
     body.append(meta)
+    const edit = h('button', 'icon-btn sm')
+    edit.type = 'button'
+    edit.setAttribute('aria-label', 'Изменить факт')
+    edit.append(icon('pencil'))
+    edit.addEventListener('click', () => openEditFact(fact))
     const remove = h('button', 'icon-btn sm')
     remove.type = 'button'
     remove.setAttribute('aria-label', 'Удалить факт')
