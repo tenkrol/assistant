@@ -1132,6 +1132,42 @@ export function createMiniApp({
 
   const avatarCache = new Map()
 
+  /** GET /api/calendar.ics — экспорт напоминаний и событий в iCalendar. */
+  function exportCalendar(request, response, { userId, chatId }) {
+    request.resume()
+    const reminders = pickStore(stores.reminders)
+    const events = pickStore(stores.events)
+    const items = []
+    if (reminders && typeof reminders.list === 'function') {
+      for (const reminder of reminders.list(chatId, userId)) items.push({ kind: 'Напоминание', title: reminder.text, at: reminder.dueAt, id: reminder.id })
+    }
+    if (events && typeof events.upcoming === 'function') {
+      for (const event of events.upcoming(chatId, { days: 365, userId })) items.push({ kind: 'Событие', title: event.title, at: event.at, id: event.id, place: event.place })
+    }
+    const stamp = (value) => new Date(value).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z')
+    const clean = (value) => String(value ?? '').replace(/\\/g, '\\\\').replace(/\n/g, '\\n').replace(/;/g, '\\;').replace(/,/g, '\\,')
+    const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//TenKrol//Assistant//RU', 'CALSCALE:GREGORIAN']
+    items.forEach((item) => {
+      lines.push('BEGIN:VEVENT')
+      lines.push('UID:' + clean(item.id || item.at) + '@tenkrol.ru')
+      lines.push('DTSTAMP:' + stamp(new Date()))
+      lines.push('DTSTART:' + stamp(item.at))
+      lines.push('SUMMARY:' + clean(item.kind + ': ' + item.title))
+      if (item.place) lines.push('LOCATION:' + clean(item.place))
+      lines.push('DESCRIPTION:' + clean('Экспорт из мобильного пульта TenKrol'))
+      lines.push('END:VEVENT')
+    })
+    lines.push('END:VCALENDAR')
+    const body = Buffer.from(lines.join('\r\n') + '\r\n', 'utf8')
+    response.writeHead(200, {
+      'content-type': 'text/calendar; charset=utf-8',
+      'content-length': String(body.length),
+      'content-disposition': 'attachment; filename="tenkrol-calendar.ics"',
+      'cache-control': 'private, no-store',
+    })
+    response.end(body)
+  }
+
   /** GET /api/system — состояние сервера и список бэкапов. */
   async function getSystem(request, response) {
     request.resume()
@@ -1786,6 +1822,7 @@ export function createMiniApp({
     { method: 'DELETE', pattern: /^\/api\/memory\/([^/]+)$/, handler: deleteFact },
     { method: 'GET', pattern: /^\/api\/chats$/, handler: listChats },
     { method: 'GET', pattern: /^\/api\/avatar\/(\d+)$/, handler: getAvatar },
+    { method: 'GET', pattern: /^\/api\/calendar\.ics$/, handler: exportCalendar },
     { method: 'GET', pattern: /^\/api\/system$/, handler: getSystem },
     { method: 'GET', pattern: /^\/api\/files$/, handler: listFiles },
     { method: 'GET', pattern: /^\/api\/files\/([^/]+)\/download$/, handler: downloadFile },

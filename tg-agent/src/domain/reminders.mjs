@@ -151,6 +151,9 @@ export function reminderConfirmation({ reminder, due, repeat = 'none', timeZone 
  * @returns {string} префикс с исходным сроком.
  */
 export function lateReminderPrefix(dueAt, { timeZone = '' } = {}) {
+  const due = new Date(dueAt)
+  // Битая запись не должна ронять доставку: лучше честная пометка без времени.
+  if (Number.isNaN(due.getTime())) return '⏰ пропущено — '
   const parts = Object.fromEntries(new Intl.DateTimeFormat('ru-RU', {
     timeZone: resolveZone(timeZone),
     day: '2-digit',
@@ -158,7 +161,7 @@ export function lateReminderPrefix(dueAt, { timeZone = '' } = {}) {
     hour: '2-digit',
     minute: '2-digit',
     hour12: false,
-  }).formatToParts(new Date(dueAt)).map((part) => [part.type, part.value]))
+  }).formatToParts(due).map((part) => [part.type, part.value]))
   const hour = String(Number(parts.hour) % 24).padStart(2, '0')
   return `⏰ пропущено, было на ${parts.day}.${parts.month} ${hour}:${parts.minute} — `
 }

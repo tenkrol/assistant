@@ -951,6 +951,21 @@ test('история сохраняет цитату ответа', async (t) =>
   assert.equal(chat.json.messages[0].replyTo.author, 'Ассистент')
 })
 
+test('экспорт календаря в .ics', async (t) => {
+  const { base, reminders, events } = await createHarness(t)
+  reminders.add({ chatId: USER_ID, userId: USER_ID, text: 'позвонить', dueAt: new Date(Date.now() + 3600_000).toISOString(), repeat: 'none' })
+  events.add({ chatId: USER_ID, userId: USER_ID, title: 'встреча', at: new Date(Date.now() + 7200_000).toISOString(), repeat: 'none' })
+  const cookies = jar()
+  await request(base, '/api/auth/login', { method: 'POST', body: { password: PASSWORD }, cookieJar: cookies })
+  const response = await fetch(`${base}/api/calendar.ics`, { headers: { cookie: cookies.cookie } })
+  assert.equal(response.status, 200)
+  assert.match(response.headers.get('content-type'), /text\/calendar/)
+  const text = await response.text()
+  assert.match(text, /BEGIN:VCALENDAR/)
+  assert.match(text, /SUMMARY:Напоминание: позвонить/)
+  assert.match(text, /SUMMARY:Событие: встреча/)
+})
+
 test('статистика: сегодня и семь дней с нулями', async (t) => {
   const { base, usage } = await createHarness(t)
   usage.record({ usage: { prompt_tokens: 10, completion_tokens: 5 }, userId: USER_ID, chatId: USER_ID, timeZone: 'Europe/Moscow' })

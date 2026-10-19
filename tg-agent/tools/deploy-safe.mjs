@@ -566,6 +566,7 @@ export function installServiceUnit({
   log = () => {},
   logError = () => {},
 } = {}) {
+  if (service !== 'tg-agent') return { ok: true, skipped: true, reason: `юнит бота не для ${service}` }
   if (!sourceDir || !installDir) return { ok: false, reason: 'не переданы sourceDir/installDir' }
   const source = path.join(sourceDir, 'deploy', 'tg-agent.service')
   if (!fs.existsSync(source)) return { ok: false, skipped: true, reason: 'в релизе нет tg-agent.service' }

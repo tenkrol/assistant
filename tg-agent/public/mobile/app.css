@@ -4384,3 +4384,9 @@ html.large-text .setting-row span {
   color: var(--muted);
   font-size: 11.5px;
 }
+
+.cal-export {
+  display: inline-flex;
+  margin: 10px 0 4px;
+  text-decoration: none;
+}

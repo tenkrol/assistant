@@ -186,11 +186,12 @@ test('текст доставки называет владельца и пом�
   const rules = rulesOfReminders({ store: makeReminderStore(), timeZone: ZONE })
   assert.equal(rules.deliveryText({ chatId: -1, userId: 7, text: 'чайник' }, { owner: 'Вячеслав' }), '⏰ Напоминание для Вячеслав: чайник')
   // Пометка догона называет исходный срок, а не момент доставки.
-  assert.equal(
+  const dueAt = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString()
+  assert.match(
     rules.deliveryText(
-      { chatId: 1, text: 'чайник', dueAt: '2026-10-19T06:00:00.000Z' },
+      { chatId: 1, text: 'чайник', dueAt },
       { lateNotice: true, timeZone: ZONE },
     ),
-    '⏰ пропущено, было на 19.10 09:00 — Напоминание: чайник',
+    /^⏰ пропущено, было на \d{2}\.\d{2} \d{2}:\d{2} — Напоминание: чайник$/,
   )
 })

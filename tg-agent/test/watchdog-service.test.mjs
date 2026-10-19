@@ -51,7 +51,7 @@ function fakeFetch(status) {
 }
 
 const silent = { info() {}, warn() {}, error() {} }
-const NOW = Date.parse('2026-10-19T12:00:00Z')
+const NOW = Date.now()
 const env = { DATA_DIR: '/tmp/watchdog-data' }
 
 test('живой сервис и 401 от панели — тревоги нет', async () => {
