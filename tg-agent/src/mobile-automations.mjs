@@ -106,9 +106,26 @@ export class AutomationStore {
     return item
   }
 
-  async update({ userId, id, enabled } = {}) {
+  async update({ userId, id, enabled, title, prompt, time, weekdays } = {}) {
     const item = this.find(userId, id)
     if (!item) throw new AutomationError('Автоматизация не найдена', 'not_found')
+    if (typeof title === 'string') {
+      const value = title.trim()
+      if (value === '' || value.length > MAX_TITLE) throw new AutomationError('Некорректное название')
+      item.title = value
+    }
+    if (typeof prompt === 'string') {
+      const value = prompt.trim()
+      if (value === '' || value.length > MAX_PROMPT) throw new AutomationError('Некорректный промпт')
+      item.prompt = value
+    }
+    if (typeof time === 'string') {
+      if (!parseClock(time)) throw new AutomationError('Укажите время ЧЧ:ММ')
+      item.time = time
+    }
+    if (Array.isArray(weekdays)) {
+      item.weekdays = [...new Set(weekdays.map(Number).filter((day) => day >= 1 && day <= 7))]
+    }
     if (typeof enabled === 'boolean') item.enabled = enabled
     if (item.enabled) item.nextRunAt = nextRunAt({ time: item.time, weekdays: item.weekdays })
     await this.storage.flush()

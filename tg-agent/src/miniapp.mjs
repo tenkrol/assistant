@@ -891,7 +891,15 @@ export function createMiniApp({
     const body = await readJsonBody(request, bodyLimit)
     if (!body.ok) return sendError(response, body.status, body.code, body.error)
     try {
-      const item = await mobileAutomations.update({ userId, id: params[0], enabled: body.value?.enabled })
+      const item = await mobileAutomations.update({
+        userId,
+        id: params[0],
+        enabled: body.value?.enabled,
+        title: body.value?.title,
+        prompt: body.value?.prompt,
+        time: body.value?.time,
+        weekdays: body.value?.weekdays,
+      })
       sendJson(response, 200, { item: mapAutomation(item) })
     } catch (error) {
       if (error?.code === 'not_found') return notFound(response)

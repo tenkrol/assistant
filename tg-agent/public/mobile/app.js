@@ -2474,34 +2474,37 @@ function renderAutomations() {
     const toggle = h('button', 'pill-btn', item.enabled ? 'Выключить' : 'Включить')
     toggle.type = 'button'
     toggle.addEventListener('click', () => void toggleAutomation(item))
+    const edit = h('button', 'pill-btn', 'Изменить')
+    edit.type = 'button'
+    edit.addEventListener('click', () => openAutomationSheet({}, item))
     const run = h('button', 'pill-btn', 'Проверить')
     run.type = 'button'
     run.addEventListener('click', () => void runAutomation(item))
     const remove = h('button', 'pill-btn danger', 'Удалить')
     remove.type = 'button'
     remove.addEventListener('click', () => { confirmSheet('Удалить автоматизацию?', item.title, 'Удалить', () => void deleteAutomation(item)) })
-    actions.append(toggle, run, remove)
+    actions.append(toggle, edit, run, remove)
     body.append(actions)
     card.append(ic, body)
     box.append(card)
   })
 }
 
-function openAutomationSheet(template = {}) {
+function openAutomationSheet(template = {}, editItem = null) {
   const wrap = h('div')
   const title = document.createElement('input')
   title.className = 'input'
   title.placeholder = 'Название'
-  title.value = template.title || ''
+  title.value = editItem ? editItem.title : template.title || ''
   const prompt = document.createElement('textarea')
   prompt.className = 'input'
   prompt.rows = 5
   prompt.placeholder = 'Что должен сделать ассистент'
-  prompt.value = template.prompt || ''
+  prompt.value = editItem ? editItem.prompt : template.prompt || ''
   const time = document.createElement('input')
   time.className = 'input'
   time.type = 'time'
-  time.value = template.time || '09:00'
+  time.value = editItem ? editItem.time : template.time || '09:00'
   const daysBox = h('div', 'automation-days')
   const dayInputs = []
   WEEKDAY_LABELS.forEach((label, index) => {
@@ -2509,6 +2512,7 @@ function openAutomationSheet(template = {}) {
     const input = document.createElement('input')
     input.type = 'checkbox'
     input.value = String(index + 1)
+    if (editItem && Array.isArray(editItem.weekdays) && editItem.weekdays.includes(index + 1)) input.checked = true
     day.append(input, h('span', null, label))
     daysBox.append(day)
     dayInputs.push(input)
@@ -2522,23 +2526,25 @@ function openAutomationSheet(template = {}) {
     }
     save.disabled = true
     try {
-      await api('POST', '/api/automations', {
+      const payload = {
         title: title.value.trim(),
         prompt: prompt.value.trim(),
         time: time.value,
         weekdays: dayInputs.filter((input) => input.checked).map((input) => Number(input.value)),
-      })
+      }
+      if (editItem) await api('PATCH', '/api/automations/' + encodeURIComponent(editItem.id), payload)
+      else await api('POST', '/api/automations', payload)
       closeSheet()
       state.automations = null
       await loadAutomations()
-      toast('Автоматизация создана')
+      toast(editItem ? 'Автоматизация изменена' : 'Автоматизация создана')
     } catch (error) {
       save.disabled = false
       toast(error.message || 'Не удалось создать автоматизацию')
     }
   })
   wrap.append(field('Название', title), field('Промпт', prompt), field('Время (МСК)', time), h('p', 'hint', 'Дни недели: если не выбрано — каждый день'), daysBox, save)
-  openSheet({ title: 'Новая автоматизация', body: wrap })
+  openSheet({ title: editItem ? 'Изменить автоматизацию' : 'Новая автоматизация', body: wrap })
 }
 
 async function toggleAutomation(item) {
