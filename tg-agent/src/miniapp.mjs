@@ -1534,7 +1534,7 @@ export function createMiniApp({
 
   const photoCache = new Map()
 
-  /** GET /api/photos/search — обычный поиск картинок через DuckDuckGo Images. */
+  /** GET /api/photos/search — обычный поиск картинок через Яндекс.Картинки. */
   async function searchPhotos(request, response, { url }) {
     request.resume()
     const query = String(url.searchParams.get('q') ?? '').trim()
@@ -1542,44 +1542,43 @@ export function createMiniApp({
     const cached = photoCache.get(query.toLowerCase())
     if (cached && Date.now() - cached.at < 10 * 60 * 1000) return sendJson(response, 200, { query, photos: cached.photos })
     try {
-      const landing = await fetch('https://duckduckgo.com/?q=' + encodeURIComponent(query) + '&iax=images&ia=images', {
+      const target = new URL('https://yandex.ru/images/search')
+      target.searchParams.set('text', query)
+      const page = await fetch(target, {
         headers: {
           'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36',
           'accept-language': 'ru-RU,ru;q=0.9,en;q=0.8',
         },
-        signal: AbortSignal.timeout(15_000),
+        signal: AbortSignal.timeout(20_000),
       })
-      if (!landing.ok) throw new Error('DuckDuckGo HTTP ' + landing.status)
-      const html = await landing.text()
-      const vqd = /vqd=['"]([^'"]+)/.exec(html)?.[1]
-      if (!vqd) throw new Error('Нет vqd DuckDuckGo')
-      const apiUrl = new URL('https://duckduckgo.com/i.js')
-      apiUrl.searchParams.set('l', 'ru-ru')
-      apiUrl.searchParams.set('o', 'json')
-      apiUrl.searchParams.set('q', query)
-      apiUrl.searchParams.set('vqd', vqd)
-      const api = await fetch(apiUrl, {
-        headers: { 'user-agent': 'Mozilla/5.0', referer: 'https://duckduckgo.com/' },
-        signal: AbortSignal.timeout(15_000),
-      })
-      if (!api.ok) throw new Error('DuckDuckGo JSON HTTP ' + api.status)
-      const data = await api.json()
-      const photos = (Array.isArray(data.results) ? data.results : []).map((item, index) => {
-        const original = String(item.image || '')
-        const secure = original.startsWith('http://') ? 'https://' + original.slice(7) : original
-        const thumb = String(item.thumbnail || '')
-        const secureThumb = thumb.startsWith('http://') ? 'https://' + thumb.slice(7) : thumb
+      if (!page.ok) throw new Error('Yandex HTTP ' + page.status)
+      const html = await page.text()
+      const decode = (value) => String(value || '')
+        .replace(/&quot;/g, '"').replace(/&amp;/g, '&').replace(/&#39;/g, "'")
+        .replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+      const full = [...html.matchAll(/img_href&quot;:&quot;(.*?)&quot;/g)]
+        .map((match) => decode(match[1]).replace(/^\/\//, 'https://'))
+        .filter((value) => /^https:\/\//.test(value))
+      const thumbs = [...html.matchAll(/thumb&quot;:\{&quot;url&quot;:&quot;(.*?)&quot;/g)]
+        .map((match) => decode(match[1]).replace(/^\/\//, 'https://'))
+        .filter((value) => /^https:\/\//.test(value))
+      const seen = new Set()
+      const photos = full.map((imageUrl, index) => {
+        if (seen.has(imageUrl)) return null
+        seen.add(imageUrl)
+        let host = ''
+        try { host = new URL(imageUrl).hostname.replace(/^www\./, '') } catch { /* пусто */ }
         return {
           id: String(index),
-          title: String(item.title || 'Фото').slice(0, 160),
-          thumbnail: secureThumb || secure,
-          url: secure,
-          page: String(item.url || ''),
-          source: 'DuckDuckGo Images',
-          creator: '',
+          title: host || 'Фото',
+          thumbnail: thumbs[index] || imageUrl,
+          url: imageUrl,
+          page: imageUrl,
+          source: 'Яндекс.Картинки',
+          creator: host,
           license: '',
         }
-      }).filter((item) => /^https:\/\//.test(item.thumbnail) && /^https:\/\//.test(item.url)).slice(0, 30)
+      }).filter(Boolean).slice(0, 30)
       photoCache.set(query.toLowerCase(), { at: Date.now(), photos })
       while (photoCache.size > 30) photoCache.delete(photoCache.keys().next().value)
       sendJson(response, 200, { query, photos })
