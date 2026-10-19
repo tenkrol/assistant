@@ -809,7 +809,16 @@ function renderChat() {
   }
   const day = h('div', 'day-chip', state.chatTarget && state.chatTarget.type !== 'private' ? state.chatTarget.title : 'Диалог с ассистентом')
   box.append(day)
-  messages.forEach((message) => box.append(chatMessageNode(message.role, message.text, message.author, message.replyTo, message.avatar, message.attachments, message.at, message.id, message.reaction, message.readAt ? 'read' : message.deliveredAt ? 'delivered' : message.role === 'user' ? 'sent' : undefined)))
+  messages.forEach((message, index) => {
+    let status
+    if (message.role === 'user') {
+      if (message.readAt) status = 'read'
+      else if (message.deliveredAt) status = 'delivered'
+      else if (messages.slice(index + 1).some((next) => next.role === 'assistant')) status = 'read'
+      else status = 'sent'
+    }
+    box.append(chatMessageNode(message.role, message.text, message.author, message.replyTo, message.avatar, message.attachments, message.at, message.id, message.reaction, status))
+  })
   chatScrollToBottom()
 }
 
