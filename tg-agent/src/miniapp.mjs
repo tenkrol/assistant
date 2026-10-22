@@ -20,7 +20,8 @@ import http from 'node:http'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
-import { REPEAT_VALUES, describeRepeat } from './repeats.mjs'
+import { REPEAT_VALUES, describeRepeat, repeatIssue } from './repeats.mjs'
+import { isTone } from './domain/reminders.mjs'
 import { EVENT_REPEATS } from './events.mjs'
 import { MAX_FACT_LENGTH } from './profiles.mjs'
 import { PERSONA_NAMES, MOOD_NAMES } from './personas.mjs'
@@ -2204,6 +2205,28 @@ export function createMiniApp({
       if (start === undefined || end === undefined) return badRequest(response, 'Тихие часы в формате HH:MM')
       patch.quiet = { start, end }
     }
+    if (Object.prototype.hasOwnProperty.call(values, 'eveningCheckIn')) {
+      const evening = values.eveningCheckIn
+      if (evening === null || typeof evening !== 'object' || Array.isArray(evening)) {
+        return badRequest(response, 'Вечерний чек-ин должен быть объектом')
+      }
+      const eveningPatch = {}
+      if (Object.prototype.hasOwnProperty.call(evening, 'enabled')) {
+        if (typeof evening.enabled !== 'boolean') return badRequest(response, 'enabled должен быть true/false')
+        eveningPatch.enabled = evening.enabled
+      }
+      if (Object.prototype.hasOwnProperty.call(evening, 'at')) {
+        if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(String(evening.at ?? ''))) {
+          return badRequest(response, 'Время вечернего вопроса в формате HH:MM')
+        }
+        eveningPatch.at = evening.at
+      }
+      if (Object.prototype.hasOwnProperty.call(evening, 'tone')) {
+        if (!isTone(evening.tone)) return badRequest(response, 'Тон должен быть gentle, neutral или strict')
+        eveningPatch.tone = evening.tone
+      }
+      patch.eveningCheckIn = eveningPatch
+    }
     try {
       const value = await updateProactive(patch, { userId })
       sendJson(response, 200, value ?? {})
@@ -2317,6 +2340,7 @@ export function createMiniApp({
     dueAt: String(reminder.dueAt ?? ''),
     repeat: reminder.repeat ?? 'none',
     repeatText: describeRepeat(reminder.repeat ?? 'none') ?? String(reminder.repeat ?? 'none'),
+    tone: isTone(reminder.tone) ? reminder.tone : 'neutral',
   })
 
   const mapEvent = (event) => ({
@@ -2401,10 +2425,18 @@ export function createMiniApp({
 
     const repeat = body.value.repeat === undefined || body.value.repeat === null ? 'none' : body.value.repeat
     if (typeof repeat !== 'string' || !repeatSet.has(repeat)) return badRequest(response, 'Недопустимый повтор')
+    // Словарь повторов знает и старые `every:5`, но новые напоминания чаще
+    // 15 минут не создаются: панель показывает только разрешённые значения,
+    // а этот отказ страхует от присланного вручную интервала.
+    const intervalIssue = repeatIssue(repeat)
+    if (intervalIssue) return badRequest(response, `Недопустимый повтор: ${intervalIssue}`)
+
+    const tone = body.value.tone === undefined || body.value.tone === null ? 'neutral' : body.value.tone
+    if (typeof tone !== 'string' || !isTone(tone)) return badRequest(response, 'Недопустимый тон напоминания')
 
     let reminder
     try {
-      reminder = store.add({ chatId, userId, text, dueAt: due.date.toISOString(), repeat })
+      reminder = store.add({ chatId, userId, text, dueAt: due.date.toISOString(), repeat, tone })
     } catch (error) {
       logger?.warn?.('miniapp reminder rejected', { error, userId })
       if (isAccessDenied(error)) return readOnly(response)

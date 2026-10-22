@@ -68,7 +68,7 @@
   form.form { display: flex; flex-direction: column; gap: 10px; margin-top: 8px; }
   label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
   label.check { flex-direction: row; align-items: center; gap: 8px; color: var(--fg); font-size: 15px; }
-  input[type="text"], input[type="datetime-local"], select, input[type="number"] {
+  input[type="text"], input[type="datetime-local"], input[type="time"], select, input[type="number"] {
     font: inherit; color: var(--fg); background: var(--input); border: 1px solid var(--border);
     border-radius: 10px; padding: 10px; width: 100%;
   }
@@ -124,10 +124,28 @@
         <input type="datetime-local" id="reminder-when" required>
       </label>
       <label>
+        <span data-i18n="reminders.tone.label"></span>
+        <select id="reminder-tone"></select>
+      </label>
+      <label>
         <span data-i18n="reminders.repeat.label"></span>
         <select id="reminder-repeat"></select>
       </label>
       <button type="submit" data-i18n="reminders.submit"></button>
+    </form>
+    <h2 data-i18n="evening.heading"></h2>
+    <form class="form" id="evening-form" autocomplete="off">
+      <label class="check"><input type="checkbox" id="evening-enabled"> <span data-i18n="evening.enabled.label"></span></label>
+      <label>
+        <span data-i18n="evening.at.label"></span>
+        <input type="time" id="evening-at" value="21:00" required>
+      </label>
+      <label>
+        <span data-i18n="evening.tone.label"></span>
+        <select id="evening-tone"></select>
+      </label>
+      <p class="hint" data-i18n="evening.hint"></p>
+      <button type="submit" data-i18n="evening.submit"></button>
     </form>
   </section>
 
@@ -178,6 +196,13 @@ import {
   resolveLanguage,
   translate
 } from './i18n.mjs'
+import {
+  TONE_CHOICES,
+  eveningSettingsPayload,
+  normalizeEvening,
+  normalizeTone,
+  reminderPayload
+} from './panel.mjs'
 
 var tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null
 var initData = tg && typeof tg.initData === 'string' ? tg.initData : ''
@@ -378,6 +403,21 @@ function fillRepeatSelect() {
   if (current) select.value = current
 }
 
+/** Селект тона: подписи переводятся, выбранное значение сохраняется. */
+function fillToneSelect(id) {
+  var select = byId(id)
+  if (!select) return
+  var current = normalizeTone(select.value)
+  select.replaceChildren()
+  TONE_CHOICES.forEach(function (choice) {
+    var option = document.createElement('option')
+    option.value = choice[0]
+    option.textContent = t(choice[1])
+    select.append(option)
+  })
+  select.value = current
+}
+
 function fillLanguageSelect() {
   var select = byId('language-select')
   select.replaceChildren()
@@ -400,6 +440,8 @@ function applyLanguage(rerender) {
   document.title = t('app.title')
   translateMarkup()
   fillRepeatSelect()
+  fillToneSelect('reminder-tone')
+  fillToneSelect('evening-tone')
   fillLanguageSelect()
   if (rerender && !fatalShown && !byId('app').hidden) void loadTab(active)
 }
@@ -491,7 +533,29 @@ function actionRow(title, meta, onDelete) {
   return card
 }
 
+function fillEveningForm(value) {
+  var settings = normalizeEvening(value)
+  byId('evening-enabled').checked = settings.enabled
+  byId('evening-at').value = settings.at
+  byId('evening-tone').value = settings.tone
+}
+
+/**
+ * Читает настройку вечернего вопроса из /api/proactive.
+ *
+ * Ошибка не должна скрывать напоминания: карточка остаётся с прежними
+ * значениями, а сообщение об ошибке покажет сохранение.
+ */
+function loadEvening() {
+  return request('GET', '/api/proactive')
+    .then(function (data) { fillEveningForm(data && data.eveningCheckIn) })
+    .catch(function () {
+      // Настройки проактивности могут быть недоступны — это не повод ломать вкладку.
+    })
+}
+
 function loadReminders() {
+  void loadEvening()
   return request('GET', '/api/reminders').then(function (items) {
     renderList(byId('reminders-list'), items, function (item) {
       var label = repeatLabel(item.repeat)
@@ -665,14 +729,44 @@ async function init() {
   }
 
   onSubmit('/api/reminders', 'reminder-form', function () {
-    var text = byId('reminder-text').value.trim()
-    if (!text) throw new Error(t('form.reminder.empty'))
-    return {
-      text: text,
-      dueAt: localToIso(byId('reminder-when').value),
-      repeat: byId('reminder-repeat').value
-    }
+    // Сначала текст и тон, затем дата: порядок сообщений остался прежним.
+    var body = reminderPayload({
+      text: byId('reminder-text').value,
+      repeat: byId('reminder-repeat').value,
+      tone: byId('reminder-tone').value
+    }, t)
+    body.dueAt = localToIso(byId('reminder-when').value)
+    return body
   }, loadReminders, ['reminder-text', 'reminder-when'])
+
+  byId('evening-form').addEventListener('submit', function (event) {
+    event.preventDefault()
+    var body
+    try {
+      body = eveningSettingsPayload({
+        enabled: byId('evening-enabled').checked,
+        at: byId('evening-at').value,
+        tone: byId('evening-tone').value
+      }, t)
+    } catch (error) {
+      toast(error.message)
+      return
+    }
+    var form = byId('evening-form')
+    var button = form.querySelector('button[type="submit"]')
+    if (button) button.disabled = true
+    request('PATCH', '/api/proactive', body)
+      .then(function (data) {
+        fillEveningForm(data && data.eveningCheckIn)
+        toast(t('evening.saved'))
+      })
+      .catch(function (error) {
+        if (error.message !== 'unauthorized' && error.message !== 'forbidden') toast(error.message)
+      })
+      .then(function () {
+        if (button) button.disabled = false
+      })
+  })
 
   onSubmit('/api/events', 'event-form', function () {
     var title = byId('event-title').value.trim()

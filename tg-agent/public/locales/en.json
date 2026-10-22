@@ -12,6 +12,7 @@
   "reminders.text.placeholder": "Call mom",
   "reminders.when.label": "When",
   "reminders.repeat.label": "Repeat",
+  "reminders.tone.label": "Reminder tone",
   "reminders.submit": "Add reminder",
   "events.heading": "New event",
   "events.title.label": "Title",
@@ -49,6 +50,8 @@
   "form.date.required": "Choose a date and time",
   "form.date.invalid": "Invalid date",
   "form.date.future": "The date must be in the future",
+  "form.evening.time": "Time in HH:MM format",
+  "form.repeat.min": "The minimum interval is {minutes} minutes",
   "repeat.none": "no repeat",
   "repeat.daily": "every day",
   "repeat.weekly": "every week",
@@ -79,5 +82,15 @@
   "repeatOption.every.15": "every 15 minutes",
   "repeatOption.every.30": "every 30 minutes",
   "repeatOption.every.60": "every hour",
-  "repeatOption.every.120": "every 2 hours"
+  "repeatOption.every.120": "every 2 hours",
+  "tone.gentle": "gentle",
+  "tone.neutral": "neutral",
+  "tone.strict": "strict",
+  "evening.heading": "Evening check-in",
+  "evening.enabled.label": "Ask how the day went",
+  "evening.at.label": "Time",
+  "evening.tone.label": "Question tone",
+  "evening.hint": "One question a day. If you have messaged the bot within the last two hours, it is skipped.",
+  "evening.submit": "Save check-in",
+  "evening.saved": "Evening check-in saved"
 }

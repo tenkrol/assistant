@@ -12,6 +12,7 @@
   "reminders.text.placeholder": "Позвонить маме",
   "reminders.when.label": "Когда",
   "reminders.repeat.label": "Повтор",
+  "reminders.tone.label": "Тон напоминания",
   "reminders.submit": "Добавить напоминание",
   "events.heading": "Новое событие",
   "events.title.label": "Название",
@@ -49,6 +50,8 @@
   "form.date.required": "Укажите дату и время",
   "form.date.invalid": "Некорректная дата",
   "form.date.future": "Дата должна быть в будущем",
+  "form.evening.time": "Время в формате ЧЧ:ММ",
+  "form.repeat.min": "Минимальный интервал — {minutes} минут",
   "repeat.none": "без повтора",
   "repeat.daily": "каждый день",
   "repeat.weekly": "каждую неделю",
@@ -79,5 +82,15 @@
   "repeatOption.every.15": "каждые 15 минут",
   "repeatOption.every.30": "каждые 30 минут",
   "repeatOption.every.60": "каждый час",
-  "repeatOption.every.120": "каждые 2 часа"
+  "repeatOption.every.120": "каждые 2 часа",
+  "tone.gentle": "ласково",
+  "tone.neutral": "нейтрально",
+  "tone.strict": "строго",
+  "evening.heading": "Вечерний чек-ин",
+  "evening.enabled.label": "Спрашивать вечером, как прошёл день",
+  "evening.at.label": "Время",
+  "evening.tone.label": "Тон вопроса",
+  "evening.hint": "Один вопрос в день. Если вы писали боту меньше двух часов назад, вопрос пропускается.",
+  "evening.submit": "Сохранить чек-ин",
+  "evening.saved": "Вечерний чек-ин сохранён"
 }
