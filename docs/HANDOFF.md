@@ -303,3 +303,5 @@ Production: `release-20261018-090029`, сервис active, тесты 857.
 - Конфликтующая резервная конфигурация nginx вынесена из `sites-enabled`; `nginx -t`
   проходит без предупреждений. `deploy-verify` использует `/usr/bin/node`, timer active,
   ручной запуск завершён с `Result=success`.
+
+2026-10-23: создан макет в стилистике Instagram — docs/design/instagram-mockup/index.html и mockup.png (4 экрана: лента, поиск, агент, профиль). Код сайта не менялся.

@@ -1,0 +1,481 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>tenkrol — Instagram-style concept</title>
+<style>
+  :root{
+    --ink:#111; --muted:#737373; --line:#efefef; --bg:#fafafa; --card:#fff;
+    --ig1:#feda75; --ig2:#fa7e1e; --ig3:#d62976; --ig4:#962fbf; --ig5:#4f5bd5;
+    --ok:#22c55e; --warn:#f59e0b; --blue:#0095f6;
+    --ig:linear-gradient(45deg,var(--ig1),var(--ig2),var(--ig3),var(--ig4),var(--ig5));
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    color:var(--ink);
+    background:
+      radial-gradient(900px 500px at 10% -10%,rgba(254,218,117,.16),transparent 60%),
+      radial-gradient(900px 500px at 90% 0%,rgba(214,41,118,.10),transparent 55%),
+      #f2f2f2;
+    min-height:100vh;
+    padding:34px 24px 60px;
+  }
+  .page-head{max-width:1600px;margin:0 auto 26px;display:flex;justify-content:space-between;align-items:flex-end;gap:24px;flex-wrap:wrap}
+  .eyebrow{font-size:11px;font-weight:750;letter-spacing:.16em;text-transform:uppercase;color:#8a8a8a;margin:0 0 8px}
+  h1{font-size:34px;letter-spacing:-.04em;margin:0 0 8px;line-height:1.05}
+  .page-head p{margin:0;max-width:660px;color:#666;font-size:13.5px;line-height:1.55}
+  .legend{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+  .chip{display:inline-flex;align-items:center;gap:7px;background:#fff;border:1px solid #e7e7e7;border-radius:999px;padding:8px 12px;font-size:11.5px;font-weight:650;box-shadow:0 3px 10px rgba(0,0,0,.04)}
+  .dot{width:12px;height:12px;border-radius:50%;background:var(--ig)}
+  .swatches{display:flex;gap:5px}
+  .swatches i{width:14px;height:14px;border-radius:4px;display:block}
+  .phones{max-width:1600px;margin:0 auto;display:flex;justify-content:center;align-items:flex-start;gap:24px;flex-wrap:wrap}
+  .phone-wrap{width:340px;flex:0 0 auto}
+  .phone-label{display:flex;align-items:center;justify-content:space-between;margin:0 4px 10px;font-size:11px;font-weight:750;letter-spacing:.08em;text-transform:uppercase;color:#777}
+  .phone-label span:last-child{color:#aaa;font-weight:600;letter-spacing:0;text-transform:none}
+  .phone{
+    width:340px;height:736px;border:9px solid #111;border-radius:47px;background:#000;
+    box-shadow:0 30px 70px rgba(0,0,0,.22), inset 0 0 0 1px rgba(255,255,255,.12);
+    position:relative;overflow:hidden;
+  }
+  .screen{position:absolute;inset:0;background:var(--bg);display:flex;flex-direction:column;border-radius:38px;overflow:hidden}
+  .status{height:30px;flex:0 0 30px;display:flex;align-items:center;justify-content:space-between;padding:0 22px;font-size:11.5px;font-weight:750;background:var(--bg);position:relative;z-index:2}
+  .notch{position:absolute;top:8px;left:50%;transform:translateX(-50%);width:86px;height:22px;border-radius:13px;background:#000;z-index:5}
+  .status .icons{display:flex;gap:5px;align-items:center}
+  .status .icons svg{width:13px;height:13px}
+  .app{flex:1;min-height:0;display:flex;flex-direction:column;position:relative;background:var(--bg)}
+  .scroll{flex:1;min-height:0;overflow:hidden;scrollbar-width:none}
+  .scroll::-webkit-scrollbar{display:none}
+  .pad{padding:0 14px}
+  .ic{width:24px;height:24px;display:block;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+  .ic.fill{fill:currentColor;stroke:none}
+  .tiny{width:16px;height:16px}
+  .topbar{height:52px;display:flex;align-items:center;justify-content:space-between;padding:0 14px;flex:0 0 auto;background:var(--bg)}
+  .wordmark{font-family:Georgia,"Times New Roman",serif;font-size:24px;font-weight:800;letter-spacing:-.06em}
+  .wordmark em{font-style:normal;background:var(--ig);-webkit-background-clip:text;background-clip:text;color:transparent}
+  .top-actions{display:flex;align-items:center;gap:17px}
+  .badge{position:relative}
+  .badge::after{content:"";position:absolute;right:-2px;top:-2px;width:7px;height:7px;border-radius:50%;background:#ff3040;border:1.5px solid #fafafa}
+  .stories{display:flex;gap:13px;overflow:hidden;padding:6px 14px 14px;border-bottom:1px solid var(--line);background:#fff}
+  .story{width:58px;flex:0 0 58px;text-align:center;font-size:10px;line-height:1.2;color:#333}
+  .ring{width:56px;height:56px;border-radius:50%;padding:2.5px;background:var(--ig);margin-bottom:5px}
+  .ring.plain{background:conic-gradient(from 210deg,#25d366,#128c7e,#25d366)}
+  .ring.inner{background:#e5e5e5}
+  .ring .avatar{width:100%;height:100%;border-radius:50%;border:2.5px solid #fff;background:#111;color:#fff;display:grid;place-items:center;overflow:hidden}
+  .ring.plain .avatar{background:linear-gradient(145deg,#34d399,#059669)}
+  .ring.inner .avatar{background:linear-gradient(145deg,#f6d365,#fda085)}
+  .avatar svg{width:24px;height:24px}
+  .story b{display:block;font-weight:600;font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .post{background:#fff;border-bottom:1px solid var(--line);margin-bottom:8px}
+  .post-head{display:flex;align-items:center;gap:10px;padding:10px 14px}
+  .mini-avatar{width:34px;height:34px;border-radius:50%;background:var(--ig);padding:2px;flex:0 0 34px}
+  .mini-avatar>span{width:100%;height:100%;border-radius:50%;background:#111;color:#fff;display:grid;place-items:center;border:2px solid #fff}
+  .mini-avatar svg{width:16px;height:16px}
+  .post-head .who{flex:1;min-width:0;line-height:1.25}
+  .post-head .who b{display:block;font-size:12.5px;font-weight:750}
+  .post-head .who span{display:block;font-size:10.5px;color:var(--muted)}
+  .post-head .more{letter-spacing:2px;font-weight:800;color:#333;font-size:15px}
+  .post-media{position:relative;aspect-ratio:1/1;background:linear-gradient(135deg,#dbeafe,#e9d5ff 48%,#fbcfe8);overflow:hidden}
+  .post-media:before{content:"";position:absolute;width:290px;height:290px;border-radius:50%;right:-100px;top:-90px;background:rgba(255,255,255,.35);filter:blur(2px)}
+  .post-media:after{content:"";position:absolute;width:220px;height:220px;border-radius:50%;left:-80px;bottom:-100px;background:rgba(79,91,213,.18)}
+  .media-copy{position:absolute;inset:0;padding:20px;display:flex;flex-direction:column;justify-content:space-between;z-index:2}
+  .media-kicker{font-size:10px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:#4338ca}
+  .media-title{font-size:29px;line-height:1.03;letter-spacing:-.05em;font-weight:850;color:#1e1b4b;max-width:250px}
+  .media-title em{font-style:normal;background:var(--ig);-webkit-background-clip:text;background-clip:text;color:transparent}
+  .media-stats{display:flex;gap:7px;flex-wrap:wrap}
+  .media-stats span{background:rgba(255,255,255,.72);border:1px solid rgba(255,255,255,.9);backdrop-filter:blur(6px);border-radius:999px;padding:6px 9px;font-size:10px;font-weight:750;color:#312e81}
+  .media-stats b{font-size:13px;margin-right:3px}
+  .post-actions{display:flex;align-items:center;gap:17px;padding:10px 14px 7px}
+  .post-actions .left{display:flex;gap:17px;flex:1}
+  .post-actions button{background:none;border:0;padding:0;color:#111;display:flex;align-items:center;gap:0;cursor:pointer}
+  .post-actions .save{margin-left:auto}
+  .likes{padding:0 14px;font-size:11.5px;font-weight:750}
+  .caption{padding:4px 14px 0;font-size:11.5px;line-height:1.42;color:#222}
+  .caption b{font-weight:750}
+  .caption .hash{color:#00376b}
+  .comments{padding:5px 14px 0;font-size:11px;color:var(--muted)}
+  .when{padding:5px 14px 11px;font-size:9.5px;color:#a1a1a1;text-transform:uppercase;letter-spacing:.03em}
+  .composer-line{display:flex;align-items:center;gap:8px;padding:9px 14px;border-top:1px solid var(--line);background:#fff}
+  .composer-line .mini-avatar{width:24px;height:24px;flex:0 0 24px;padding:1.5px}
+  .composer-line .mini-avatar>span{border-width:1.5px}
+  .composer-line input{border:0;outline:0;font:inherit;font-size:11.5px;flex:1;background:transparent;color:#444}
+  .composer-line .post-btn{font-size:11px;font-weight:750;color:var(--blue);opacity:.55}
+  .bottomnav{height:54px;flex:0 0 54px;border-top:1px solid var(--line);background:rgba(255,255,255,.96);backdrop-filter:blur(12px);display:flex;align-items:center;justify-content:space-around;padding:0 11px 5px;position:relative;z-index:3}
+  .bottomnav .nav{display:grid;place-items:center;width:44px;height:40px;color:#111}
+  .bottomnav .nav.active{color:#111}
+  .bottomnav .nav.avatar-nav .mini-avatar{width:25px;height:25px;padding:2px}
+  .bottomnav .nav.avatar-nav .mini-avatar>span{border-width:1.5px}
+  .plus{border-radius:10px;background:var(--ig);color:#fff;display:grid;place-items:center;width:27px;height:27px;box-shadow:0 3px 8px rgba(214,41,118,.25)}
+  .plus .ic{stroke:#fff;stroke-width:2.4}
+  .home-pill{position:absolute;bottom:24px;left:50%;transform:translateX(-50%);width:128px;height:5px;border-radius:99px;background:#111;opacity:.9}
+  /* search screen */
+  .search-top{padding:8px 14px 10px;background:#fff;border-bottom:1px solid var(--line)}
+  .search-box{height:38px;border-radius:11px;background:#efefef;display:flex;align-items:center;gap:8px;padding:0 11px;color:#8a8a8a;font-size:12px}
+  .search-box svg{width:16px;height:16px}
+  .tag-row{display:flex;gap:7px;overflow:hidden;margin-top:10px}
+  .tag{font-size:10px;font-weight:650;border:1px solid #e4e4e4;background:#fff;border-radius:8px;padding:6px 8px;white-space:nowrap}
+  .tag.active{background:#111;color:#fff;border-color:#111}
+  .section-title{display:flex;align-items:center;justify-content:space-between;padding:14px 14px 9px;font-size:13px;font-weight:800;letter-spacing:-.01em}
+  .section-title span{font-size:10px;color:var(--muted);font-weight:600}
+  .explore-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:2px;padding:0;background:#fff}
+  .tile{position:relative;aspect-ratio:1/1;overflow:hidden;background:#ddd}
+  .tile img{width:100%;height:100%;object-fit:cover;display:block}
+  .tile .art{position:absolute;inset:0}
+  .tile .label{position:absolute;left:7px;bottom:6px;right:7px;color:#fff;font-size:9.5px;font-weight:700;text-shadow:0 1px 4px rgba(0,0,0,.5);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .tile .count{position:absolute;right:6px;top:6px;background:rgba(0,0,0,.45);backdrop-filter:blur(4px);color:#fff;border-radius:6px;padding:2px 5px;font-size:8px;font-weight:700;display:flex;align-items:center;gap:3px}
+  .tile .count svg{width:9px;height:9px}
+  .trend-list{padding:0 14px}
+  .trend{display:flex;align-items:center;gap:11px;padding:11px 0;border-bottom:1px solid var(--line)}
+  .trend .rank{font-size:17px;font-weight:850;color:#c7c7c7;width:17px}
+  .trend .t{flex:1;min-width:0}.trend .t b{display:block;font-size:12px}.trend .t span{display:block;font-size:10px;color:var(--muted);margin-top:2px}
+  .trend .go{color:#aaa}
+  /* agent screen */
+  .agent-head{padding:4px 14px 12px;background:#fafafa}
+  .agent-head .kicker{font-size:10px;font-weight:750;letter-spacing:.13em;text-transform:uppercase;color:#8a8a8a}
+  .agent-head h2{font-size:27px;letter-spacing:-.05em;line-height:1.05;margin:5px 0 0}
+  .agent-head p{margin:6px 0 0;color:#737373;font-size:11px;line-height:1.4}
+  .filter-row{display:flex;gap:7px;padding:0 14px 12px;overflow:hidden}
+  .filter{font-size:10px;font-weight:700;padding:7px 10px;border-radius:999px;border:1px solid #e2e2e2;background:#fff;white-space:nowrap}
+  .filter.on{background:#111;color:#fff;border-color:#111}
+  .task-card{margin:0 14px 11px;border-radius:18px;background:#111;color:#fff;padding:15px;position:relative;overflow:hidden;box-shadow:0 10px 22px rgba(0,0,0,.14)}
+  .task-card.light{background:linear-gradient(140deg,#fff,#f6f0ff 70%,#ffe9f2);color:#111;border:1px solid #eee;box-shadow:0 6px 16px rgba(0,0,0,.06)}
+  .task-card:before{content:"";position:absolute;width:150px;height:150px;border-radius:50%;right:-55px;top:-65px;background:var(--ig);opacity:.35;filter:blur(2px)}
+  .task-top{display:flex;align-items:center;gap:8px;position:relative;z-index:2}
+  .task-icon{width:28px;height:28px;border-radius:9px;background:rgba(255,255,255,.16);display:grid;place-items:center}
+  .task-icon .ic{width:15px;height:15px}
+  .task-card.light .task-icon{background:#111;color:#fff}
+  .task-top b{font-size:11px;font-weight:700}
+  .task-top .status{margin-left:auto;font-size:9px;font-weight:750;border-radius:999px;padding:4px 7px;background:rgba(34,197,94,.16);color:#4ade80;display:flex;align-items:center;gap:4px}
+  .task-card.light .task-top .status{background:#dcfce7;color:#15803d}
+  .task-top .status i{width:5px;height:5px;border-radius:50%;background:currentColor}
+  .task-title{position:relative;z-index:2;font-size:17px;font-weight:800;line-height:1.14;letter-spacing:-.03em;margin:12px 0 5px;max-width:240px}
+  .task-sub{position:relative;z-index:2;font-size:10px;line-height:1.38;color:rgba(255,255,255,.62)}
+  .task-card.light .task-sub{color:#737373}
+  .progress{position:relative;z-index:2;height:4px;border-radius:99px;background:rgba(255,255,255,.16);margin:12px 0 9px;overflow:hidden}
+  .task-card.light .progress{background:#eee}
+  .progress i{display:block;height:100%;border-radius:99px;background:var(--ig);width:72%}
+  .task-foot{position:relative;z-index:2;display:flex;align-items:center;justify-content:space-between;font-size:9px;color:rgba(255,255,255,.55)}
+  .task-card.light .task-foot{color:#999}
+  .task-foot b{color:#fff;font-weight:750;font-size:10px}
+  .task-card.light .task-foot b{color:#111}
+  .task-actions{display:flex;gap:7px;margin-top:12px;position:relative;z-index:2}
+  .task-actions button{border:0;border-radius:9px;padding:7px 10px;font-size:9.5px;font-weight:750;background:rgba(255,255,255,.14);color:#fff}
+  .task-actions .primary{background:#fff;color:#111}
+  .task-card.light .task-actions button{background:#111;color:#fff}
+  .task-card.light .task-actions .primary{background:var(--ig);color:#fff}
+  .agent-mini{display:grid;grid-template-columns:1fr 1fr;gap:9px;padding:0 14px 14px}
+  .mini-stat{border:1px solid #ececec;background:#fff;border-radius:14px;padding:11px}
+  .mini-stat span{font-size:9.5px;color:#8a8a8a;display:block}
+  .mini-stat b{display:block;font-size:21px;letter-spacing:-.04em;margin-top:3px}
+  .mini-stat .spark{height:18px;margin-top:4px;background:linear-gradient(90deg,transparent,var(--ig));opacity:.35;border-radius:4px;clip-path:polygon(0 85%,20% 70%,35% 78%,55% 45%,70% 55%,100% 10%,100% 100%,0 100%)}
+  /* profile */
+  .profile-top{display:flex;align-items:center;justify-content:space-between;padding:6px 14px 10px;background:#fafafa}
+  .profile-top b{font-size:14px;display:flex;align-items:center;gap:5px}
+  .profile-top .top-actions{gap:14px}
+  .profile-main{padding:2px 14px 0;display:flex;gap:16px;align-items:center}
+  .profile-avatar{width:82px;height:82px;border-radius:50%;padding:3px;background:var(--ig);flex:0 0 82px}
+  .profile-avatar .inner{width:100%;height:100%;border-radius:50%;background:#111;border:3px solid #fafafa;display:grid;place-items:center;color:#fff}
+  .profile-avatar .inner svg{width:36px;height:36px}
+  .profile-stats{display:flex;flex:1;justify-content:space-around}
+  .profile-stats div{text-align:center;font-size:10px;color:#555}
+  .profile-stats b{display:block;font-size:16px;color:#111;letter-spacing:-.02em}
+  .bio{padding:11px 14px 0;font-size:11.5px;line-height:1.4}
+  .bio b{font-weight:750;display:block}
+  .bio span{color:#666}
+  .profile-actions{display:flex;gap:7px;padding:11px 14px 12px}
+  .profile-actions button{flex:1;border:1px solid #dbdbdb;background:#fff;border-radius:9px;padding:7px;font-size:10.5px;font-weight:700;color:#111}
+  .profile-actions button.primary{background:#111;color:#fff;border-color:#111}
+  .highlights{display:flex;gap:13px;padding:0 14px 12px;overflow:hidden}
+  .highlight{text-align:center;font-size:9.5px;color:#333;width:52px;flex:0 0 52px}
+  .highlight .ring{width:52px;height:52px;margin-bottom:4px}
+  .highlight .ring .avatar{border-width:2px}
+  .profile-tabs{display:flex;border-top:1px solid var(--line);border-bottom:1px solid var(--line);background:#fff}
+  .ptab{flex:1;height:38px;display:grid;place-items:center;color:#aaa;border-bottom:2px solid transparent}
+  .ptab.active{color:#111;border-bottom-color:#111}
+  .ptab svg{width:18px;height:18px}
+  .profile-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:2px;background:#fff}
+  .profile-grid .tile{aspect-ratio:1/1}
+  .profile-grid .tile .art{display:grid;place-items:center;color:#fff}
+  .profile-grid .tile .art svg{width:25px;height:25px;opacity:.92}
+  .profile-grid .tile .cap{position:absolute;left:7px;bottom:6px;right:7px;color:#fff;font-size:8.5px;font-weight:750;text-shadow:0 1px 4px rgba(0,0,0,.55);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .g1{background:linear-gradient(145deg,#4f5bd5,#962fbf)}
+  .g2{background:linear-gradient(145deg,#fa7e1e,#d62976)}
+  .g3{background:linear-gradient(145deg,#0ea5e9,#4f5bd5)}
+  .g4{background:linear-gradient(145deg,#22c55e,#0f766e)}
+  .g5{background:linear-gradient(145deg,#f59e0b,#ef4444)}
+  .g6{background:linear-gradient(145deg,#111,#4f5bd5)}
+  .g7{background:linear-gradient(145deg,#d62976,#feda75)}
+  .g8{background:linear-gradient(145deg,#962fbf,#4f5bd5)}
+  .g9{background:linear-gradient(145deg,#0f766e,#111)}
+  .page-foot{max-width:1600px;margin:28px auto 0;display:flex;gap:12px;flex-wrap:wrap;justify-content:center;color:#888;font-size:11px}
+  .page-foot span{background:#fff;border:1px solid #e7e7e7;border-radius:999px;padding:7px 11px}
+  @media (max-width:820px){
+    body{padding:20px 12px 40px}
+    h1{font-size:26px}
+    .phones{gap:18px}
+    .phone-wrap{width:min(340px,100%)}
+    .phone{width:100%;height:720px}
+  }
+</style>
+</head>
+<body>
+<header class="page-head">
+  <div>
+    <p class="eyebrow">tenkrol · concept 01</p>
+    <h1>Ассистент в стилистике Instagram</h1>
+    <p>Тот же продукт, но с привычными паттернами: сторис с быстрыми действиями, лента задач и заметок, поиск-исследование, агент как Reels и профиль-портфолио.</p>
+  </div>
+  <div class="legend">
+    <span class="chip"><span class="dot"></span>Instagram gradient</span>
+    <span class="chip"><span class="swatches"><i style="background:#fafafa;border:1px solid #ddd"></i><i style="background:#fff;border:1px solid #ddd"></i><i style="background:#111"></i><i style="background:#d62976"></i></span>палитра</span>
+  </div>
+</header>
+
+<main class="phones">
+  <!-- 1. FEED -->
+  <div class="phone-wrap">
+    <div class="phone-label"><span>01 · Лента</span><span>home</span></div>
+    <div class="phone"><div class="screen">
+      <div class="notch"></div>
+      <div class="status"><span>9:41</span><span class="icons">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M2 17h3v4H2zm5-4h3v8H7zm5-4h3v12h-3zm5-4h3v16h-3z"/></svg>
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3a9 9 0 0 0-9 9h2a7 7 0 0 1 14 0h2a9 9 0 0 0-9-9Zm0 4a5 5 0 0 0-5 5h2a3 3 0 0 1 6 0h2a5 5 0 0 0-5-5Zm0 4a1 1 0 0 0-1 1h2a1 1 0 0 0-1-1Z"/></svg>
+        <svg viewBox="0 0 24 24" fill="currentColor"><rect x="2" y="6" width="18" height="12" rx="3"/><rect x="20" y="10" width="2" height="4" rx="1"/><rect x="4" y="8" width="13" height="8" rx="2" fill="#fafafa"/></svg>
+      </span></div>
+      <div class="app">
+        <div class="topbar">
+          <div class="wordmark">ten<em>krol</em></div>
+          <div class="top-actions">
+            <svg class="ic" viewBox="0 0 24 24"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8l1.1 1.1L12 21l7.8-7.5 1.1-1.1a5.5 5.5 0 0 0-.1-7.8Z"/></svg>
+            <span class="badge"><svg class="ic" viewBox="0 0 24 24"><path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 8.6 8.6 0 0 1-3.8-.9L3 21l1.9-5.1A8.4 8.4 0 1 1 21 11.5Z"/></svg></span>
+          </div>
+        </div>
+        <div class="scroll">
+          <div class="stories">
+            <div class="story"><div class="ring"><div class="avatar"><svg class="ic" viewBox="0 0 24 24"><path d="M12 3v3m0 12v3M3 12h3m12 0h3M5.6 5.6l2.1 2.1m8.6 8.6 2.1 2.1m0-12.8-2.1 2.1m-8.6 8.6-2.1 2.1"/></svg></div></div><b>Сегодня</b></div>
+            <div class="story"><div class="ring plain"><div class="avatar"><svg class="ic" viewBox="0 0 24 24"><path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 8.6 8.6 0 0 1-3.8-.9L3 21l1.9-5.1A8.4 8.4 0 1 1 21 11.5Z"/></svg></div></div><b>Сообщения</b></div>
+            <div class="story"><div class="ring"><div class="avatar"><svg class="ic" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="17" rx="3"/><path d="M8 2v4m8-4v4M3 9h18"/></svg></div></div><b>Планы</b></div>
+            <div class="story"><div class="ring"><div class="avatar"><svg class="ic" viewBox="0 0 24 24"><path d="M4 5a2 2 0 0 1 2-2h9l5 5v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z"/><path d="M14 3v5h5M8 13h8M8 17h5"/></svg></div></div><b>Файлы</b></div>
+            <div class="story"><div class="ring"><div class="avatar"><svg class="ic" viewBox="0 0 24 24"><path d="M12 3a7 7 0 0 0-7 7c0 5 7 11 7 11s7-6 7-11a7 7 0 0 0-7-7Z"/><circle cx="12" cy="10" r="2.5"/></svg></div></div><b>Проекты</b></div>
+            <div class="story"><div class="ring inner"><div class="avatar"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8 14s1.5 2 4 2 4-2 4-2M9 9h.01M15 9h.01"/></svg></div></div><b>Ещё</b></div>
+          </div>
+
+          <article class="post">
+            <div class="post-head">
+              <div class="mini-avatar"><span><svg class="ic" viewBox="0 0 24 24"><path d="M12 3v3m0 12v3M3 12h3m12 0h3M5.6 5.6l2.1 2.1m8.6 8.6 2.1 2.1m0-12.8-2.1 2.1m-8.6 8.6-2.1 2.1"/></svg></span></div>
+              <div class="who"><b>tenkrol</b><span>ИИ-ассистент · сейчас</span></div>
+              <div class="more">···</div>
+            </div>
+            <div class="post-media">
+              <div class="media-copy">
+                <div class="media-kicker">Сводка дня</div>
+                <div class="media-title">Доброе утро,<br><em>Вячеслав.</em></div>
+                <div class="media-stats">
+                  <span><b>3</b>дела</span>
+                  <span><b>7</b>заметок</span>
+                  <span><b>2</b>задачи агента</span>
+                </div>
+              </div>
+            </div>
+            <div class="post-actions">
+              <div class="left">
+                <button aria-label="Нравится"><svg class="ic" viewBox="0 0 24 24"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8l1.1 1.1L12 21l7.8-7.5 1.1-1.1a5.5 5.5 0 0 0-.1-7.8Z"/></svg></button>
+                <button aria-label="Комментировать"><svg class="ic" viewBox="0 0 24 24"><path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 8.6 8.6 0 0 1-3.8-.9L3 21l1.9-5.1A8.4 8.4 0 1 1 21 11.5Z"/></svg></button>
+                <button aria-label="Поделиться"><svg class="ic" viewBox="0 0 24 24"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg></button>
+              </div>
+              <button class="save" aria-label="Сохранить"><svg class="ic" viewBox="0 0 24 24"><path d="M19 21 12 16 5 21V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2Z"/></svg></button>
+            </div>
+            <div class="likes">Вам и ещё 12 нравится</div>
+            <div class="caption"><b>tenkrol</b> Сегодня 3 дела, 7 заметок в инбоксе и 2 задачи агента. <span class="hash">#сводка #день</span></div>
+            <div class="comments">Посмотреть все 3 комментария</div>
+            <div class="when">2 минуты назад</div>
+            <div class="composer-line"><div class="mini-avatar"><span><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg></span></div><input placeholder="Добавить комментарий..." disabled><span class="post-btn">Опубликовать</span></div>
+          </article>
+
+          <article class="post">
+            <div class="post-head">
+              <div class="mini-avatar"><span><svg class="ic" viewBox="0 0 24 24"><path d="M12 2 3 7v10l9 5 9-5V7Z"/><path d="m3 7 9 5 9-5M12 12v10"/></svg></span></div>
+              <div class="who"><b>Агент</b><span>задача выполнена · 18 мин</span></div>
+              <div class="more">···</div>
+            </div>
+            <div class="post-media" style="aspect-ratio:4/3;background:linear-gradient(145deg,#111,#4f5bd5 60%,#d62976)">
+              <div class="media-copy">
+                <div class="media-kicker" style="color:#c7d2fe">Agent report</div>
+                <div class="media-title" style="color:#fff;font-size:24px">План на неделю<br>готов.</div>
+                <div class="media-stats"><span><b>7</b>файлов</span><span><b>4</b>источника</span><span><b>1</b>отчёт</span></div>
+              </div>
+            </div>
+            <div class="post-actions">
+              <div class="left">
+                <button><svg class="ic" viewBox="0 0 24 24"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8l1.1 1.1L12 21l7.8-7.5 1.1-1.1a5.5 5.5 0 0 0-.1-7.8Z"/></svg></button>
+                <button><svg class="ic" viewBox="0 0 24 24"><path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 8.6 8.6 0 0 1-3.8-.9L3 21l1.9-5.1A8.4 8.4 0 1 1 21 11.5Z"/></svg></button>
+                <button><svg class="ic" viewBox="0 0 24 24"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg></button>
+              </div>
+              <button class="save"><svg class="ic" viewBox="0 0 24 24"><path d="M19 21 12 16 5 21V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2Z"/></svg></button>
+            </div>
+            <div class="likes">8 нравится</div>
+            <div class="caption"><b>agent</b> Собрал план на неделю: 7 файлов, 4 источника. <span class="hash">#агент</span></div>
+            <div class="when">18 минут назад</div>
+          </article>
+        </div>
+        <nav class="bottomnav">
+          <span class="nav active"><svg class="ic fill" viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5V21a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1Z"/></svg></span>
+          <span class="nav"><svg class="ic" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg></span>
+          <span class="nav"><span class="plus"><svg class="ic" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></span></span>
+          <span class="nav"><svg class="ic" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="4"/><path d="m10 9 5 3-5 3Z"/></svg></span>
+          <span class="nav avatar-nav"><span class="mini-avatar"><span><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg></span></span></span>
+        </nav>
+        <div class="home-pill"></div>
+      </div>
+    </div></div>
+  </div>
+
+  <!-- 2. SEARCH -->
+  <div class="phone-wrap">
+    <div class="phone-label"><span>02 · Поиск</span><span>explore</span></div>
+    <div class="phone"><div class="screen">
+      <div class="notch"></div>
+      <div class="status"><span>9:41</span><span class="icons"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M2 17h3v4H2zm5-4h3v8H7zm5-4h3v12h-3zm5-4h3v16h-3z"/></svg><svg viewBox="0 0 24 24" fill="currentColor"><rect x="2" y="6" width="18" height="12" rx="3"/><rect x="20" y="10" width="2" height="4" rx="1"/></svg></span></div>
+      <div class="app">
+        <div class="search-top">
+          <div class="search-box"><svg class="ic"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>Поиск по чатам, файлам, памяти</div>
+          <div class="tag-row"><span class="tag active">Все</span><span class="tag">Проекты</span><span class="tag">Заметки</span><span class="tag">Файлы</span><span class="tag">Люди</span></div>
+        </div>
+        <div class="scroll">
+          <div class="section-title">В тренде у вас <span>за неделю</span></div>
+          <div class="explore-grid">
+            <div class="tile"><div class="art g1"></div><div class="count"><svg class="ic"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8l1.1 1.1L12 21l7.8-7.5 1.1-1.1a5.5 5.5 0 0 0-.1-7.8Z"/></svg> 24</div><div class="label">Проект «Запуск»</div></div>
+            <div class="tile"><div class="art g2"></div><div class="count"><svg class="ic"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8l1.1 1.1L12 21l7.8-7.5 1.1-1.1a5.5 5.5 0 0 0-.1-7.8Z"/></svg> 18</div><div class="label">Планы на неделю</div></div>
+            <div class="tile"><div class="art g3"></div><div class="count"><svg class="ic"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8l1.1 1.1L12 21l7.8-7.5 1.1-1.1a5.5 5.5 0 0 0-.1-7.8Z"/></svg> 31</div><div class="label">Файлы агента</div></div>
+            <div class="tile"><div class="art g4"></div><div class="count"><svg class="ic"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8l1.1 1.1L12 21l7.8-7.5 1.1-1.1a5.5 5.5 0 0 0-.1-7.8Z"/></svg> 12</div><div class="label">Инбокс</div></div>
+            <div class="tile"><div class="art g5"></div><div class="count"><svg class="ic"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8l1.1 1.1L12 21l7.8-7.5 1.1-1.1a5.5 5.5 0 0 0-.1-7.8Z"/></svg> 9</div><div class="label">Фото и обои</div></div>
+            <div class="tile"><div class="art g6"></div><div class="count"><svg class="ic"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8l1.1 1.1L12 21l7.8-7.5 1.1-1.1a5.5 5.5 0 0 0-.1-7.8Z"/></svg> 7</div><div class="label">YouTube</div></div>
+            <div class="tile"><div class="art g7"></div><div class="label">Память</div></div>
+            <div class="tile"><div class="art g8"></div><div class="label">Автоматизации</div></div>
+            <div class="tile"><div class="art g9"></div><div class="label">Статистика</div></div>
+          </div>
+          <div class="section-title">Популярные запросы <span>у вас</span></div>
+          <div class="trend-list">
+            <div class="trend"><div class="rank">1</div><div class="t"><b>сводка дня</b><span>12 чатов · 38 сообщений</span></div><span class="go">›</span></div>
+            <div class="trend"><div class="rank">2</div><div class="t"><b>план на неделю</b><span>7 файлов · 4 источника</span></div><span class="go">›</span></div>
+            <div class="trend"><div class="rank">3</div><div class="t"><b>проверь сервер</b><span>агент · 2 задачи</span></div><span class="go">›</span></div>
+          </div>
+        </div>
+        <nav class="bottomnav">
+          <span class="nav"><svg class="ic" viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5V21a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1Z"/></svg></span>
+          <span class="nav active"><svg class="ic fill" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4" stroke="#fafafa" stroke-width="2.5"/></svg></span>
+          <span class="nav"><span class="plus"><svg class="ic" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></span></span>
+          <span class="nav"><svg class="ic" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="4"/><path d="m10 9 5 3-5 3Z"/></svg></span>
+          <span class="nav avatar-nav"><span class="mini-avatar"><span><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg></span></span></span>
+        </nav>
+      </div>
+    </div></div>
+  </div>
+
+  <!-- 3. AGENT -->
+  <div class="phone-wrap">
+    <div class="phone-label"><span>03 · Агент</span><span>reels / tasks</span></div>
+    <div class="phone"><div class="screen">
+      <div class="notch"></div>
+      <div class="status"><span>9:41</span><span class="icons"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M2 17h3v4H2zm5-4h3v8H7zm5-4h3v12h-3zm5-4h3v16h-3z"/></svg><svg viewBox="0 0 24 24" fill="currentColor"><rect x="2" y="6" width="18" height="12" rx="3"/><rect x="20" y="10" width="2" height="4" rx="1"/></svg></span></div>
+      <div class="app">
+        <div class="topbar" style="padding-bottom:0">
+          <div class="wordmark" style="font-family:inherit;font-size:18px;letter-spacing:-.03em">Агент</div>
+          <div class="top-actions"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1A1.7 1.7 0 0 0 4.7 9a1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/></svg></div>
+        </div>
+        <div class="scroll">
+          <div class="agent-head"><div class="kicker">Live workspace</div><h2>Задачи<br>в движении.</h2><p>Под контролем: результат, статус и повтор.</p></div>
+          <div class="filter-row"><span class="filter on">Все</span><span class="filter">В работе</span><span class="filter">Готово</span><span class="filter">Повторы</span></div>
+
+          <div class="task-card">
+            <div class="task-top"><div class="task-icon"><svg class="ic"><path d="M12 3v3m0 12v3M3 12h3m12 0h3"/></svg></div><b>tenkrol agent</b><span class="status"><i></i>выполняется</span></div>
+            <div class="task-title">Собрать план запуска на неделю</div>
+            <div class="task-sub">7 файлов · 4 источника · отчёт в DOCX</div>
+            <div class="progress"><i></i></div>
+            <div class="task-foot"><span>72% · 4 мин</span><b>Открыть</b></div>
+            <div class="task-actions"><button class="primary">Открыть</button><button>Отменить</button></div>
+          </div>
+
+          <div class="task-card light">
+            <div class="task-top"><div class="task-icon"><svg class="ic"><path d="M20 6 9 17l-5-5"/></svg></div><b>tenkrol agent</b><span class="status"><i></i>готово</span></div>
+            <div class="task-title">Проверить сервер и бэкапы</div>
+            <div class="task-sub">Диск 42% · сервисы активны · 2 предупреждения</div>
+            <div class="task-actions"><button class="primary">Результат</button><button>Повторить</button></div>
+          </div>
+
+          <div class="agent-mini">
+            <div class="mini-stat"><span>задач за неделю</span><b>24</b><div class="spark"></div></div>
+            <div class="mini-stat"><span>сэкономлено</span><b>6,4 ч</b><div class="spark"></div></div>
+          </div>
+        </div>
+        <nav class="bottomnav">
+          <span class="nav"><svg class="ic" viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5V21a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1Z"/></svg></span>
+          <span class="nav"><svg class="ic" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg></span>
+          <span class="nav"><span class="plus"><svg class="ic" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></span></span>
+          <span class="nav active"><svg class="ic fill" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="4"/><path d="m10 9 5 3-5 3Z" fill="#fafafa" stroke="none"/></svg></span>
+          <span class="nav avatar-nav"><span class="mini-avatar"><span><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg></span></span></span>
+        </nav>
+      </div>
+    </div></div>
+  </div>
+
+  <!-- 4. PROFILE -->
+  <div class="phone-wrap">
+    <div class="phone-label"><span>04 · Профиль</span><span>workspace</span></div>
+    <div class="phone"><div class="screen">
+      <div class="notch"></div>
+      <div class="status"><span>9:41</span><span class="icons"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M2 17h3v4H2zm5-4h3v8H7zm5-4h3v12h-3zm5-4h3v16h-3z"/></svg><svg viewBox="0 0 24 24" fill="currentColor"><rect x="2" y="6" width="18" height="12" rx="3"/><rect x="20" y="10" width="2" height="4" rx="1"/></svg></span></div>
+      <div class="app">
+        <div class="profile-top"><b>andryukovy <svg width="11" height="11" viewBox="0 0 24 24" fill="#0095f6"><path d="M12 2 15 5l4 .5.5 4L23 12l-3.5 2.5-.5 4-4 .5-3 3-3-3-4-.5-.5-4L1 12l3.5-2.5L5 5.5 9 5Z"/><path d="m8 12 3 3 5-6" stroke="#fff" stroke-width="2" fill="none"/></svg></b><div class="top-actions"><svg class="ic" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg><svg class="ic" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg></div></div>
+        <div class="scroll">
+          <div class="profile-main">
+            <div class="profile-avatar"><div class="inner"><svg class="ic"><path d="M12 3v3m0 12v3M3 12h3m12 0h3M5.6 5.6l2.1 2.1m8.6 8.6 2.1 2.1m0-12.8-2.1 2.1m-8.6 8.6-2.1 2.1"/></svg></div></div>
+            <div class="profile-stats"><div><b>128</b>чатов</div><div><b>42</b>проекта</div><div><b>15</b>фактов</div></div>
+          </div>
+          <div class="bio"><b>Вячеслав</b><span>Личный ассистент · TenKrol<br>Строю, планирую, проверяю сервер.<br><span style="color:#00376b">tenkrol.ru</span></span></div>
+          <div class="profile-actions"><button class="primary">Редактировать</button><button>Поделиться</button></div>
+          <div class="highlights">
+            <div class="highlight"><div class="ring"><div class="avatar"><svg class="ic"><rect x="3" y="4" width="18" height="17" rx="3"/><path d="M8 2v4m8-4v4M3 9h18"/></svg></div></div>Планы</div>
+            <div class="highlight"><div class="ring"><div class="avatar"><svg class="ic"><path d="M4 5a2 2 0 0 1 2-2h9l5 5v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z"/><path d="M14 3v5h5"/></svg></div></div>Файлы</div>
+            <div class="highlight"><div class="ring"><div class="avatar"><svg class="ic"><path d="M12 3a7 7 0 0 0-7 7c0 5 7 11 7 11s7-6 7-11a7 7 0 0 0-7-7Z"/><circle cx="12" cy="10" r="2.5"/></svg></div></div>Проекты</div>
+            <div class="highlight"><div class="ring"><div class="avatar"><svg class="ic"><path d="M12 2 3 7v10l9 5 9-5V7Z"/><path d="m3 7 9 5 9-5"/></svg></div></div>Память</div>
+            <div class="highlight"><div class="ring inner"><div class="avatar"><svg class="ic"><path d="M12 5v14M5 12h14"/></svg></div></div>Ещё</div>
+          </div>
+          <div class="profile-tabs"><span class="ptab active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></span><span class="ptab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="m10 9 5 3-5 3Z"/></svg></span><span class="ptab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M19 21 12 16 5 21V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2Z"/></svg></span></div>
+          <div class="profile-grid">
+            <div class="tile g1"><div class="art"><svg class="ic"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M3 10h18"/></svg></div><div class="cap">Запуск</div></div>
+            <div class="tile g2"><div class="art"><svg class="ic"><path d="M4 5a2 2 0 0 1 2-2h9l5 5v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z"/><path d="M14 3v5h5"/></svg></div><div class="cap">Отчёты</div></div>
+            <div class="tile g3"><div class="art"><svg class="ic"><path d="M12 3a7 7 0 0 0-7 7c0 5 7 11 7 11s7-6 7-11a7 7 0 0 0-7-7Z"/><circle cx="12" cy="10" r="2.5"/></svg></div><div class="cap">Дом</div></div>
+            <div class="tile g4"><div class="art"><svg class="ic"><path d="M12 2 3 7v10l9 5 9-5V7Z"/><path d="m3 7 9 5 9-5"/></svg></div><div class="cap">Память</div></div>
+            <div class="tile g5"><div class="art"><svg class="ic"><path d="M12 3v3m0 12v3M3 12h3m12 0h3"/></svg></div><div class="cap">Агент</div></div>
+            <div class="tile g6"><div class="art"><svg class="ic"><rect x="3" y="4" width="18" height="16" rx="4"/><path d="m10 9 5 3-5 3Z"/></svg></div><div class="cap">YouTube</div></div>
+            <div class="tile g7"><div class="art"><svg class="ic"><circle cx="12" cy="12" r="9"/><path d="M8 14s1.5 2 4 2 4-2 4-2M9 9h.01M15 9h.01"/></svg></div><div class="cap">Фото</div></div>
+            <div class="tile g8"><div class="art"><svg class="ic"><path d="M12 2 3 7v10l9 5 9-5V7Z"/></svg></div><div class="cap">Инбокс</div></div>
+            <div class="tile g9"><div class="art"><svg class="ic"><path d="M3 3v18h18"/><path d="m7 15 4-4 3 3 5-6"/></svg></div><div class="cap">Статистика</div></div>
+          </div>
+        </div>
+        <nav class="bottomnav">
+          <span class="nav"><svg class="ic" viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5V21a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1Z"/></svg></span>
+          <span class="nav"><svg class="ic" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg></span>
+          <span class="nav"><span class="plus"><svg class="ic" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></span></span>
+          <span class="nav"><svg class="ic" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="4"/><path d="m10 9 5 3-5 3Z"/></svg></span>
+          <span class="nav avatar-nav active"><span class="mini-avatar"><span><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg></span></span></span>
+        </nav>
+      </div>
+    </div></div>
+  </div>
+</main>
+
+<footer class="page-foot">
+  <span>4 экрана · mobile-first</span>
+  <span>сторис = быстрые действия</span>
+  <span>лента = сводка и результаты</span>
+  <span>поиск = исследование</span>
+  <span>агент = reels-поток задач</span>
+  <span>профиль = рабочее пространство</span>
+</footer>
+</body>
+</html>
