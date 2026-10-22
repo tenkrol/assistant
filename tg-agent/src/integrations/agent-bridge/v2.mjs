@@ -95,7 +95,7 @@ export function createAgentBridgeV2({
     return { ok: true, bytes, mime: response.headers?.get?.('content-type') ?? 'application/octet-stream' }
   }
 
-  async function submitTask({ task, route, attachments = [], facts = [], revisionOf, source = 'chat-bot' } = {}) {
+  async function submitTask({ task, route, principal, attachments = [], facts = [], revisionOf, source = 'chat-bot' } = {}) {
     return call('/v1/tasks', {
       body: {
         contract: 2,
@@ -104,6 +104,9 @@ export function createAgentBridgeV2({
         source,
         ...(revisionOf ? { revisionOf: String(revisionOf) } : {}),
         ...(route ? { route } : {}),
+        ...(principal?.userId !== undefined
+          ? { principal: { userId: String(principal.userId), scopeId: String(principal.scopeId ?? `personal-${principal.userId}`) } }
+          : {}),
         ...(attachments.length > 0 ? { attachments } : {}),
         ...(facts.length > 0 ? { context: { facts } } : {}),
       },
@@ -215,6 +218,12 @@ export function createAgentBridgeV2({
           chatId: String(context.chatId),
           messageId: context.replyTo === undefined ? undefined : Number(context.replyTo),
         }
+      const principal = context.userId === undefined
+        ? undefined
+        : {
+            userId: String(context.userId),
+            scopeId: String(context.scopeId ?? `personal-${context.userId}`),
+          }
       const attachments = []
       for (const item of context.attachments ?? []) {
         if (!item?.fileId || typeof context.downloadFile !== 'function') continue
@@ -231,7 +240,7 @@ export function createAgentBridgeV2({
 
       let payload
       try {
-        payload = await submitTask({ task, route, attachments, revisionOf: args?.revisionOf })
+        payload = await submitTask({ task, route, principal, attachments, revisionOf: args?.revisionOf })
       } catch (error) {
         logger?.warn('agent bridge v2 rejected the task', { error, status: error?.status })
         return `Агент не принял задачу: ${String(error?.message ?? error).slice(0, 160)}. Скажи пользователю и предложи повторить позже.`

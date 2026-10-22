@@ -128,13 +128,18 @@ test('the v2 client submits with requestId and route and can reply/cancel', asyn
     },
   })
   assert.equal(bridge.contract, 'v2')
-  const submitted = await bridge.submitTask({ task: 'сделай отчёт', route: { platform: 'telegram', chatId: '42' } })
+  const submitted = await bridge.submitTask({
+    task: 'сделай отчёт',
+    route: { platform: 'telegram', chatId: '42' },
+    principal: { userId: '7', scopeId: 'personal-7' },
+  })
   assert.equal(submitted.taskId, 'task-1')
   assert.equal(calls[0].url, 'http://agent.test/v1/tasks')
   const body = JSON.parse(calls[0].options.body)
   assert.equal(body.contract, 2)
   assert.match(body.requestId, /[0-9a-f-]{36}/)
   assert.equal(body.route.chatId, '42')
+  assert.deepEqual(body.principal, { userId: '7', scopeId: 'personal-7' })
 
   await bridge.replyTask('task-1', 'DOCX')
   assert.equal(calls[1].url, 'http://agent.test/v1/tasks/task-1/reply')
@@ -156,6 +161,7 @@ test('the ask_agent tool passes the route and revision id to the agent', async (
   })
   const answer = await bridge.execute('ask_agent', { task: 'сделай файл', revisionOf: 'old-1' }, {
     chatId: 42,
+    userId: 7,
     botId: 999,
     replyTo: 7,
     attachments: [],
@@ -164,6 +170,7 @@ test('the ask_agent tool passes the route and revision id to the agent', async (
   const body = JSON.parse(calls[0].body)
   assert.equal(body.route.chatId, '42')
   assert.equal(body.route.botId, '999')
+  assert.deepEqual(body.principal, { userId: '7', scopeId: 'personal-7' })
   assert.equal(body.revisionOf, 'old-1')
 })
 

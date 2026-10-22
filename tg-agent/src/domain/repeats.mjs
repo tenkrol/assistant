@@ -25,9 +25,21 @@ const WEEKLY_FIRST = 1
 const WEEKLY_LAST = 7
 const MONTHLY_FIRST = 1
 const MONTHLY_LAST = 31
-const EVERY_FIRST_MINUTES = 5
+const EVERY_FIRST_MINUTES = 15
 const EVERY_LAST_MINUTES = 1440
 const EVERY_STEP_MINUTES = 5
+
+/**
+ * Границы интервального повтора — для текстов об ошибке в инструменте.
+ *
+ * Порог в 15 минут защищает от спама: чаще человеку напоминать не нужно, и
+ * именно это объясняется вместо молчаливой подмены запрошенного значения.
+ */
+export const EVERY_LIMITS = Object.freeze({
+  minMinutes: EVERY_FIRST_MINUTES,
+  maxMinutes: EVERY_LAST_MINUTES,
+  stepMinutes: EVERY_STEP_MINUTES,
+})
 
 /** Inclusive integer range, used only to build the value list below. */
 function range(from, to, step = 1) {
@@ -46,7 +58,7 @@ function range(from, to, step = 1) {
  * - `weekly:1` … `weekly:7` — one weekday, 1 = Monday … 7 = Sunday;
  * - `monthly:1` … `monthly:31` — that day of the month (clamped to the last
  *   day of a shorter month);
- * - `every:5` … `every:1440` — every N minutes, N a multiple of 5.
+ * - `every:15` … `every:1440` — каждые N минут, N кратно 5; порог — 15 минут.
  */
 export const REPEAT_VALUES = [
   'none',
@@ -85,6 +97,35 @@ const WEEKDAY_LABELS = [
  * @returns {boolean} `true` when `nextDue` and `describeRepeat` understand it.
  */
 export const isRepeat = (value) => typeof value === 'string' && REPEAT_SET.has(value)
+
+/**
+ * Почему интервал `every:N` не принят — человеческими словами.
+ *
+ * Возвращает `undefined` для любого корректного значения и для мусора, который
+ * не похож на `every:N`: там инструмент скажет общий текст. Отдельная причина
+ * нужна именно интервалам, чтобы «каждые 10 минут» не превращались молча в
+ * «каждые 15», а человек увидел, что именно поправить.
+ *
+ * @param {unknown} value - запрошенный повтор.
+ * @returns {string | undefined} причина отказа или `undefined`.
+ */
+export function repeatIssue(value) {
+  if (isRepeat(value)) return undefined
+  const match = /^every:(-?\d+)$/.exec(String(value ?? ''))
+  if (!match) return undefined
+  const minutes = Number(match[1])
+  if (!Number.isFinite(minutes) || !Number.isInteger(minutes)) return undefined
+  if (minutes < EVERY_FIRST_MINUTES) {
+    return `минимальный интервал — ${EVERY_FIRST_MINUTES} минут`
+  }
+  if (minutes > EVERY_LAST_MINUTES) {
+    return `максимальный интервал — ${EVERY_LAST_MINUTES} минут (24 часа)`
+  }
+  if (minutes % EVERY_STEP_MINUTES !== 0) {
+    return `интервал должен быть кратен ${EVERY_STEP_MINUTES} минутам`
+  }
+  return undefined
+}
 
 /**
  * Russian label for a repeat.
@@ -263,7 +304,12 @@ export function nextDue(dueAt, repeat, { now = new Date() } = {}) {
 /**
  * New schedule for a reminder that has just been delivered.
  *
- * @param {{dueAt?: unknown, repeat?: unknown}} reminder - stored reminder.
+ * Опорный момент берётся из `anchorAt`: это исходный срок серии, а не текущий
+ * `dueAt`. Поэтому повторный вызов с теми же входными данными возвращает тот же
+ * момент — сдвиг идемпотентен, а тик и рестарт не перескакивают через интервал.
+ * Старые записи без `anchorAt` продолжают считаться от своего `dueAt`.
+ *
+ * @param {{dueAt?: unknown, anchorAt?: unknown, repeat?: unknown}} reminder - stored reminder.
  * @param {object} [options] - options.
  * @param {Date | string | number} [options.now] - reference instant, defaults to now.
  * @returns {{dueAt: Date, repeat: string} | undefined} the fields to store back
@@ -273,7 +319,8 @@ export function nextDue(dueAt, repeat, { now = new Date() } = {}) {
 export function repeatAfterDelivery(reminder, { now = new Date() } = {}) {
   const repeat = reminder?.repeat ?? 'none'
   if (!isRepeat(repeat) || repeat === 'none') return undefined
-  const dueAt = nextDue(reminder?.dueAt, repeat, { now })
+  const anchor = reminder?.anchorAt ?? reminder?.dueAt
+  const dueAt = nextDue(anchor, repeat, { now })
   if (!dueAt) return undefined
   return { dueAt, repeat }
 }

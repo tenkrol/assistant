@@ -89,9 +89,10 @@ export class MobileMediaStore {
     return this.storage.state.items[String(id)] ?? null
   }
 
-  async read(id) {
+  async read(id, { userId } = {}) {
     const item = this.get(id)
     if (!item) return null
+    if (userId === undefined || userId === null || String(item.userId) !== String(userId)) return null
     const bytes = await fs.readFile(path.join(this.dir, String(id))).catch(() => null)
     if (!bytes) return null
     return { item, bytes }

@@ -966,7 +966,12 @@ export async function createInstance({ config, logger, instance, shared, platfor
         chatResponder: (input) => bot.handleWebMessage(input),
         agentResponder: async ({ task, userId, chatId }) => {
           if (!bot.agentBridge?.enabled) return { ok: false, error: 'Мост к агенту не настроен' }
-          const text = await bot.agentBridge.execute('ask_agent', { task }, { chatId, botId: bot.botId })
+          const text = await bot.agentBridge.execute('ask_agent', { task }, {
+            chatId,
+            userId,
+            scopeId: `personal-${userId}`,
+            botId: bot.botId,
+          })
           if (typeof text !== 'string' || !text.startsWith('Задача')) {
             return { ok: false, error: text || 'Агент не принял задание' }
           }
@@ -975,25 +980,32 @@ export async function createInstance({ config, logger, instance, shared, platfor
           await bot.history.append(String(chatId), { role: 'assistant', content: text })
           return { ok: true, text }
         },
-        agentCancel: async ({ taskId }) => {
+        agentCancel: async ({ taskId, userId }) => {
           if (!bot.agentBridge?.enabled || typeof bot.agentBridge.cancelTask !== 'function') {
             throw new Error('Мост к агенту выключен')
           }
+          const state = await bot.agentBridge.getTask(String(taskId))
+          if (!state?.task || String(state.task.userId) !== String(userId)) return null
           return bot.agentBridge.cancelTask(String(taskId))
         },
-        agentTask: async (taskId) => {
+        agentTask: async (taskId, { userId, chatId } = {}) => {
           if (!bot.agentBridge?.enabled || typeof bot.agentBridge.getTask !== 'function') throw new Error('Мост к агенту выключен')
           const task = await bot.agentBridge.getTask(String(taskId))
-          const originalTask = bot.history?.findTaskText?.(String(taskId))
+          if (!task?.task || String(task.task.userId) !== String(userId)) return null
+          const originalTask = bot.history?.findTaskText?.(String(taskId), { chatId })
           return originalTask ? { ...task, originalTask } : task
         },
-        agentStatus: async () => {
+        agentStatus: async ({ userId } = {}) => {
           if (!bot.agentBridge?.enabled) return { enabled: false, agents: [], events: [] }
           const [agents, events] = await Promise.all([
             typeof bot.agentBridge.agents === 'function' ? bot.agentBridge.agents().catch(() => []) : [],
             typeof bot.agentBridge.activity === 'function' ? bot.agentBridge.activity({ limit: 10 }).catch(() => []) : [],
           ])
-          return { enabled: true, agents, events }
+          return {
+            enabled: true,
+            agents,
+            events: events.filter((event) => event?.userId !== undefined && String(event.userId) === String(userId)),
+          }
         },
         mobilePasswordHash: config.miniapp.mobile.passwordHash,
         mobileSessionSecret: config.miniapp.mobile.sessionSecret,

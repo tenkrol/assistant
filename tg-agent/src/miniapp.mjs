@@ -745,6 +745,25 @@ export function createMiniApp({
     const telegramName = stores.profiles && typeof stores.profiles.displayName === 'function'
       ? stores.profiles.displayName(auth.userId)
       : String(auth.user.first_name ?? mobileUserName)
+    const headers = {}
+    // Обычные <img>/<video>/<audio> не умеют передавать initData-заголовок.
+    // После его серверной проверки выдаём короткую HttpOnly cookie тому же
+    // Telegram-пользователю, чтобы бинарные URL оставались закрытыми и работали.
+    if (auth.via === 'telegram' && passwordAuthEnabled) {
+      const account = accounts?.findByUserId?.(auth.userId)
+      const legacyAllowed = !accounts && String(auth.userId) === String(passwordUserNumber)
+      if (account || legacyAllowed) {
+        const telegramTtl = Math.min(sessionTtl, 24 * 60 * 60)
+        const token = signSession({
+          userId: Number(auth.userId),
+          ttlSec: telegramTtl,
+          now: timeNow(),
+          login: account?.login ?? usernameExpected ?? undefined,
+          version: account ? (Number(account.version) || 1) : undefined,
+        }, mobileSessionSecret)
+        headers['set-cookie'] = sessionCookie(token, { maxAgeSec: telegramTtl, secure: cookieSecure })
+      }
+    }
     sendJson(response, 200, {
       authenticated: true,
       totpEnabled: Boolean(accounts && auth.login && accounts.totpState(auth.login)?.enabled),
@@ -757,7 +776,7 @@ export function createMiniApp({
       },
       telegramUrl,
       botUsername: String(botUsername || ''),
-    })
+    }, headers)
   }
 
   // ---------------------------------------------------------------------------
@@ -1135,7 +1154,23 @@ export function createMiniApp({
 
   const chatInFlight = new Set()
   const agentInFlight = new Set()
-  let agentStatusCache = { at: 0, value: null }
+  const agentStatusCache = new Map()
+
+  /** Владелец задачи в прямом или обёрнутом ответе v2. */
+  const agentOwnerId = (value) => value?.userId
+    ?? value?.ownerId
+    ?? value?.task?.userId
+    ?? value?.task?.ownerId
+    ?? value?.task?.task?.userId
+    ?? value?.task?.task?.ownerId
+
+  /** Оставить в статусе только события текущего пользователя. */
+  const agentStatusFor = (value, userId) => ({
+    ...(value && typeof value === 'object' ? value : {}),
+    events: Array.isArray(value?.events)
+      ? value.events.filter((event) => agentOwnerId(event) !== undefined && String(agentOwnerId(event)) === String(userId))
+      : [],
+  })
 
   /** GET /api/push/config — можно ли включить уведомления и публичный VAPID-ключ. */
   function getPushConfig(request, response) {
@@ -1195,18 +1230,20 @@ export function createMiniApp({
   }
 
   /** GET /api/agent/status — доступен ли мост и что происходило у агента. */
-  async function getAgentStatus(request, response) {
+  async function getAgentStatus(request, response, { userId, chatId, auth }) {
     request.resume()
     if (typeof agentStatus !== 'function') {
       return sendJson(response, 200, { enabled: false, agents: [], events: [] })
     }
     const at = timeNow()
-    if (agentStatusCache.value && at - agentStatusCache.at < 10_000) {
-      return sendJson(response, 200, agentStatusCache.value)
+    const cacheKey = String(userId)
+    const cached = agentStatusCache.get(cacheKey)
+    if (cached?.value && at - cached.at < 10_000) {
+      return sendJson(response, 200, cached.value)
     }
     try {
-      const value = await agentStatus()
-      agentStatusCache = { at, value }
+      const value = agentStatusFor(await agentStatus({ userId, chatId, auth }), userId)
+      agentStatusCache.set(cacheKey, { at, value })
       sendJson(response, 200, value)
     } catch (error) {
       logger?.warn?.('agent status failed', { error: error?.message ?? error })
@@ -1215,12 +1252,13 @@ export function createMiniApp({
   }
 
   /** GET /api/agent/task/:id — детали задачи агента. */
-  async function getAgentTask(request, response, { params }) {
+  async function getAgentTask(request, response, { params, userId, chatId, auth }) {
     request.resume()
     if (typeof agentTask !== 'function') return missingStore(response, 'агент')
     try {
-      const task = await agentTask(String(params[0]))
-      sendJson(response, 200, { task: task ?? null })
+      const task = await agentTask(String(params[0]), { userId, chatId, auth })
+      if (!task || agentOwnerId(task) === undefined || String(agentOwnerId(task)) !== String(userId)) return notFound(response)
+      sendJson(response, 200, { task })
     } catch (error) {
       logger?.warn?.('agent task details failed', { error: error?.message ?? error })
       sendError(response, 502, 'agent_unavailable', 'Не удалось получить задачу')
@@ -1228,7 +1266,7 @@ export function createMiniApp({
   }
 
   /** POST /api/agent/cancel — отменить задачу агента по taskId. */
-  async function cancelAgentTask(request, response) {
+  async function cancelAgentTask(request, response, { userId, chatId, auth }) {
     if (typeof agentCancel !== 'function') {
       request.resume()
       return missingStore(response, 'агент')
@@ -1238,8 +1276,12 @@ export function createMiniApp({
     const taskId = typeof body.value?.taskId === 'string' ? body.value.taskId.trim() : ''
     if (taskId === '') return badRequest(response, 'Нет taskId')
     try {
-      const result = await agentCancel({ taskId })
-      sendJson(response, 200, { ok: true, result: result ?? null })
+      if (typeof agentTask !== 'function') return missingStore(response, 'агент')
+      const task = await agentTask(taskId, { userId, chatId, auth })
+      if (!task || agentOwnerId(task) === undefined || String(agentOwnerId(task)) !== String(userId)) return notFound(response)
+      const result = await agentCancel({ taskId, userId, chatId, auth })
+      if (!result) return notFound(response)
+      sendJson(response, 200, { ok: true, result })
     } catch (error) {
       logger?.warn?.('agent cancel failed', { error: error?.message ?? error, taskId })
       sendError(response, 502, 'agent_unavailable', 'Не удалось отменить задачу')
@@ -1277,7 +1319,7 @@ export function createMiniApp({
       if (!result || result.ok !== true) {
         return sendError(response, 502, 'agent_unavailable', String(result?.error ?? 'Агент не принял задание'))
       }
-      agentStatusCache = { at: 0, value: null }
+      agentStatusCache.clear()
       sendJson(response, 200, { ok: true, text: String(result.text ?? 'Задание передано агенту') })
     } catch (error) {
       logger?.warn?.('agent task failed', { error: error?.message ?? error, userId })
@@ -1312,7 +1354,7 @@ export function createMiniApp({
     if (requestedAttachments.length > 0) {
       if (!mediaStore || typeof mediaStore.read !== 'function') return missingStore(response, 'медиа')
       for (const id of requestedAttachments) {
-        const entry = await mediaStore.read(id).catch(() => null)
+        const entry = await mediaStore.read(id, { userId }).catch(() => null)
         if (!entry) return badRequest(response, 'Вложение не найдено или устарело')
         attachments.push({ ...mediaStore.publicItem(entry.item), bytes: entry.bytes })
       }
@@ -1628,7 +1670,7 @@ export function createMiniApp({
       return response.end(cached.bytes)
     }
     try {
-      const image = await fetch('https://i.ytimg.com/vi/' + id + '/mqdefault.jpg')
+      const image = await fetch('https://i.ytimg.com/vi/' + id + '/mqdefault.jpg', { signal: AbortSignal.timeout(20_000) })
       if (!image.ok) return notFound(response)
       const bytes = Buffer.from(await image.arrayBuffer())
       youtubeThumbCache.set(id, { at: Date.now(), bytes })
@@ -1653,7 +1695,10 @@ export function createMiniApp({
       const target = new URL('https://www.youtube.com/results')
       target.searchParams.set('search_query', query)
       target.searchParams.set('hl', 'ru')
-      const page = await fetch(target, { headers: { 'user-agent': 'Mozilla/5.0 (compatible; TenKrol/1.0)' } })
+      const page = await fetch(target, {
+        headers: { 'user-agent': 'Mozilla/5.0 (compatible; TenKrol/1.0)' },
+        signal: AbortSignal.timeout(20_000),
+      })
       if (!page.ok) throw new Error('YouTube HTTP ' + page.status)
       const html = await page.text()
       const start = html.indexOf('ytInitialData = ')
@@ -1883,12 +1928,12 @@ export function createMiniApp({
   }
 
   /** GET /api/media/:id — отдать фото/видео с Range для <video>. */
-  async function getMedia(request, response, { params }) {
+  async function getMedia(request, response, { params, userId }) {
     if (!mediaStore || typeof mediaStore.read !== 'function') {
       request.resume()
       return notFound(response)
     }
-    const entry = await mediaStore.read(params?.[0]).catch(() => null)
+    const entry = await mediaStore.read(params?.[0], { userId }).catch(() => null)
     if (!entry) return notFound(response)
     const { item, bytes } = entry
     const range = String(request.headers.range ?? '')
@@ -2979,6 +3024,7 @@ export function createMiniApp({
       headers['referrer-policy'] = 'strict-origin-when-cross-origin'
       headers['x-frame-options'] = 'DENY'
       headers['permissions-policy'] = 'camera=(), microphone=(self), geolocation=()'
+      headers['strict-transport-security'] = 'max-age=31536000; includeSubDomains'
     }
     response.writeHead(200, headers)
     if (method === 'HEAD') response.end()

@@ -86,6 +86,20 @@ test('chats are isolated from each other', async () => {
   }
 })
 
+test('findTaskText searches only inside the requested chat', async () => {
+  const ctx = await makeStore({ limit: 10 })
+  try {
+    await ctx.store.append('101', { role: 'user', content: 'секрет первого' })
+    await ctx.store.append('101', { role: 'assistant', content: 'Задача task-secret передана' })
+    await ctx.store.append('202', { role: 'user', content: 'запрос второго' })
+    assert.equal(ctx.store.findTaskText('task-secret', { chatId: '101' }), 'секрет первого')
+    assert.equal(ctx.store.findTaskText('task-secret', { chatId: '202' }), undefined)
+    assert.equal(ctx.store.findTaskText('task-secret'), undefined)
+  } finally {
+    await ctx.cleanup()
+  }
+})
+
 test('a corrupt file is ignored instead of crashing the bot', async () => {
   const ctx = await makeStore()
   try {

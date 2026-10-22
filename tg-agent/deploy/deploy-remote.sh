@@ -175,7 +175,27 @@ else
   printf 'юниты сторожа не найдены — пропускаю\n'
 fi
 
-log "8/9 сервис MAX (если задан MAX_TOKEN)"
+log "8/10 почасовая проверка релиза"
+if [ -f "$INSTALL_DIR/deploy/deploy-verify.service" ] && [ -f "$INSTALL_DIR/deploy/deploy-verify.timer" ]; then
+  sed -e "s|^User=.*|User=${SERVICE_USER}|" \
+      -e "s|^WorkingDirectory=.*|WorkingDirectory=${INSTALL_DIR}|" \
+      -e "s|^EnvironmentFile=.*|EnvironmentFile=${INSTALL_DIR}/.env|" \
+      -e "s|^Environment=RELEASES_DIR=.*|Environment=RELEASES_DIR=${INSTALL_DIR}-releases|" \
+      -e "s|^Environment=CURRENT_LINK=.*|Environment=CURRENT_LINK=${INSTALL_DIR}|" \
+      -e "s|^ExecStart=.*|ExecStart=${NODE_BIN} tools/deploy-safe.mjs --status|" \
+      -e "s|^Documentation=.*|Documentation=file:${INSTALL_DIR}/README.md|" \
+      "$INSTALL_DIR/deploy/deploy-verify.service" > /etc/systemd/system/deploy-verify.service
+  cp "$INSTALL_DIR/deploy/deploy-verify.timer" /etc/systemd/system/deploy-verify.timer
+  systemctl daemon-reload
+  systemctl enable --now deploy-verify.timer >/dev/null
+  printf 'проверка релиза: %s (следующий запуск: %s)\n' \
+    "$(systemctl is-active deploy-verify.timer)" \
+    "$(systemctl show deploy-verify.timer -p NextElapseUSecRealtime --value)"
+else
+  printf 'юниты проверки релиза не найдены — пропускаю\n'
+fi
+
+log "9/10 сервис MAX (если задан MAX_TOKEN)"
 if grep -q '^MAX_TOKEN=..*' "$INSTALL_DIR/.env"; then
   sed -e "s|^ExecStart=.*|ExecStart=${NODE_BIN} src/index.mjs|" \
       -e "s|^User=.*|User=${SERVICE_USER}|" \
@@ -192,7 +212,7 @@ else
   printf 'MAX_TOKEN не задан — сервис MAX не включаю (добавьте токен в .env и запустите скрипт снова)\n'
 fi
 
-log "9/9 состояние сервиса"
+log "10/10 состояние сервиса"
 sleep 4
 systemctl --no-pager --full status "$SERVICE_NAME" | head -12 || true
 printf '\nпоследние строки журнала:\n'

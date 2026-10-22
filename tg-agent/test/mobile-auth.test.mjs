@@ -10,6 +10,7 @@ import test from 'node:test'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
+import { createHmac } from 'node:crypto'
 import {
   SESSION_COOKIE,
   createSessionSecret,
@@ -36,7 +37,24 @@ const BOT_TOKEN = '123456:TEST-bot-token-abcdefghijklmnopqrstuvwxyz'
 const SECRET = 'test-session-secret-0123456789abcdef'
 const PASSWORD = 'правильный-пароль'
 const HASH = hashPassword(PASSWORD, { N: 1024 })
+const MEMBER_PASSWORD = 'пароль-участника'
+const MEMBER_HASH = hashPassword(MEMBER_PASSWORD, { N: 1024 })
 const silentLogger = { debug() {}, info() {}, warn() {}, error() {} }
+
+function signedInitData(userId, firstName = 'Пользователь') {
+  const params = new URLSearchParams({
+    auth_date: String(Math.floor(Date.now() / 1000)),
+    query_id: 'test-query-' + userId,
+    user: JSON.stringify({ id: Number(userId), first_name: firstName }),
+  })
+  const dataCheckString = [...params.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, value]) => `${key}=${value}`)
+    .join('\n')
+  const secretKey = createHmac('sha256', 'WebAppData').update(BOT_TOKEN).digest()
+  params.set('hash', createHmac('sha256', secretKey).update(dataCheckString).digest('hex'))
+  return params.toString()
+}
 
 // ---------------------------------------------------------------------------
 // Чистые функции
@@ -152,7 +170,7 @@ async function createHarness(t, options = {}) {
     mobileUsers = new MobileUserStore({
       file: path.join(dir, 'mobile-accounts.json'),
       logger: silentLogger,
-      seedUsers: [{
+      seedUsers: options.seedUsers ?? [{
         login: options.ownerLogin ?? 'tenkrol',
         passwordHash: options.mobilePasswordHash ?? HASH,
         name: options.mobileUserName ?? 'Владелец',
@@ -538,7 +556,7 @@ test('агент: статус, задание по шаблону и CSRF', asy
     agentStatus: async () => ({
       enabled: true,
       agents: [{ id: 'agent-1', status: 'ready' }],
-      events: [{ taskId: '42', agent: 'agent-1', type: 'task', status: 'done' }],
+      events: [{ taskId: '42', agent: 'agent-1', type: 'task', status: 'done', userId: USER_ID }],
     }),
   })
   const cookies = jar()
@@ -764,7 +782,7 @@ test('проактивность: чтение и сохранение наст�
 
 test('агент: детали задачи', async (t) => {
   const { base } = await createHarness(t, {
-    agentTask: async (taskId) => ({ task: { task: 'проверь сервер ' + taskId }, status: 'done' }),
+    agentTask: async (taskId) => ({ task: { task: 'проверь сервер ' + taskId, userId: USER_ID }, status: 'done' }),
   })
   const cookies = jar()
   await request(base, '/api/auth/login', { method: 'POST', body: { password: PASSWORD }, cookieJar: cookies })
@@ -776,6 +794,7 @@ test('агент: детали задачи', async (t) => {
 test('агент: отмена задачи', async (t) => {
   const cancelled = []
   const { base } = await createHarness(t, {
+    agentTask: async (taskId) => ({ task: { id: taskId, userId: USER_ID } }),
     agentCancel: async ({ taskId }) => { cancelled.push(taskId); return { ok: true } },
   })
   const cookies = jar()
@@ -1025,6 +1044,98 @@ test('медиа: загрузка фото, отдача и отправка с
   await history.flush()
   const chat = await request(base, '/api/chat/history', { cookieJar: cookies })
   assert.equal(chat.json.messages.at(-1).attachments[0].id, uploaded.id)
+})
+
+test('два пользователя не видят медиа и задачи агента друг друга', async (t) => {
+  const { MobileMediaStore } = await import('../src/mobile-media.mjs')
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'tg-isolation-api-'))
+  const mediaStore = new MobileMediaStore({ file: path.join(dir, 'media.json'), dir: path.join(dir, 'files'), logger: silentLogger })
+  await mediaStore.load()
+  t.after(async () => { await fs.rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }) })
+  const cancelled = []
+  const tasks = {
+    'owner-task': { task: { id: 'owner-task', userId: USER_ID, result: { text: 'секрет владельца' } } },
+    'member-task': { task: { id: 'member-task', userId: MASHA_ID, result: { text: 'ответ участника' } } },
+  }
+  const { base } = await createHarness(t, {
+    accounts: true,
+    allowedUserIds: [USER_ID, MASHA_ID],
+    seedUsers: [
+      { login: 'tenkrol', passwordHash: HASH, name: 'Владелец', userId: USER_ID, role: 'owner' },
+      { login: 'masha', passwordHash: MEMBER_HASH, name: 'Участник', userId: MASHA_ID, role: 'member' },
+    ],
+    mediaStore,
+    chatResponder: async () => ({ sends: [{ text: 'ok' }], files: [] }),
+    agentStatus: async () => ({
+      enabled: true,
+      agents: [{ id: 'agent-1', status: 'ready' }],
+      events: [
+        { taskId: 'owner-task', userId: USER_ID, status: 'done' },
+        { taskId: 'member-task', userId: MASHA_ID, status: 'done' },
+      ],
+    }),
+    agentTask: async (taskId) => tasks[taskId] ?? null,
+    agentCancel: async ({ taskId }) => { cancelled.push(taskId); return { state: 'cancelled' } },
+  })
+  const owner = jar()
+  const member = jar()
+  await request(base, '/api/auth/login', { method: 'POST', cookieJar: owner, body: { username: 'tenkrol', password: PASSWORD } })
+  await request(base, '/api/auth/login', { method: 'POST', cookieJar: member, body: { username: 'masha', password: MEMBER_PASSWORD } })
+
+  const upload = await fetch(`${base}/api/chat/upload`, {
+    method: 'POST',
+    headers: {
+      cookie: owner.cookie,
+      'X-Mobile-Client': '1',
+      'X-File-Name': 'private.png',
+      'Content-Type': 'image/png',
+    },
+    body: Buffer.from([137, 80, 78, 71]),
+  })
+  assert.equal(upload.status, 201)
+  const media = await upload.json()
+  assert.equal((await fetch(`${base}${media.url}`, { headers: { cookie: owner.cookie } })).status, 200)
+  assert.equal((await fetch(`${base}${media.url}`, { headers: { cookie: member.cookie } })).status, 404)
+  const foreignAttachment = await request(base, '/api/chat/message', {
+    method: 'POST',
+    cookieJar: member,
+    headers: { 'X-Mobile-Client': '1' },
+    body: { text: 'чужой файл', attachments: [{ id: media.id }] },
+  })
+  assert.equal(foreignAttachment.status, 400)
+
+  const ownerStatus = await request(base, '/api/agent/status', { cookieJar: owner })
+  const memberStatus = await request(base, '/api/agent/status', { cookieJar: member })
+  assert.deepEqual(ownerStatus.json.events.map((event) => event.taskId), ['owner-task'])
+  assert.deepEqual(memberStatus.json.events.map((event) => event.taskId), ['member-task'])
+  assert.equal((await request(base, '/api/agent/task/owner-task', { cookieJar: member })).status, 404)
+  assert.equal((await request(base, '/api/agent/task/member-task', { cookieJar: member })).status, 200)
+  const foreignCancel = await request(base, '/api/agent/cancel', {
+    method: 'POST', cookieJar: member, headers: { 'X-Mobile-Client': '1' }, body: { taskId: 'owner-task' },
+  })
+  assert.equal(foreignCancel.status, 404)
+  assert.deepEqual(cancelled, [])
+})
+
+test('Telegram initData выдаёт cookie для закрытых бинарных URL', async (t) => {
+  const { MobileMediaStore } = await import('../src/mobile-media.mjs')
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'tg-initdata-cookie-'))
+  const mediaStore = new MobileMediaStore({ file: path.join(dir, 'media.json'), dir: path.join(dir, 'files'), logger: silentLogger })
+  await mediaStore.load()
+  const media = await mediaStore.add({ userId: USER_ID, bytes: Buffer.from('private'), name: 'private.jpg', mime: 'image/jpeg' })
+  t.after(async () => { await fs.rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }) })
+  const { base } = await createHarness(t, { accounts: true, mediaStore })
+  const cookies = jar()
+  const session = await request(base, '/api/auth/session', {
+    cookieJar: cookies,
+    headers: { 'X-Telegram-Init-Data': signedInitData(USER_ID, 'Владелец') },
+  })
+  assert.equal(session.status, 200)
+  assert.match(session.response.headers.get('set-cookie'), /HttpOnly/)
+  assert.match(cookies.cookie, new RegExp('^' + SESSION_COOKIE + '='))
+  const binary = await fetch(`${base}/api/media/${media.id}`, { headers: { cookie: cookies.cookie } })
+  assert.equal(binary.status, 200)
+  assert.equal(await binary.text(), 'private')
 })
 
 test('инбокс: добавить, отметить, удалить', async (t) => {

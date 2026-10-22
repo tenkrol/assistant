@@ -210,10 +210,13 @@ export class HistoryStore {
   }
 
   /** Найти исходный текст задачи по её id в подтверждениях агента. */
-  findTaskText(taskId) {
+  findTaskText(taskId, { chatId } = {}) {
     const needle = String(taskId || '')
     if (needle === '') return undefined
-    for (const record of this.chats.values()) {
+    const records = chatId === undefined || chatId === null
+      ? []
+      : [this.chats.get(String(chatId))].filter(Boolean)
+    for (const record of records) {
       for (let index = 0; index < record.messages.length; index += 1) {
         const message = record.messages[index]
         if (message.role !== 'assistant' || !String(message.content || '').includes(needle)) continue

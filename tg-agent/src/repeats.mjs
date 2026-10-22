@@ -6,9 +6,11 @@
  * быть не должно.
  */
 export {
+  EVERY_LIMITS,
   REPEAT_VALUES,
   describeRepeat,
   isRepeat,
   nextDue,
   repeatAfterDelivery,
+  repeatIssue,
 } from './domain/repeats.mjs'

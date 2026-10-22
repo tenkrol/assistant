@@ -6,13 +6,29 @@
  * на выходе результат и готовый текст сообщения. Форматы хранения не меняются —
  * домен читает и пишет те же самые записи, что и раньше.
  */
-import { REPEAT_VALUES, describeRepeat, isRepeat } from './repeats.mjs'
+import { REPEAT_VALUES, describeRepeat, isRepeat, repeatIssue } from './repeats.mjs'
 
 /** Нижняя и верхняя границы задержки `in_minutes` — те же, что были в инструменте. */
 export const MIN_MINUTES = 0.05
 export const MAX_MINUTES = 100_000
 /** Сколько напоминаний показываем кнопками отмены в списке. */
 export const LIST_BUTTONS = 8
+
+/**
+ * Тон доставки напоминания.
+ *
+ * Тон меняет только текст сообщения: время, повтор и кнопки остаются общими,
+ * поэтому «ласково» не может ни ускорить, ни замедлить напоминание. Старые
+ * записи без поля читаются как `neutral` и звучат дословно как раньше.
+ */
+export const TONE_VALUES = Object.freeze(['gentle', 'neutral', 'strict'])
+export const TONE_LABELS = Object.freeze({
+  gentle: 'ласковый',
+  neutral: 'нейтральный',
+  strict: 'строгий',
+})
+export const isTone = (value) => TONE_VALUES.includes(value)
+export const normalizeTone = (value) => (isTone(value) ? value : 'neutral')
 
 /** Часовой пояс пользователя; пустая настройка означает системный. */
 export function resolveZone(timeZone = '') {
@@ -166,12 +182,24 @@ export function lateReminderPrefix(dueAt, { timeZone = '' } = {}) {
   return `⏰ пропущено, было на ${parts.day}.${parts.month} ${hour}:${parts.minute} — `
 }
 
-/** Текст доставленного напоминания. */
+/**
+ * Текст доставленного напоминания.
+ *
+ * `neutral` (и старое поле без тона) отдаёт дословно прежний текст. `gentle` и
+ * `strict` меняют только слова вокруг текста: момент, повтор и кнопки от тона
+ * не зависят.
+ */
 export function reminderDeliveryText(reminder, { lateNotice = false, owner, timeZone = '' } = {}) {
   const text = String(reminder?.text ?? '')
+  const tone = normalizeTone(reminder?.tone)
   if (lateNotice) {
-    return `${lateReminderPrefix(reminder?.dueAt, { timeZone })}${owner ? `Напоминание для ${owner}: ` : 'Напоминание: '}${text}`
+    const late = lateReminderPrefix(reminder?.dueAt, { timeZone })
+    if (tone === 'gentle') return `${late}🌿 Мягко напоминаю${owner ? ` для ${owner}` : ''}: ${text}`
+    if (tone === 'strict') return `${late}⏰ Строго напоминаю${owner ? ` для ${owner}` : ''}: ${text}`
+    return `${late}${owner ? `Напоминание для ${owner}: ` : 'Напоминание: '}${text}`
   }
+  if (tone === 'gentle') return `🌿 Мягко напоминаю${owner ? ` для ${owner}` : ''}: ${text}`
+  if (tone === 'strict') return `⏰ Строго напоминаю${owner ? ` для ${owner}` : ''}: ${text}`
   const prefix = '⏰ Напоминание'
   return `${prefix}${owner ? ` для ${owner}` : ''}: ${text}`
 }
@@ -202,14 +230,24 @@ export function rulesOfReminders({ store, timeZone = '', locale = 'ru-RU', now =
      * создать напоминание. Ничего не пишет, если время уже прошло.
      */
     async create(args = {}, context = {}) {
-      const { text, in_minutes: inMinutes, at, repeat = 'none' } = args
+      const { text, in_minutes: inMinutes, at, repeat = 'none', tone = 'neutral' } = args
       const { chatId, userId } = context
       if (!Number.isFinite(chatId)) return { text: 'Ошибка инструмента remind: не удалось определить чат.' }
       const hasDelay = inMinutes !== undefined && inMinutes !== null
       const hasMoment = typeof at === 'string' && at.trim() !== ''
       // Форма аргументов проверяется раньше времени: недопустимый повтор должен
       // быть назван, даже если вызывающий забыл время.
-      if (!isRepeat(repeat)) return { text: 'Ошибка инструмента remind: недопустимый повтор. Можно: none, daily, weekdays, weekly, weekly:1..7, monthly:1..31, every:N (N кратно 5).' }
+      if (!isRepeat(repeat)) {
+        const issue = repeatIssue(repeat)
+        return {
+          text: issue
+            ? `Ошибка инструмента remind: ${issue}. Напоминание не создано; укажи repeat=every:N, где N — минуты от 15 до 1440 (кратно 5), например every:120 для «каждые 2 часа».`
+            : 'Ошибка инструмента remind: недопустимый повтор. Можно: none, daily, weekdays, weekly, weekly:1..7, monthly:1..31, every:N (N от 15 до 1440, кратно 5).',
+        }
+      }
+      if (!isTone(tone)) {
+        return { text: 'Ошибка инструмента remind: недопустимый тон. Можно: gentle (ласково), neutral (обычный), strict (строго).' }
+      }
       if (hasDelay === hasMoment) {
         return { text: 'Ошибка инструмента remind: укажи ровно одно — in_minutes (через сколько минут) или at (дата и время). Если пользователь не назвал время, спроси его.' }
       }
@@ -242,7 +280,7 @@ export function rulesOfReminders({ store, timeZone = '', locale = 'ru-RU', now =
       }
       let reminder
       try {
-        reminder = store.add({ chatId, userId, text, dueAt: due, repeat })
+        reminder = store.add({ chatId, userId, text, dueAt: due, repeat, tone })
       } catch (error) {
         if (/access denied/.test(String(error?.message))) return { text: readOnlyText }
         return { text: `Ошибка инструмента remind: ${error.message}` }
@@ -327,6 +365,7 @@ export function rulesOfReminders({ store, timeZone = '', locale = 'ru-RU', now =
         text: existing.text,
         dueAt: new Date(referenceNow().getTime() + minutes * 60_000),
         repeat: existing.repeat ?? 'none',
+        tone: existing.tone,
         ...(existing.scope_id === undefined ? {} : { scopeId: existing.scope_id }),
       })
       store.cancel(chatId, existing.id, userId)
@@ -348,6 +387,7 @@ export function rulesOfReminders({ store, timeZone = '', locale = 'ru-RU', now =
         text: reminder.text,
         dueAt: until,
         repeat: reminder.repeat ?? 'none',
+        tone: reminder.tone,
         ...(reminder.scope_id === undefined ? {} : { scopeId: reminder.scope_id }),
         // Перенос из-за тихого часа — системное действие, а не правка человеком.
         system: true,
@@ -374,5 +414,8 @@ export function rulesOfReminders({ store, timeZone = '', locale = 'ru-RU', now =
     repeatValues: REPEAT_VALUES,
     describeRepeat,
     isRepeat,
+    /** Допустимые тона напоминания. */
+    toneValues: TONE_VALUES,
+    normalizeTone,
   }
 }

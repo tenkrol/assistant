@@ -1491,14 +1491,16 @@ function clearPendingMedia() {
 }
 
 async function uploadMediaFile(item) {
+  const headers = {
+    'X-Mobile-Client': '1',
+    'X-File-Name': encodeURIComponent(item.file.name || (item.kind === 'video' ? 'video.mp4' : 'photo.jpg')),
+    'Content-Type': item.file.type || (item.kind === 'video' ? 'video/mp4' : 'image/jpeg'),
+  }
+  if (INIT_DATA) headers['X-Telegram-Init-Data'] = INIT_DATA
   const response = await fetch('/api/chat/upload', {
     method: 'POST',
     credentials: 'same-origin',
-    headers: {
-      'X-Mobile-Client': '1',
-      'X-File-Name': encodeURIComponent(item.file.name || (item.kind === 'video' ? 'video.mp4' : 'photo.jpg')),
-      'Content-Type': item.file.type || (item.kind === 'video' ? 'video/mp4' : 'image/jpeg'),
-    },
+    headers,
     body: item.file,
   })
   const data = await response.json().catch(() => ({}))
@@ -3360,12 +3362,15 @@ async function openArtifact({ name, url, mime = '' } = {}) {
     // Скачивающие эндпоинты отдают Content-Disposition: attachment, поэтому
     // напрямую в img/iframe вставлять нельзя — браузер начинает скачивание.
     // Сначала забираем байты и открываем их через blob-URL.
-    const response = await fetch(url, { credentials: 'same-origin' })
+    const headers = {}
+    if (INIT_DATA) headers['X-Telegram-Init-Data'] = INIT_DATA
+    const response = await fetch(url, { credentials: 'same-origin', headers })
     if (!response.ok) throw new Error('HTTP ' + response.status)
     const blob = await response.blob()
     const type = String(mime || blob.type || '').toLowerCase()
     const lower = String(name || '').toLowerCase()
     artifactObjectUrl = URL.createObjectURL(blob)
+    $('artifact-download').href = artifactObjectUrl
     $('artifact-meta').textContent = blob.type || mime || ''
     if (type.startsWith('image/') || /\.(png|jpe?g|webp|gif|heic|bmp)$/.test(lower)) {
       const img = document.createElement('img')

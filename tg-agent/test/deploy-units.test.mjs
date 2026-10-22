@@ -65,3 +65,16 @@ test('deploy-remote устанавливает юнит сторожа вмес�
   assert.match(script, /tg-agent-watch\.timer/)
   assert.match(script, /systemctl enable --now tg-agent-watch\.timer/)
 })
+
+test('проверка релиза использует существующий Node.js и ставится с таймером', () => {
+  const service = sections(read('deploy-verify.service'))
+  assert.deepEqual(service.Service.ExecStart, ['/usr/bin/node tools/deploy-safe.mjs --status'])
+  const timer = sections(read('deploy-verify.timer'))
+  assert.deepEqual(timer.Timer.OnUnitActiveSec, ['1h'])
+  assert.deepEqual(timer.Timer.Persistent, ['true'])
+
+  const script = fs.readFileSync(path.join(deployDir, 'deploy-remote.sh'), 'utf8')
+  assert.match(script, /deploy-verify\.service/)
+  assert.match(script, /s\|\^ExecStart=\.\*\|ExecStart=\$\{NODE_BIN\} tools\/deploy-safe\.mjs --status\|/)
+  assert.match(script, /systemctl enable --now deploy-verify\.timer/)
+})

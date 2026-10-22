@@ -13,8 +13,7 @@
 #   node tools/deploy-safe.mjs --status
 #
 # The unit is oneshot and has no [Install] section on purpose: to run it
-# periodically, install a separate timer (there is no deploy-verify.timer in the
-# repository; create it at /etc/systemd/system/deploy-verify.timer):
+# periodically, install the accompanying timer:
 #
 #   [Unit]
 #   Description=Hourly verification of the active tg-agent release
@@ -30,10 +29,7 @@
 #
 # then:
 #
-#   sudo cp deploy/deploy-verify.service /etc/systemd/system/
-#   sudo install -m 644 /dev/stdin /etc/systemd/system/deploy-verify.timer <<'EOF'
-#   ...unit text above...
-#   EOF
+#   sudo bash deploy/deploy-remote.sh
 #   sudo systemctl daemon-reload
 #   systemctl enable --now deploy-verify.timer
 #   systemctl list-timers deploy-verify.timer
@@ -53,7 +49,7 @@ WorkingDirectory=/opt/tg-agent
 EnvironmentFile=/opt/tg-agent/.env
 Environment=RELEASES_DIR=/opt/tg-agent-releases
 Environment=CURRENT_LINK=/opt/tg-agent
-ExecStart=/usr/local/bin/node tools/deploy-safe.mjs --status
+ExecStart=/usr/bin/node tools/deploy-safe.mjs --status
 
 # Hardening: same as tg-agent.service. --status only reads the symlink and the
 # releases directory, so no ReadWritePaths is declared at all (a missing

@@ -13,7 +13,7 @@
  */
 import { createJsonStore } from './storage/json-store.mjs'
 import { REPEAT_VALUES, isRepeat, repeatAfterDelivery } from './domain/repeats.mjs'
-import { zonedTimeToUtc } from './domain/reminders.mjs'
+import { isTone, normalizeTone, zonedTimeToUtc } from './domain/reminders.mjs'
 
 const VERSION = 1
 /** Допустимые повторы живут в одном месте — `src/domain/repeats.mjs`. */
@@ -35,6 +35,21 @@ const isReminder = (value) =>
   && Number.isFinite(Date.parse(value.dueAt))
   && isRepeat(value.repeat ?? 'none')
   && (value.userId === undefined || typeof value.userId === 'number')
+  && (value.tone === undefined || isTone(value.tone))
+  && (value.anchorAt === undefined || (typeof value.anchorAt === 'string' && Number.isFinite(Date.parse(value.anchorAt))))
+
+/**
+ * Дополнить старую запись новыми полями, не меняя её поведения.
+ *
+ * `anchorAt` — исходный срок серии, от которого идемпотентно считается
+ * следующий; `tone` без значения звучит как нейтральный, то есть дословно как
+ * раньше.
+ */
+const withDefaults = (reminder) => ({
+  ...reminder,
+  anchorAt: reminder.anchorAt ?? reminder.dueAt,
+  tone: normalizeTone(reminder.tone),
+})
 
 /**
  * Миграция схемы напоминаний: файл без `version` считаем версией 0.
@@ -43,7 +58,7 @@ const isReminder = (value) =>
 function migrateReminders(data) {
   return {
     ...data,
-    reminders: Array.isArray(data?.reminders) ? data.reminders.filter(isReminder) : [],
+    reminders: Array.isArray(data?.reminders) ? data.reminders.filter(isReminder).map(withDefaults) : [],
   }
 }
 
@@ -84,7 +99,7 @@ export class ReminderStore {
   async load() {
     try {
       const state = await this.storage.load()
-      this.reminders = Array.isArray(state.reminders) ? state.reminders.filter(isReminder) : []
+      this.reminders = Array.isArray(state.reminders) ? state.reminders.filter(isReminder).map(withDefaults) : []
       const highest = this.reminders.reduce((max, reminder) => Math.max(max, Number(reminder.id) || 0), 0)
       this.nextId = Math.max(Number(state.nextId) || 0, highest + 1)
       this.logger?.info('reminders loaded', { count: this.reminders.length })
@@ -125,16 +140,17 @@ export class ReminderStore {
   /**
    * Add one reminder.
    *
-   * @param {object} input - `chatId`, `userId`, `text`, `dueAt` (Date or ISO string), `repeat`.
+   * @param {object} input - `chatId`, `userId`, `text`, `dueAt` (Date or ISO string), `repeat`, `tone`.
    * @param {string} [input.scopeId] - явное пространство; иначе активный проект или личное.
    * @param {boolean} [input.system] - системная запись (перенос тихого часа), без проверки роли.
    * @returns {object} the stored reminder.
    */
-  add({ chatId, userId, text, dueAt, repeat = 'none', scopeId, system = false }) {
+  add({ chatId, userId, text, dueAt, repeat = 'none', tone = 'neutral', scopeId, system = false }) {
     const clean = String(text ?? '').trim()
     if (clean === '') throw new Error('reminder text is required')
     if (clean.length > 500) throw new Error('reminder text is too long')
     if (!isRepeat(repeat)) throw new Error(`repeat must be one of ${REPEATS.slice(0, 6).join(', ')}, …`)
+    if (!isTone(tone)) throw new Error('tone must be one of gentle, neutral, strict')
     // A repeat that is not `none` must be known to the advance logic as well.
     const due = dueAt instanceof Date ? dueAt : new Date(dueAt)
     if (Number.isNaN(due.getTime())) throw new Error('reminder time is invalid')
@@ -160,6 +176,10 @@ export class ReminderStore {
       text: clean,
       dueAt: due.toISOString(),
       repeat,
+      // Исходный срок серии: от него идемпотентно считается следующее
+      // срабатывание, поэтому повторный advance не перескакивает интервал.
+      anchorAt: due.toISOString(),
+      tone,
       createdAt: new Date().toISOString(),
     }
     this.reminders.push(reminder)
@@ -196,6 +216,11 @@ export class ReminderStore {
   /**
    * Move a repeating reminder to its next occurrence after `now`.
    *
+   * Считаем не от текущего `dueAt`, а от `anchorAt` — исходного срока серии.
+   * Поэтому один и тот же `now` всегда даёт один и тот же результат: повторный
+   * тик или рестарт не сдвигает напоминание ещё на интервал. Старая запись без
+   * `anchorAt` получает его из своего `dueAt` при первом переносе.
+   *
    * @param {string} id - reminder id.
    * @param {number} [now] - reference instant.
    * @returns {object | undefined} the updated reminder.
@@ -203,9 +228,13 @@ export class ReminderStore {
   advance(id, now = Date.now()) {
     const reminder = this.reminders.find((item) => item.id === String(id))
     if (!reminder || reminder.repeat === 'none') return reminder
+    const anchor = Number.isFinite(Date.parse(reminder.anchorAt ?? ''))
+      ? reminder.anchorAt
+      : reminder.dueAt
+    reminder.anchorAt = anchor
     // Все расписания (daily, weekdays, weekly:2, monthly:1, every:30 …) разбирает
     // src/domain/repeats.mjs, чтобы планировщик и инструмент не разошлись в «дальше».
-    const next = repeatAfterDelivery(reminder, { now: new Date(now) })
+    const next = repeatAfterDelivery({ dueAt: anchor, repeat: reminder.repeat }, { now: new Date(now) })
     if (next?.dueAt) reminder.dueAt = next.dueAt.toISOString()
     return reminder
   }

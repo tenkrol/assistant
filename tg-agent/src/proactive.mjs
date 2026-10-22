@@ -18,6 +18,11 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import { createJsonStore } from './storage/json-store.mjs'
 import { quietHoursEnd, resolveZone } from './domain/reminders.mjs'
+import {
+  DEFAULT_EVENING_CHECK_IN,
+  eveningCheckInText,
+  normalizeEveningCheckIn,
+} from './domain/evening.mjs'
 
 /** Версия схемы `proactive.json`: состояние персональное на пользователя и канал. */
 export const PROACTIVE_VERSION = 2
@@ -31,6 +36,13 @@ export const REVIEW_LIMIT = 1
 export const DEFAULT_REVIEW_MAX = 5
 /** На сколько откладывается уведомление кнопкой. */
 export const DEFAULT_SNOOZE_MINUTES = 30
+/**
+ * Если человек писал боту меньше двух часов назад, вечерний вопрос не задаётся.
+ *
+ * Это не «тихий час», а уважение к живому разговору: спрашивать «как прошёл
+ * день» сразу после сообщения человека — значит перебивать его.
+ */
+export const EVENING_SUPPRESS_MS = 2 * 60 * 60 * 1000
 /** Просроченное напоминание старше этого срока в обзор не попадает. */
 const REMINDER_GRACE_MS = 12 * 60 * 60 * 1000
 /** Уведомление о переносе встречи живёт два часа после нового времени. */
@@ -57,6 +69,7 @@ export const PRIORITY = Object.freeze({
   task_moved: 65,
   task_waiting: 60,
   event_soon: 50,
+  checkin: 45,
   reminder: 30,
   review: 10,
 })
@@ -65,7 +78,7 @@ export const PRIORITY = Object.freeze({
 export const CATEGORIES = Object.freeze(['reminder', 'event', 'task', 'review'])
 
 const DEFAULT_CATEGORIES = Object.freeze({ reminder: true, event: true, task: true, review: true })
-const TYPE_LABEL = Object.freeze({ reminder: 'напоминания', event: 'встречи', task: 'поручения', review: 'обзор' })
+const TYPE_LABEL = Object.freeze({ reminder: 'напоминания', event: 'встречи', task: 'поручения', review: 'обзор', checkin: 'вечерний вопрос' })
 
 const STATUS_COMPLETED = new Set(['completed', 'complete', 'done', 'success', 'succeeded', 'finished'])
 const STATUS_ERROR = new Set(['error', 'failed', 'failure', 'crashed', 'timeout'])
@@ -200,6 +213,24 @@ export function reviewInstant(value, settings = {}) {
 }
 
 /**
+ * Момент вечернего вопроса сегодня по местным часам.
+ *
+ * Настройка уже приведена `normalizeSettings`, но функция не доверяет и этому:
+ * без корректного времени берётся 21:00 из значений по умолчанию.
+ *
+ * @param {Date|string|number} value - текущий момент.
+ * @param {object} settings - настройки получателя (`tz`, `eveningCheckIn`).
+ * @returns {Date} момент вопроса в местных сутках `value`.
+ */
+export function eveningCheckInInstant(value, settings = {}) {
+  const zone = settings.tz ?? ''
+  const key = dayKeyInZone(value, zone)
+  const configured = settings.eveningCheckIn?.at
+  const time = validTime(configured) ? configured : DEFAULT_EVENING_CHECK_IN.at
+  return localTimeToInstant(`${key}T${time}`, zone)
+}
+
+/**
  * Сейчас тихие часы?
  *
  * Окно может пересекать полночь; сравнение идёт по местным минутам, а не по
@@ -288,6 +319,8 @@ export function normalizeSettings(input = {}, { timeZone = '', quiet, dayLimit =
     dayLimit: Number.isInteger(limit) && limit > 0 ? limit : DEFAULT_DAY_LIMIT,
     reviewMax: Number.isInteger(max) && max > 0 ? max : DEFAULT_REVIEW_MAX,
     snoozeMinutes: Number.isInteger(snooze) && snooze > 0 ? snooze : DEFAULT_SNOOZE_MINUTES,
+    // Вечерний вопрос — личная настройка человека, а не глобальный флаг.
+    eveningCheckIn: normalizeEveningCheckIn(input.eveningCheckIn),
   }
 }
 
@@ -805,6 +838,8 @@ function normalizeWatermark(value) {
   return {
     at: typeof watermark.at === 'string' ? watermark.at : null,
     reviewDay: typeof watermark.reviewDay === 'string' ? watermark.reviewDay : null,
+    // День, за который вечерний вопрос уже задан, отменён или подавлен.
+    eveningDay: typeof watermark.eveningDay === 'string' ? watermark.eveningDay : null,
   }
 }
 
@@ -835,7 +870,7 @@ function normalizeDelivery(value) {
 function normalizeItem(value, fallbackPrincipal) {
   if (value == null || typeof value !== 'object') return undefined
   if (typeof value.key !== 'string' || value.key === '') return undefined
-  if (!['reminder', 'event', 'task', 'review'].includes(value.type)) return undefined
+  if (!['reminder', 'event', 'task', 'review', 'checkin'].includes(value.type)) return undefined
   if (Number.isNaN(Date.parse(value.plannedAt)) || Number.isNaN(Date.parse(value.expiresAt))) return undefined
   const {
     state, attempts, reserved, claimedAt, sentAt, nextAttemptAt, snoozeUntil, lastError, updatedAt,
@@ -1142,8 +1177,14 @@ export class ProactiveStore {
     await this.storage.transaction((draft) => {
       const user = ensureUserState(draft, who, this.baseSettings)
       const current = user.settings
+      // Вложенную настройку вечернего вопроса сливаем по полям: `/proactive
+      // вечер 21:00` не должен сбрасывать выбранный ранее тон.
+      const merged = { ...current, ...patch }
+      if (patch.eveningCheckIn && typeof patch.eveningCheckIn === 'object') {
+        merged.eveningCheckIn = { ...current.eveningCheckIn, ...patch.eveningCheckIn }
+      }
       user.settings = normalizeSettings(
-        { ...current, ...patch },
+        merged,
         {
           timeZone: current.tz,
           quiet: current.quiet,
@@ -1177,6 +1218,16 @@ export class ProactiveStore {
   /** Тихие часы получателя; `null` выключает окно. */
   async setQuiet(window, principal) {
     return this.updateSettings({ quiet: window }, principal)
+  }
+
+  /**
+   * Настройка вечернего вопроса: включён ли, во сколько и с каким тоном.
+   *
+   * Поля можно присылать по одному: остальные сохраняются. Так «спрашивай
+   * вечером в 21:00» не стирает выбранный ранее тон.
+   */
+  async setEveningCheckIn(patch = {}, principal) {
+    return this.updateSettings({ eveningCheckIn: patch }, principal)
   }
 
   /** Watermark получателя. */
@@ -1310,10 +1361,10 @@ export class ProactiveStore {
    * watermark и состояние проверяются в ведре конкретного получателя.
    *
    * @param {object} candidate - событие с ключом и данными.
-   * @param {object} options - `now`, `review`, `principal`.
+   * @param {object} options - `now`, `review`, `checkIn`, `principal`.
    * @returns {Promise<object>} `{ok, reason?, item?, budget?}`.
    */
-  async claim(candidate, { now = new Date(), review = false, principal } = {}) {
+  async claim(candidate, { now = new Date(), review = false, checkIn = false, principal } = {}) {
     const at = asDate(now)
     const key = principalOf(principal) ?? this.ownerPrincipal
     return this.storage.transaction((state) => {
@@ -1334,7 +1385,11 @@ export class ProactiveStore {
         return deny('истёк срок актуальности')
       }
       const user = ensureUserState(state, key, this.baseSettings)
-      if (review) {
+      if (checkIn) {
+        // Вечерний вопрос — личный ритуал, а не инициатива из бюджета: он не
+        // тратит дневной лимит, но и не повторяется в тот же день.
+        if (user.watermark.eveningDay === day) return deny('вечерний вопрос на сегодня уже задан')
+      } else if (review) {
         if (user.sentToday.reviews >= REVIEW_LIMIT) return deny('обзор на сегодня уже отправлен')
         if (!delivery.reserved) {
           user.sentToday.reviews += 1
@@ -1361,7 +1416,7 @@ export class ProactiveStore {
   }
 
   /** Доставка удалась: состояние `sent`, отметка watermark получателя. */
-  async finish(key, { now = new Date(), state: finalState = 'sent', reviewDay, principal } = {}) {
+  async finish(key, { now = new Date(), state: finalState = 'sent', reviewDay, checkInDay, principal } = {}) {
     const at = asDate(now)
     const who = principalOf(principal) ?? this.ownerPrincipal
     await this.storage.transaction((draft) => {
@@ -1377,6 +1432,7 @@ export class ProactiveStore {
       const user = ensureUserState(draft, who, this.baseSettings)
       user.watermark.at = iso(at)
       if (reviewDay) user.watermark.reviewDay = reviewDay
+      if (checkInDay) user.watermark.eveningDay = checkInDay
     })
     return this
   }
