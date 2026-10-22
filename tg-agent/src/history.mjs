@@ -18,7 +18,7 @@ const VERSION = 1
  * и произвольный текст не должны создавать чат в файле: однажды так появился
  * ключ `NaN` с 14 сообщениями, который потом никому не принадлежал.
  */
-const validChatId = (chatId) => Number.isFinite(Number(chatId))
+const validChatId = (chatId) => Number.isFinite(Number(chatId)) || /^project:[A-Za-z0-9-]+$/.test(String(chatId))
 
 /** Служебные слова, которые не делают два сообщения «тем же фактом». */
 const STOP_STEMS = new Set(['живе', 'живу', 'люби', 'работ', 'зову', 'горо', 'есть', 'меня', 'его', 'ее', 'её', 'был', 'была', 'были'])

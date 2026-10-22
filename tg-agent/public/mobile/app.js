@@ -399,7 +399,11 @@ function go(name, options = {}) {
       location.hash = name
     }
   }
-  if (name === 'plans') ensurePlans()
+  if (name === 'plans') {
+    // Напоминания могли создать из чата или другого устройства — обновляем.
+    state.loaded.plans = false
+    ensurePlans()
+  }
   if (name === 'memory') ensureMemory()
   if (name === 'settings') ensureSettings()
   if (name === 'stats') ensureStats()
@@ -5188,6 +5192,9 @@ function bind() {
   const agentFeedTimer = setInterval(() => {
     if (document.body.dataset.screen === 'agent') void loadAgentStatus()
   }, 10_000)
+  const plansFeedTimer = setInterval(() => {
+    if (document.body.dataset.screen === 'plans' && !state.loading.plans) void loadPlans()
+  }, 15_000)
   agentFeedTimer.unref?.()
 
   window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {

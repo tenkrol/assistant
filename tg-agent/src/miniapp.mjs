@@ -54,7 +54,7 @@ const DEFAULT_LOGIN_WINDOW_MS = 15 * 60 * 1000
 const DEFAULT_LOGIN_BLOCK_MS = 15 * 60 * 1000
 const MAX_LOGIN_TRACKED_IPS = 10_000
 const CHAT_HISTORY_LIMIT = 60
-const CHAT_MESSAGE_MAX = 4_000
+const CHAT_MESSAGE_MAX = 20_000
 const CHAT_INPUT_MAX = 4_000
 const MOBILE_CLIENT_HEADER = 'x-mobile-client'
 /** Мобильный клиент — единственная страница, для которой включается CSP. */
