@@ -378,7 +378,7 @@ export class Assistant {
       id: `web-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       from: { id: Number(userId), name: String(name || 'Пользователь'), isBot: false },
       chat: {
-        id: Number(chatId ?? userId),
+        id: typeof chatId === 'string' && chatId.startsWith('project:') ? chatId : Number(chatId ?? userId),
         type: chatType === 'supergroup' ? 'supergroup' : chatType === 'group' ? 'group' : 'private',
         ...(chatTitle ? { title: String(chatTitle) } : {}),
       },
