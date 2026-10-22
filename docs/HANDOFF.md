@@ -297,7 +297,7 @@ Production: `release-20261018-090029`, сервис active, тесты 857.
 - Валидный Telegram initData выдаёт короткую HttpOnly-сессию для бинарных URL;
   ручные загрузки также передают initData.
 - Внешние YouTube-запросы ограничены по времени, мобильные ответы включают HSTS.
-- Полный чистый прогон: 1075/1075. Production: `release-20261022-220625`, `tg-agent`,
+- Полный чистый прогон: 1075/1075. Production: `release-20261022-221114`, `tg-agent`,
   `vk-agent`, nginx и bridge tunnel active, без рестартов; `/mobile/` и главная — 200,
   закрытый session endpoint — 401 без авторизации.
 - Конфликтующая резервная конфигурация nginx вынесена из `sites-enabled`; `nginx -t`
