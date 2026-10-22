@@ -25,18 +25,27 @@ const WEEKLY_FIRST = 1
 const WEEKLY_LAST = 7
 const MONTHLY_FIRST = 1
 const MONTHLY_LAST = 31
-const EVERY_FIRST_MINUTES = 15
+const EVERY_FIRST_MINUTES = 5
 const EVERY_LAST_MINUTES = 1440
 const EVERY_STEP_MINUTES = 5
+/**
+ * Минимальный интервал для нового напоминания.
+ *
+ * Публичный словарь по-прежнему знает `every:5`: старые записи должны
+ * переноситься, а мини-приложение — показывать прежние варианты. Но создать
+ * новый повтор чаще 15 минут нельзя — это и объясняет `repeatIssue`.
+ */
+const EVERY_CREATE_MIN_MINUTES = 15
 
 /**
  * Границы интервального повтора — для текстов об ошибке в инструменте.
  *
- * Порог в 15 минут защищает от спама: чаще человеку напоминать не нужно, и
- * именно это объясняется вместо молчаливой подмены запрошенного значения.
+ * `minMinutes` — порог создания (15 минут), `acceptedFromMinutes` — нижняя
+ * граница словаря, куда входят уже сохранённые записи начиная с 5 минут.
  */
 export const EVERY_LIMITS = Object.freeze({
-  minMinutes: EVERY_FIRST_MINUTES,
+  minMinutes: EVERY_CREATE_MIN_MINUTES,
+  acceptedFromMinutes: EVERY_FIRST_MINUTES,
   maxMinutes: EVERY_LAST_MINUTES,
   stepMinutes: EVERY_STEP_MINUTES,
 })
@@ -58,7 +67,7 @@ function range(from, to, step = 1) {
  * - `weekly:1` … `weekly:7` — one weekday, 1 = Monday … 7 = Sunday;
  * - `monthly:1` … `monthly:31` — that day of the month (clamped to the last
  *   day of a shorter month);
- * - `every:15` … `every:1440` — каждые N минут, N кратно 5; порог — 15 минут.
+ * - `every:5` … `every:1440` — каждые N минут, N кратно 5.
  */
 export const REPEAT_VALUES = [
   'none',
@@ -110,19 +119,20 @@ export const isRepeat = (value) => typeof value === 'string' && REPEAT_SET.has(v
  * @returns {string | undefined} причина отказа или `undefined`.
  */
 export function repeatIssue(value) {
-  if (isRepeat(value)) return undefined
   const match = /^every:(-?\d+)$/.exec(String(value ?? ''))
-  if (!match) return undefined
-  const minutes = Number(match[1])
-  if (!Number.isFinite(minutes) || !Number.isInteger(minutes)) return undefined
-  if (minutes < EVERY_FIRST_MINUTES) {
-    return `минимальный интервал — ${EVERY_FIRST_MINUTES} минут`
-  }
-  if (minutes > EVERY_LAST_MINUTES) {
-    return `максимальный интервал — ${EVERY_LAST_MINUTES} минут (24 часа)`
-  }
-  if (minutes % EVERY_STEP_MINUTES !== 0) {
-    return `интервал должен быть кратен ${EVERY_STEP_MINUTES} минутам`
+  if (match) {
+    const minutes = Number(match[1])
+    if (!Number.isFinite(minutes) || !Number.isInteger(minutes)) return undefined
+    if (minutes < EVERY_CREATE_MIN_MINUTES) {
+      return `минимальный интервал — ${EVERY_CREATE_MIN_MINUTES} минут`
+    }
+    if (minutes > EVERY_LAST_MINUTES) {
+      return `максимальный интервал — ${EVERY_LAST_MINUTES} минут (24 часа)`
+    }
+    if (minutes % EVERY_STEP_MINUTES !== 0) {
+      return `интервал должен быть кратен ${EVERY_STEP_MINUTES} минутам`
+    }
+    return undefined
   }
   return undefined
 }

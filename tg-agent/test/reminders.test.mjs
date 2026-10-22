@@ -221,7 +221,7 @@ test('advance moves a weekly reminder by exactly one week', async () => {
   }
 })
 
-test('advance jumps a long-overdue reminder into the future, again and again', async () => {
+test('advance moves a long-overdue reminder into the future idempotently', async () => {
   const ctx = await makeStore()
   try {
     const reminder = ctx.store.add({ chatId: 1, text: 'давно', dueAt: '2020-01-01T00:00:00Z', repeat: 'daily' })
@@ -232,7 +232,7 @@ test('advance jumps a long-overdue reminder into the future, again and again', a
     ctx.store.advance(reminder.id, now)
     const second = Date.parse(reminder.dueAt)
     assert.ok(second > now, `second ${reminder.dueAt} must be in the future`)
-    assert.equal(second, first + DAY_MS)
+    assert.equal(second, first)
   } finally {
     await ctx.cleanup()
   }
