@@ -572,6 +572,24 @@ export async function createInstance({ config, logger, instance, shared, platfor
       reminders: reminders?.store,
       events: events?.store,
       tasks: taskSource,
+      // «Писал ли человек только что»: живая отметка процесса плюс время
+      // последнего сообщения из истории (она переживает перезапуск). Без
+      // источника вечерний вопрос не подавляется.
+      lastUserActivity: ({ chatId, userId }) => {
+        const remembered = bot.lastUserAt?.get(String(userId)) ?? 0
+        const messages = bot.history?.messages?.(chatId, userId) ?? []
+        let written = 0
+        for (let index = messages.length - 1; index >= 0; index -= 1) {
+          const entry = messages[index]
+          if (entry?.role !== 'user' || typeof entry.at !== 'string') continue
+          const stamp = Date.parse(entry.at)
+          if (Number.isFinite(stamp)) {
+            written = stamp
+            break
+          }
+        }
+        return Math.max(remembered, written) || undefined
+      },
     },
     targets: proactiveTargets,
     access,

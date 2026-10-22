@@ -1553,6 +1553,23 @@ export class ProactiveStore {
     return this
   }
 
+  /**
+   * Вечерний вопрос на сегодня не задаём: день закрыт.
+   *
+   * Причина (`писал недавно`, `тихие часы`) остаётся в журнале решений, а здесь
+   * хранится только день, чтобы следующий тик не спрашивал снова.
+   */
+  async skipCheckIn(day, reason, { now = new Date(), principal } = {}) {
+    const at = asDate(now)
+    const who = principalOf(principal) ?? this.ownerPrincipal
+    await this.storage.transaction((draft) => {
+      const user = ensureUserState(draft, who, this.baseSettings)
+      user.watermark.eveningDay = day
+      user.watermark.at = iso(at)
+    })
+    return this
+  }
+
   /** Пункты, показанные в обзоре, больше не отправляем как инициативу. */
   async markReviewed(keys = [], { now = new Date(), principal } = {}) {
     if (keys.length === 0) return this
@@ -1653,6 +1670,10 @@ export class ProactiveService {
       dayLimit: settings.dayLimit,
       sentToday,
       reviewDay: watermark.reviewDay ?? null,
+      // Вечерний вопрос показывается в статусе отдельно от обзора: это разные
+      // настройки и разные поводы для сообщения.
+      eveningCheckIn: settings.eveningCheckIn,
+      eveningDay: watermark.eveningDay ?? null,
     }
   }
 
@@ -1671,6 +1692,18 @@ export class ProactiveService {
   /** Тихие часы конкретного получателя. */
   async setQuiet(quiet, target) {
     await this.store.setQuiet(quiet, this.principalOf(target))
+    return this.statusFor(target)
+  }
+
+  /**
+   * Вечерний вопрос конкретного получателя.
+   *
+   * @param {{enabled?: boolean, at?: string, tone?: string}} patch - изменения.
+   * @param {object} target - получатель из проверенного контекста.
+   * @returns {Promise<object>} обновлённый статус.
+   */
+  async setEveningCheckIn(patch = {}, target) {
+    await this.store.setEveningCheckIn(patch, this.principalOf(target))
     return this.statusFor(target)
   }
 
@@ -1809,6 +1842,11 @@ export class ProactiveService {
         continue
       }
       if (sourceDown(item.type)) continue
+      // Вечерний вопрос не приходит из источника-списка: его кандидат
+      // появляется только в своё время, поэтому отсутствие ключа здесь не
+      // означает «событие отменили». Иначе ночной тик снимал бы неотправленный
+      // вопрос до наступления вечера.
+      if (item.type === 'checkin') continue
       if (!byKey.has(item.key)) {
         await this.store.setState(item.key, 'cancelled', { now, reason: 'событие больше не актуально', principal })
         decisions.push({
@@ -1823,6 +1861,130 @@ export class ProactiveService {
       }
     }
     return decisions
+  }
+
+  /**
+   * Когда получатель последний раз писал боту.
+   *
+   * Источник передаётся снаружи (история и отметка в памяти процесса), поэтому
+   * сам сервис не знает, где хранится переписка. Ошибка источника не подавляет
+   * вечерний вопрос: лучше спросить, чем молчать из-за сбоя чтения.
+   *
+   * @param {object} target - получатель.
+   * @param {Date} now - текущий момент.
+   * @returns {Promise<number|undefined>} epoch-мс последнего сообщения.
+   */
+  async lastUserActivityAt(target, now) {
+    const source = this.sources.lastUserActivity
+    if (typeof source !== 'function') return undefined
+    try {
+      const value = await source({
+        userId: target?.userId,
+        chatId: target?.chatId,
+        chatIds: this.chatIdsOf(target),
+        now,
+      })
+      if (value === undefined || value === null) return undefined
+      const stamp = value instanceof Date
+        ? value.getTime()
+        : (typeof value === 'number' ? value : Date.parse(value))
+      return Number.isFinite(stamp) ? stamp : undefined
+    } catch (error) {
+      this.logger?.warn('proactive: last user activity unavailable', { error: error?.message ?? error })
+      return undefined
+    }
+  }
+
+  /**
+   * Вечерний вопрос: отдельный кандидат того же планировщика.
+   *
+   * Второго таймера нет — метод зовётся из `tick()` существующего
+   * `ReminderScheduler`. Вопрос приходит один раз в местные сутки; если человек
+   * писал в последние два часа или сейчас тихий час, день закрывается без
+   * сообщения, а не переносится на «потом» бесконечно.
+   */
+  async planEveningCheckIn(target, now, principal = this.principalOf(target)) {
+    const settings = this.store.settingsFor(principal)
+    const evening = settings.eveningCheckIn ?? DEFAULT_EVENING_CHECK_IN
+    if (evening.enabled !== true) return undefined
+    const day = dayKeyInZone(now, settings.tz)
+    if (this.store.watermarkFor(principal).eveningDay === day) return undefined
+    // Сначала время: до 21:00 вопрос не «пропущен», а ещё не наступил.
+    if (now.getTime() < eveningCheckInInstant(now, settings).getTime()) return undefined
+    if (settings.enabled === false) {
+      return { kind: 'skipped', type: 'checkin', reason: 'проактивность выключена в настройках пользователя', principal }
+    }
+    if (!this.channelEnabled(settings)) {
+      return { kind: 'skipped', type: 'checkin', reason: 'канал отключён', principal }
+    }
+    const last = await this.lastUserActivityAt(target, now)
+    if (last !== undefined && now.getTime() - last < EVENING_SUPPRESS_MS) {
+      const decision = {
+        kind: 'skipped',
+        type: 'checkin',
+        key: candidateKey('checkin', day),
+        reason: 'человек писал в последние 2 часа',
+        principal,
+      }
+      // День закрываем, иначе следующий тик повторит проверку и всё равно
+      // промолчит — но уже без понятной записи в журнале.
+      if (this.enabled) await this.store.skipCheckIn(day, decision.reason, { now, principal })
+      return decision
+    }
+    if (isQuietNow(now, settings)) {
+      const end = quietHoursEnd(now, { quiet: settings.quiet, timeZone: settings.tz })
+      if (!end || end.getTime() >= endOfDayInstant(now, settings.tz).getTime()) {
+        const decision = {
+          kind: 'skipped',
+          type: 'checkin',
+          key: candidateKey('checkin', day),
+          reason: 'тихие часы до конца дня',
+          principal,
+        }
+        if (this.enabled) await this.store.skipCheckIn(day, decision.reason, { now, principal })
+        return decision
+      }
+      return {
+        kind: 'deferred',
+        type: 'checkin',
+        key: candidateKey('checkin', day),
+        reason: 'тихие часы',
+        until: end.toISOString(),
+        principal,
+      }
+    }
+
+    const candidate = makeCandidate({
+      type: 'checkin',
+      id: day,
+      title: 'Вечерний вопрос',
+      plannedAt: eveningCheckInInstant(now, settings),
+      expiresAt: endOfDayInstant(now, settings.tz),
+      priority: PRIORITY.checkin,
+      reason: `вечерний вопрос в ${evening.at} (${settings.tz})`,
+      source: 'настройка вечернего вопроса',
+      userId: target.userId,
+      chatId: target.chatId,
+    })
+    const text = eveningCheckInText(evening.tone)
+    if (!this.enabled) {
+      return { kind: 'dry-run', ...candidate, principal, text }
+    }
+
+    const claim = await this.store.claim(candidate, { now, checkIn: true, principal })
+    if (!claim.ok) {
+      return { kind: 'skipped', type: 'checkin', key: candidate.key, reason: claim.reason, principal }
+    }
+    try {
+      await this.deliver(target.chatId, text)
+      await this.store.finish(candidate.key, { now, checkInDay: day, principal })
+      this.logger?.info('proactive evening check-in sent', { chatId: target.chatId, principal, day, tone: evening.tone })
+      return { kind: 'sent', ...candidate, principal, text }
+    } catch (error) {
+      await this.store.release(candidate.key, { now, error, principal })
+      this.logger?.error('proactive evening check-in failed', { chatId: target.chatId, principal, error })
+      return { kind: 'failed', type: 'checkin', key: candidate.key, reason: String(error?.message ?? error), principal }
+    }
   }
 
   /** Обзор: только значимое, один раз в местные сутки получателя и после тихих часов. */
@@ -2065,6 +2227,10 @@ export class ProactiveService {
         decisions.push(...(await this.reconcile(target, candidates, at, gathered.unavailable, denied, principal)).map(tag))
         const review = await this.planReview(target, gathered, candidates, at, principal)
         if (review) decisions.push(tag(review))
+        // Вечерний вопрос — отдельный кандидат на том же тике: второго таймера
+        // и второго прохода по получателям нет.
+        const checkIn = await this.planEveningCheckIn(target, at, principal)
+        if (checkIn) decisions.push(tag(checkIn))
         decisions.push(...(await this.planInitiatives(target, candidates, at, principal)).map(tag))
       }
       const fresh = decisions.filter((decision) => {

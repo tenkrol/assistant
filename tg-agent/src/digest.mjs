@@ -12,6 +12,7 @@
  */
 import { dayKey } from './usage.mjs'
 import { zonedTimeToUtc } from './reminders.mjs'
+import { describeRepeat } from './domain/repeats.mjs'
 import { churchHolidays, folkHolidays, healthTip } from './calendar.mjs'
 
 const MAX_TOPICS = 3
@@ -215,7 +216,13 @@ export class DigestService {
     } else {
       for (const reminder of reminders) {
         const time = new Intl.DateTimeFormat('ru-RU', { timeZone: this.zone, hour: '2-digit', minute: '2-digit' }).format(new Date(reminder.dueAt))
-        const repeat = reminder.repeat === 'none' ? '' : reminder.repeat === 'daily' ? ' (каждый день)' : ' (каждую неделю)'
+        const repeat = reminder.repeat === 'none'
+          ? ''
+          : reminder.repeat === 'daily'
+            ? ' (каждый день)'
+            : typeof reminder.repeat === 'string' && reminder.repeat.startsWith('every:')
+              ? ` (${describeRepeat(reminder.repeat) ?? 'каждые N минут'})`
+              : ' (каждую неделю)'
         lines.push(`— ${time} ${reminder.text}${repeat}`)
       }
     }

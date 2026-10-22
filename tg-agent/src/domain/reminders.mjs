@@ -94,15 +94,23 @@ export function formatReminderTime(value, { timeZone = '', locale = 'ru-RU' } = 
   }).format(value instanceof Date ? value : new Date(value))
 }
 
-/** Подпись повтора в списке `/reminders` — дословно прежняя. */
+/** Подпись повтора в списке `/reminders` — прежние формулировки, кроме интервалов. */
 export function reminderListRepeat(repeat) {
   if (repeat === 'none' || repeat === undefined) return ''
+  // Иначе интервал выглядел бы как «каждую неделю»: это новый вид повтора,
+  // и его подпись берётся из общего словаря.
+  if (typeof repeat === 'string' && repeat.startsWith('every:')) {
+    return `, ${describeRepeat(repeat) ?? 'каждые N минут'}`
+  }
   return repeat === 'daily' ? ', каждый день' : ', каждую неделю'
 }
 
-/** Пометка повтора при откладывании — дословно прежняя. */
+/** Пометка повтора при откладывании — прежние формулировки, кроме интервалов. */
 export function snoozeRepeatNote(repeat) {
   if (repeat === 'none' || repeat === undefined) return ''
+  if (typeof repeat === 'string' && repeat.startsWith('every:')) {
+    return ` (дальше — ${describeRepeat(repeat) ?? 'каждые N минут'})`
+  }
   return repeat === 'daily' ? ' (дальше — каждый день)' : ' (дальше — каждую неделю)'
 }
 
@@ -237,12 +245,18 @@ export function rulesOfReminders({ store, timeZone = '', locale = 'ru-RU', now =
       const hasMoment = typeof at === 'string' && at.trim() !== ''
       // Форма аргументов проверяется раньше времени: недопустимый повтор должен
       // быть назван, даже если вызывающий забыл время.
-      if (!isRepeat(repeat)) {
-        const issue = repeatIssue(repeat)
+      // Порог интервала проверяется даже для значения из словаря: `every:5`
+      // остаётся читаемым у старых записей, но новое напоминание чаще 15 минут
+      // не создаётся и не подменяется другим интервалом молча.
+      const issue = repeatIssue(repeat)
+      if (issue) {
         return {
-          text: issue
-            ? `Ошибка инструмента remind: ${issue}. Напоминание не создано; укажи repeat=every:N, где N — минуты от 15 до 1440 (кратно 5), например every:120 для «каждые 2 часа».`
-            : 'Ошибка инструмента remind: недопустимый повтор. Можно: none, daily, weekdays, weekly, weekly:1..7, monthly:1..31, every:N (N от 15 до 1440, кратно 5).',
+          text: `Ошибка инструмента remind: ${issue}. Напоминание не создано; укажи repeat=every:N, где N — минуты от 15 до 1440 (кратно 5), например every:120 для «каждые 2 часа».`,
+        }
+      }
+      if (!isRepeat(repeat)) {
+        return {
+          text: 'Ошибка инструмента remind: недопустимый повтор. Можно: none, daily, weekdays, weekly, weekly:1..7, monthly:1..31, every:N (N от 15 до 1440, кратно 5).',
         }
       }
       if (!isTone(tone)) {

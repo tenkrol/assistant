@@ -20,6 +20,7 @@ import { citationBlock, locatorText } from '../documents.mjs'
 import { detectFacts } from '../auto-memory.mjs'
 import { characterHint as personaCharacterHint } from '../personas.mjs'
 import { parsePollAction, pollKeyboard, pollMessage } from '../polls.mjs'
+import { eveningCheckInConfirmation, parseEveningCheckInRequest } from '../domain/evening.mjs'
 import { parseCommand } from './commands.mjs'
 import { MODES } from './modes.mjs'
 import { classifyChangeRequest } from './request-detect.mjs'
@@ -144,6 +145,12 @@ export function createConversation(bot) {
     }
     if (!addressed) return
 
+    // Отметка активности нужна вечернему вопросу: если человек писал боту
+    // меньше двух часов назад, спрашивать «как прошёл день» невежливо.
+    if (bot.lastUserAt) {
+      bot.lastUserAt.set(String(from.id), Date.now())
+      if (bot.lastUserAt.size > 4096) bot.lastUserAt.clear()
+    }
     // Публичное имя платформы — то, что позволяет боту различать людей в группе.
     if (bot.profiles?.store.touch(from.id, { firstName: from.name, username: from.username })) void bot.profiles.store.flush()
     const command = parseCommand(text, bot.username)
@@ -155,6 +162,20 @@ export function createConversation(bot) {
     if (bot.proactive && PROACTIVE_WHY.test(text)) {
       await bot.send(message.chat.id, bot.proactive.explainLast(from.id))
       return
+    }
+    // «Спрашивай вечером, как прошёл день в 21:00» — настройка, а не вопрос к
+    // модели: ответ должен быть точным и не зависеть от догадки модели.
+    if (bot.proactive) {
+      const checkIn = parseEveningCheckInRequest(text)
+      if (checkIn) {
+        if (checkIn.error) {
+          await bot.send(message.chat.id, checkIn.error)
+          return
+        }
+        const status = await bot.proactive.setEveningCheckIn(checkIn.patch, { userId: from.id })
+        await bot.send(message.chat.id, eveningCheckInConfirmation(status))
+        return
+      }
     }
     // Если бот ждёт ответа агента, обычное сообщение — этот ответ.
     const agentAnswer = await bot.agentLink?.handleOwnerMessage?.({ chatId: message.chat.id, text })
@@ -494,7 +515,7 @@ export function createConversation(bot) {
         && (REMINDER_INTENT.test(prompt) || REMINDER_CLAIM.test(answer.text ?? ''))
       if (reminderRequested) {
         bot.logger.warn('reminder requested without a tool call, forcing remind', { chatId })
-        const forced = await forceTool('remind', 'Пользователь просит напоминание. Немедленно вызови инструмент remind и передай время, посчитанное от текущего момента из системного сообщения о времени.')
+        const forced = await forceTool('remind', 'Пользователь просит напоминание. Немедленно вызови инструмент remind и передай время, посчитанное от текущего момента из системного сообщения о времени. Если в просьбе есть «каждые N часов/минут» — передай repeat=every:N в минутах (N от 15 до 1440, кратно 5; «каждые 2 часа» = every:120). Если просили «ласково» — tone=gentle, «строго» — tone=strict.')
         if (forced.toolCalls > 0 && toolResultText('remind')) {
           // Текст инструмента точно говорит, что запланировано; он лучше
           // пересказа, поэтому человек не увидит время, которого нет в хранилище.

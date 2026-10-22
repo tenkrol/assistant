@@ -175,6 +175,10 @@ export class Assistant {
     this.chains = new Map()
     this.inFlight = new Set()
     this.deniedAt = new Map()
+    // Время последнего сообщения человека: вечерний вопрос не задаётся, если
+    // человек писал боту меньше двух часов назад. Карта живёт в процессе;
+    // сохранившаяся история подстраховывает после перезапуска.
+    this.lastUserAt = new Map()
     this.semaphore = new Semaphore(config.limits.maxConcurrentRequests)
     // Telegram сохраняет прежнее имя файла, поэтому существующий курсор
     // переживает переход на адаптеры; другим платформам достаётся свой файл.

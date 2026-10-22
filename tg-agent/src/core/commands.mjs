@@ -8,6 +8,7 @@
  */
 import { MOODS, MOOD_NAMES, PERSONAS, PERSONA_NAMES, moodOf } from '../personas.mjs'
 import { formatQuiet } from '../proactive.mjs'
+import { eveningCheckInConfirmation, parseEveningCheckInCommand } from '../domain/evening.mjs'
 import { capabilityHelp } from './capabilities.mjs'
 import { buildExportDocument, buildExportPdf, exportToMarkdown } from './export.mjs'
 import { MODES } from './modes.mjs'
@@ -606,6 +607,18 @@ export function createCommandRouter(bot) {
           const quiet = { start: clockMinutes(start), end: clockMinutes(end) }
           await bot.proactive.setQuiet(quiet, target)
           await bot.send(chatId, `Тихие часы: **${formatQuiet(quiet)}**.`)
+          return
+        }
+        if (action === 'вечер') {
+          // Вечерний вопрос — та же личная настройка, что и естественная фраза
+          // «спрашивай вечером…»; команда нужна для явного управления.
+          const parsed = parseEveningCheckInCommand(rest)
+          if (parsed.error) {
+            await bot.send(chatId, parsed.error)
+            return
+          }
+          const status = await bot.proactive.setEveningCheckIn(parsed.patch, target)
+          await bot.send(chatId, eveningCheckInConfirmation(status))
           return
         }
         await bot.send(chatId, 'Не понял. Примеры: `/proactive`, `/proactive вкл`, `/proactive выкл`, `/proactive обзор 08:30`, `/proactive тихие 23:00-08:00`.')
