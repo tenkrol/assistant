@@ -24,7 +24,7 @@ export const EVENT_TOOL_DEFINITION = {
         date: { type: 'string', description: 'Дата события в формате ГГГГ-ММ-ДД (посчитай от текущей даты из системного сообщения).' },
         time: { type: 'string', description: 'Время в формате ЧЧ:ММ по местному времени пользователя. Если время не названо, спроси или поставь 09:00.' },
         at: { type: 'string', description: 'Полный момент ISO, если он уже известен (альтернатива date+time).' },
-        repeat: { type: 'string', enum: ['none', 'yearly'], description: 'yearly — каждый год в этот день (дни рождения, годовщины).' },
+        repeat: { type: 'string', enum: ['none', 'weekly', 'monthly', 'yearly'], description: 'weekly/monthly/yearly — повтор каждую неделю, месяц или год.' },
         place: { type: 'string', description: 'Место, если названо.' },
         remind_before: { type: 'number', description: `За сколько минут напомнить: 0 — не напоминать, по умолчанию ${DEFAULT_REMIND_BEFORE}.` },
         id: { type: 'string', description: 'Номер или идентификатор события для удаления (из списка).' },

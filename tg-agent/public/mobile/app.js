@@ -1960,19 +1960,19 @@ function openEventSheet() {
   when.value = localInputValue(defaultDate)
   wrap.append(field('Дата и время', when))
 
-  const yearlyRow = h('label', 'switch-row')
-  const yearlyText = h('div')
-  yearlyText.append(h('b', null, 'Каждый год'), h('span', null, 'повторять ежегодно'))
-  const yearly = h('button', 'switch')
-  yearly.type = 'button'
-  yearly.setAttribute('aria-label', 'Каждый год')
-  let yearlyOn = false
-  yearly.addEventListener('click', () => {
-    yearlyOn = !yearlyOn
-    yearly.classList.toggle('is-on', yearlyOn)
+  const repeat = h('select', 'input')
+  ;[
+    ['none', 'Без повтора'],
+    ['weekly', 'Каждую неделю'],
+    ['monthly', 'Каждый месяц'],
+    ['yearly', 'Каждый год'],
+  ].forEach(([value, label]) => {
+    const option = document.createElement('option')
+    option.value = value
+    option.textContent = label
+    repeat.append(option)
   })
-  yearlyRow.append(yearlyText, yearly)
-  wrap.append(yearlyRow)
+  wrap.append(field('Повтор', repeat))
 
   const submit = h('button', 'btn btn-primary btn-block', 'Добавить событие')
   submit.type = 'button'
@@ -1997,7 +1997,7 @@ function openEventSheet() {
       await api('POST', '/api/events', {
         title,
         at: date.toISOString(),
-        repeat: yearlyOn ? 'yearly' : 'none'
+        repeat: repeat.value
       })
       closeSheet()
       toast('Событие добавлено в календарь')

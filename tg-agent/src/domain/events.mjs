@@ -11,7 +11,7 @@
 import { zonedTimeToUtc } from './reminders.mjs'
 
 /** Повторы, которые понимает событие. */
-export const EVENT_REPEATS = ['none', 'yearly']
+export const EVENT_REPEATS = ['none', 'weekly', 'monthly', 'yearly']
 
 /** За сколько минут напоминать по умолчанию. */
 export const DEFAULT_REMIND_BEFORE = 30
@@ -47,9 +47,42 @@ export function nextYearlyOccurrence(iso, now) {
   return next.toISOString()
 }
 
-/** Когда показать событие: годовое — ближайшее вхождение, обычное — как записано. */
+/** Ближайшее недельное вхождение момента, строго после `now`. */
+export function nextWeeklyOccurrence(iso, now) {
+  const next = new Date(iso)
+  while (next.getTime() <= now.getTime()) next.setUTCDate(next.getUTCDate() + 7)
+  return next.toISOString()
+}
+
+/** Ближайшее месячное вхождение с сохранением числа (31 → последний день месяца). */
+export function nextMonthlyOccurrence(iso, now) {
+  const start = new Date(iso)
+  const day = start.getUTCDate()
+  let year = start.getUTCFullYear()
+  let month = start.getUTCMonth()
+  let next = new Date(Date.UTC(year, month, day, start.getUTCHours(), start.getUTCMinutes(), start.getUTCSeconds()))
+  while (next.getTime() <= now.getTime()) {
+    month += 1
+    if (month > 11) { month = 0; year += 1 }
+    const lastDay = new Date(Date.UTC(year, month + 1, 0)).getUTCDate()
+    next = new Date(Date.UTC(year, month, Math.min(day, lastDay), start.getUTCHours(), start.getUTCMinutes(), start.getUTCSeconds()))
+  }
+  return next.toISOString()
+}
+
+/** Когда показать событие: повтор — ближайшее вхождение, обычное — как записано. */
 export function eventOccurrence(event, now = new Date()) {
-  return event.repeat === 'yearly' ? nextYearlyOccurrence(event.at, now) : event.at
+  if (event.repeat === 'weekly') return nextWeeklyOccurrence(event.at, now)
+  if (event.repeat === 'monthly') return nextMonthlyOccurrence(event.at, now)
+  if (event.repeat === 'yearly') return nextYearlyOccurrence(event.at, now)
+  return event.at
+}
+
+function repeatLabel(repeat) {
+  if (repeat === 'weekly') return ' (каждую неделю)'
+  if (repeat === 'monthly') return ' (каждый месяц)'
+  if (repeat === 'yearly') return ' (каждый год)'
+  return ''
 }
 
 /** Текст списка событий для инструмента `event`. */
@@ -57,7 +90,7 @@ export function eventListText(events, { timeZone = '' } = {}) {
   if (events.length === 0) return 'В ближайшие 7 дней событий нет.'
   const lines = events.map((event, index) => {
     const when = `${dateInZone(new Date(event.nextAt), timeZone)} в ${timeInZone(new Date(event.nextAt), timeZone)}`
-    const repeat = event.repeat === 'yearly' ? ' (каждый год)' : ''
+    const repeat = repeatLabel(event.repeat)
     const place = event.place ? `, ${event.place}` : ''
     return `${index + 1}. ${when} — ${event.title}${place}${repeat}`
   })
@@ -78,7 +111,7 @@ export function calendarText(events, { timeZone = '' } = {}) {
   const lines = events.map((event, index) => {
     const day = new Intl.DateTimeFormat('ru-RU', { timeZone: timeZone || undefined, day: 'numeric', month: 'long', weekday: 'short' }).format(new Date(event.nextAt))
     const time = new Intl.DateTimeFormat('ru-RU', { timeZone: timeZone || undefined, hour: '2-digit', minute: '2-digit' }).format(new Date(event.nextAt))
-    const repeat = event.repeat === 'yearly' ? ' (каждый год)' : ''
+    const repeat = repeatLabel(event.repeat)
     const place = event.place ? `, ${event.place}` : ''
     return `${index + 1}. ${day}, ${time} — ${event.title}${place}${repeat}`
   })
@@ -93,7 +126,7 @@ export function eventRemovedText(target, { timeZone = '' } = {}) {
 /** Текст подтверждения записи события. */
 export function eventAddedText({ instant, title, repeat, reminderNote = '', reminderHint = '', timeZone = '' } = {}) {
   const when = `${dateInZone(instant, timeZone)} в ${timeInZone(instant, timeZone)}`
-  const repeatNote = repeat === 'yearly' ? ', каждый год' : ''
+  const repeatNote = repeat === 'weekly' ? ', каждую неделю' : repeat === 'monthly' ? ', каждый месяц' : repeat === 'yearly' ? ', каждый год' : ''
   return `Записал: ${when} — «${title}»${repeatNote}.${reminderNote}${reminderHint}`
 }
 
@@ -165,7 +198,7 @@ export function rulesOfEvents({ store, reminders, timeZone = '', locale = 'ru-RU
       if (!instant || Number.isNaN(instant.getTime())) {
         return { text: 'Ошибка инструмента event: не понял дату. Нужны date (ГГГГ-ММ-ДД) и time (ЧЧ:ММ) или готовый момент в at.' }
       }
-      const repeat = args.repeat === 'yearly' ? 'yearly' : 'none'
+      const repeat = EVENT_REPEATS.includes(args.repeat) ? args.repeat : 'none'
       const remindBefore = args.remind_before === undefined ? DEFAULT_REMIND_BEFORE : Number(args.remind_before)
       if (guard && userId !== undefined) {
         const scopeId = guard.scopeIdFor(userId, chatId)
