@@ -122,6 +122,9 @@ const DEFAULTS = {
   OUTBOX_PORT: '8788',
   // Токен для агента: без него точка приёма не поднимается вообще.
   OUTBOX_TOKEN: '',
+  // Папка агента на Яндекс.Диске: пустой токен оставляет интеграцию выключенной.
+  YANDEX_DISK_TOKEN: '',
+  YANDEX_DISK_DIR: 'Агент',
   YOUTUBE: 'true',
   POLLS: 'true',
   SERVER_STATUS: 'true',

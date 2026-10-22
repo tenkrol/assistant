@@ -11,6 +11,15 @@ import { createJsonStore } from './storage/json-store.mjs'
 
 const VERSION = 1
 
+/**
+ * Допустимый ключ истории: только конечное число.
+ *
+ * `chatId` — число от платформы или его строковая запись. `NaN`, `undefined`
+ * и произвольный текст не должны создавать чат в файле: однажды так появился
+ * ключ `NaN` с 14 сообщениями, который потом никому не принадлежал.
+ */
+const validChatId = (chatId) => Number.isFinite(Number(chatId))
+
 /** Служебные слова, которые не делают два сообщения «тем же фактом». */
 const STOP_STEMS = new Set(['живе', 'живу', 'люби', 'работ', 'зову', 'горо', 'есть', 'меня', 'его', 'ее', 'её', 'был', 'была', 'были'])
 
@@ -132,7 +141,25 @@ export class HistoryStore {
 
   /** Whether answers in this chat are also spoken aloud. */
   voice(chatId) {
-    return this.record(chatId).voice === true
+    // Чтение не должно создавать чат: иначе один вопрос «озвучивать?» с
+    // невалидным ключом снова завёл бы запись `NaN` в обход проверки записи.
+    return this.chats.get(String(chatId))?.voice === true
+  }
+
+  /**
+   * Проверить `chatId` перед записью.
+   *
+   * Невалидный ключ не создаёт чат и не попадает в файл; причина остаётся в
+   * журнале, потому что молча потерянное сообщение труднее найти, чем строку
+   * предупреждения.
+   *
+   * @param {string|number} chatId - ключ чата.
+   * @returns {boolean} можно ли писать по этому ключу.
+   */
+  acceptsChatId(chatId) {
+    if (validChatId(chatId)) return true
+    this.logger?.warn('history write skipped: invalid chatId')
+    return false
   }
 
   /**
@@ -142,6 +169,7 @@ export class HistoryStore {
    * @param {boolean} enabled - whether to speak answers.
    */
   async setVoice(chatId, enabled) {
+    if (!this.acceptsChatId(chatId)) return
     const record = this.record(chatId)
     if (enabled) record.voice = true
     else delete record.voice
@@ -149,6 +177,7 @@ export class HistoryStore {
   }
 
   async setModel(chatId, model) {
+    if (!this.acceptsChatId(chatId)) return
     const record = this.record(chatId)
     if (model === undefined) delete record.model
     else record.model = model
@@ -163,6 +192,7 @@ export class HistoryStore {
    * window confuses providers and wastes context).
    */
   async append(chatId, message, { userId } = {}) {
+    if (!this.acceptsChatId(chatId)) return
     const record = this.record(chatId, { userId })
     // Время сообщения нужно веб-чату; старые записи остаются без него.
     const entry = message && typeof message === 'object'
@@ -249,6 +279,7 @@ export class HistoryStore {
 
   /** Drop the conversation but keep the chat's model override. */
   async reset(chatId) {
+    if (!this.acceptsChatId(chatId)) return
     const record = this.record(chatId)
     record.messages = []
     this.schedule()
@@ -295,6 +326,13 @@ export class HistoryStore {
 
   record(chatId, { userId } = {}) {
     const key = String(chatId)
+    // Последний рубеж: даже прямой вызов `record` не должен заводить чат по
+    // невалидному ключу. Возвращаем одноразовую запись, которая не попадает
+    // в `chats` и не сохраняется.
+    if (!validChatId(chatId)) {
+      this.logger?.warn('history write skipped: invalid chatId')
+      return { messages: [] }
+    }
     let record = this.chats.get(key)
     if (!record) {
       // Личный чат получает личное пространство владельца. Общая история

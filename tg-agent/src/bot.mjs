@@ -33,6 +33,23 @@ const ALERT_COOLDOWN_MS = 60 * 60 * 1000
 /** Предупреждать, когда израсходована эта доля дневного бюджета токенов. */
 const SPEND_ALERT_RATIO = 0.8
 
+/**
+ * Паузы перед повтором `getUpdates` после подряд идущих ошибок.
+ *
+ * Последовательность 1→2→5→15→30 секунд: короткие обрывы проходят почти
+ * незаметно, а затяжная сетевая авария не превращается в поток запросов.
+ * После пятой ошибки пауза остаётся максимальной.
+ */
+const POLL_PAUSES_MS = [1000, 2000, 5000, 15000, 30000]
+/** После стольких ошибок подряд владелец один раз узнаёт об обрыве. */
+const POLL_ALERT_AFTER = 3
+
+/** Пауза перед следующим опросом после `failures` ошибок подряд. */
+const pollPauseMs = (failures) => POLL_PAUSES_MS[Math.min(Math.max(failures, 1), POLL_PAUSES_MS.length) - 1]
+
+/** Человеческое имя платформы для служебного сообщения владельцу. */
+const platformTitle = (name) => ({ telegram: 'Telegram', vk: 'VK', max: 'MAX' })[name] ?? String(name ?? 'платформой')
+
 /** Простой считающий семафор для глобального предела вызовов модели. */
 class Semaphore {
   constructor(limit) {
@@ -68,8 +85,9 @@ export class Assistant {
    * @param {object} [options.access] - единая проверка доступа к пространствам.
    * @param {object} [options.scopes] - `{ store }` пространств.
    * @param {object} options.logger - логгер.
+   * @param {(ms: number) => Promise<void>} [options.sleep] - пауза между повторами; подменяется в тестах.
    */
-  constructor({ config, platform, model, history, webTools, agentBridge, agentLink, reminders, profiles, usage, digest, media, tts, files, documents, events, polls, youtube, server, access, scopes, logger }) {
+  constructor({ config, platform, model, history, webTools, agentBridge, agentLink, reminders, profiles, usage, digest, media, tts, files, documents, events, polls, youtube, server, access, scopes, logger, sleep = defaultSleep }) {
     this.config = config
     // Пространства и доступ: единственная точка проверки для всех хранилищ.
     this.access = access
@@ -146,6 +164,9 @@ export class Assistant {
     // Конвейер сообщения: доступ, контекст и память, модель и инструменты, ответ и действия.
     this.conversation = createConversation(this)
     this.logger = logger
+    // Пауза вынесена в поле: тесты поллинга проверяют последовательность
+    // 1→2→5→15→30 секунд, не дожидаясь её на самом деле.
+    this.sleep = sleep
     this.running = false
     this.offset = undefined
     this.botId = undefined
@@ -206,7 +227,7 @@ export class Assistant {
         if (fatal || attempt >= attempts) break
         const waitMs = Math.min(2000 * 2 ** (attempt - 1), 15000)
         this.logger.warn('platform unreachable at startup, retrying', { attempt, attempts, waitMs, error })
-        await sleep(waitMs)
+        await this.sleep(waitMs)
       }
     }
     throw lastError
@@ -229,7 +250,7 @@ export class Assistant {
     await this.loopPromise?.catch(() => {})
     await Promise.race([
       Promise.allSettled([...this.inFlight]),
-      sleep(this.config.limits.shutdownGraceMs),
+      this.sleep(this.config.limits.shutdownGraceMs),
     ])
     await this.reminders?.scheduler?.stop()
     this.digest?.stop()
@@ -239,8 +260,19 @@ export class Assistant {
     this.logger.info('bot stopped', { chats: this.history.size })
   }
 
+  /**
+   * Опрашивать платформу до остановки.
+   *
+   * Ошибки считаются подряд: пауза растёт по `POLL_PAUSES_MS`, на третьей
+   * ошибке владелец получает одно сообщение об обрыве, а первый успех после
+   * такой серии — одно сообщение о восстановлении. Короткий сбой из одной-двух
+   * ошибок не беспокоит владельца вовсе; счётчик сбрасывает только успех.
+   */
   async pollLoop() {
-    let backoffMs = 1000
+    let failures = 0
+    // Был ли уже отправлен алерт: сообщение о восстановлении нужно ровно
+    // после той серии, о которой владелец узнал.
+    let alerted = false
     while (this.running) {
       this.controller = new AbortController()
       try {
@@ -251,7 +283,15 @@ export class Assistant {
           // иначе рестарт ждёт весь таймаут, а systemd убивает бота.
           signal: this.shutdown?.signal,
         })
-        backoffMs = 1000
+        if (failures > 0) {
+          this.logger.info('polling restored', { failures })
+          if (alerted) {
+            // Один успех закрывает серию: сообщаем один раз, дальше не спамим.
+            await this.notifyOwner(`✅ Связь восстановлена: ${platformTitle(this.platform?.name)} снова отвечает.`)
+            alerted = false
+          }
+          failures = 0
+        }
         if (cursor !== undefined && cursor !== this.offset) {
           this.offset = cursor
           this.scheduleOffsetSave()
@@ -259,9 +299,14 @@ export class Assistant {
         for (const update of updates) this.enqueueUpdate(update)
       } catch (error) {
         if (!this.running) break
-        this.logger.warn('polling failed', { error, retryInMs: backoffMs })
-        await sleep(backoffMs)
-        backoffMs = Math.min(backoffMs * 2, 30000)
+        failures += 1
+        const retryInMs = pollPauseMs(failures)
+        this.logger.warn('polling failed', { error, failures, retryInMs })
+        if (failures === POLL_ALERT_AFTER) {
+          alerted = true
+          await this.notifyOwner(`⚠️ Нет связи с ${platformTitle(this.platform?.name)}: ${failures} ошибки getUpdates подряд. Повторяю с паузой, часть сообщений может не дойти.`)
+        }
+        await this.sleep(retryInMs)
       }
     }
   }
@@ -457,6 +502,30 @@ export class Assistant {
     return delivery
   }
 
+  /** Чат владельца: явный ALERTS_CHAT_ID или первый разрешённый пользователь. */
+  ownerChatId() {
+    return this.config.alerts?.chatId ?? [...(this.config.access?.allowedUserIds ?? [])][0]
+  }
+
+  /**
+   * Служебное сообщение владельцу без часового кулдауна алертов.
+   *
+   * Поллингу нужно ровно одно сообщение об обрыве и одно о восстановлении:
+   * кулдаун, защищающий от потока ошибок модели, не должен проглотить второе.
+   *
+   * @param {string} text - короткое человекочитаемое сообщение.
+   */
+  async notifyOwner(text) {
+    const chatId = this.ownerChatId()
+    if (chatId === undefined) return
+    this.logger.info('owner notified', { chatId, text: truncate(text, 120) })
+    try {
+      await this.send(chatId, text)
+    } catch (error) {
+      this.logger.error('owner notification failed', { error })
+    }
+  }
+
   /**
    * Сообщить владельцу, что что-то сломалось.
    *
@@ -469,7 +538,7 @@ export class Assistant {
    */
   async alertOwner(text, { urgent = false } = {}) {
     if (this.delivery.getStore()) return
-    const chatId = this.config.alerts?.chatId ?? [...(this.config.access?.allowedUserIds ?? [])][0]
+    const chatId = this.ownerChatId()
     if (chatId === undefined) return
     const now = Date.now()
     if (!urgent && now - this.lastAlertAt < ALERT_COOLDOWN_MS) return
@@ -940,7 +1009,7 @@ export class Assistant {
   }
 }
 
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+const defaultSleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
 /** Прежний публичный экспорт разбора команд. */
 export { parseCommand } from './core/commands.mjs'

@@ -231,6 +231,19 @@ export function normalizeQuiet(value) {
 }
 
 /**
+ * Окно тихих часов в виде `HH:MM–HH:MM` для ответа человеку.
+ *
+ * @param {object|null} value - `{start,end}` в минутах суток.
+ * @returns {string} текст окна или пустая строка, если окно выключено.
+ */
+export function formatQuiet(value) {
+  const quiet = normalizeQuiet(value)
+  if (!quiet) return ''
+  const clock = (minutes) => `${pad(Math.floor(minutes / 60))}:${pad(minutes % 60)}`
+  return `${clock(quiet.start)}–${clock(quiet.end)}`
+}
+
+/**
  * Полные настройки проактивности с безопасными значениями по умолчанию.
  *
  * @param {object} [input] - сохранённые настройки.
@@ -1150,6 +1163,22 @@ export class ProactiveStore {
     return ensureUserState(this.storage.state, key, this.baseSettings).settings
   }
 
+  /**
+   * Время утреннего обзора получателя.
+   *
+   * Неверный формат не сохраняется: команда уже сказала человеку, что время
+   * не понято, и молчаливая замена на прежнее значение была бы обманом.
+   */
+  async setReviewAt(time, principal) {
+    if (!validTime(time)) return this.settingsFor(principal)
+    return this.updateSettings({ reviewAt: String(time) }, principal)
+  }
+
+  /** Тихие часы получателя; `null` выключает окно. */
+  async setQuiet(window, principal) {
+    return this.updateSettings({ quiet: window }, principal)
+  }
+
   /** Watermark получателя. */
   watermarkFor(principal) {
     const key = principalOf(principal) ?? this.ownerPrincipal
@@ -1547,6 +1576,46 @@ export class ProactiveService {
   /** Настройки конкретного получателя. */
   settingsFor(target) {
     return this.store.settingsFor(this.principalOf(target))
+  }
+
+  /**
+   * Состояние проактивности получателя для команды `/proactive`.
+   *
+   * Читает только настройки и счётчики: команда статуса ничего не меняет.
+   */
+  statusFor(target, now = this.now()) {
+    const principal = this.principalOf(target)
+    const settings = this.store.settingsFor(principal)
+    const watermark = this.store.watermarkFor(principal)
+    const sentToday = this.store.sentToday(now, principal)
+    return {
+      principal,
+      enabled: settings.enabled !== false,
+      globalEnabled: this.enabled,
+      reviewAt: settings.reviewAt,
+      quiet: settings.quiet ?? null,
+      dayLimit: settings.dayLimit,
+      sentToday,
+      reviewDay: watermark.reviewDay ?? null,
+    }
+  }
+
+  /** Личное включение/выключение; настройки других получателей не трогает. */
+  async setEnabled(enabled, target) {
+    await this.store.setEnabled(enabled !== false, this.principalOf(target))
+    return this.statusFor(target)
+  }
+
+  /** Время обзора конкретного получателя. */
+  async setReviewAt(time, target) {
+    await this.store.setReviewAt(time, this.principalOf(target))
+    return this.statusFor(target)
+  }
+
+  /** Тихие часы конкретного получателя. */
+  async setQuiet(quiet, target) {
+    await this.store.setQuiet(quiet, this.principalOf(target))
+    return this.statusFor(target)
   }
 
   /** Настройки владельца — совместимый доступ для одиночного получателя. */

@@ -7,6 +7,7 @@
  * ядра дословно.
  */
 import { MOODS, MOOD_NAMES, PERSONAS, PERSONA_NAMES, moodOf } from '../personas.mjs'
+import { formatQuiet } from '../proactive.mjs'
 import { capabilityHelp } from './capabilities.mjs'
 import { buildExportDocument, buildExportPdf, exportToMarkdown } from './export.mjs'
 import { MODES } from './modes.mjs'
@@ -63,6 +64,7 @@ const HELP = [
   "Прочее",
   "/digest — прислать утренний дайджест сейчас",
   "/stats — расход токенов за сегодня",
+  "/proactive — проактивность: статус, вкл/выкл, время обзора, тихие часы",
   "/server — состояние сервера, где я работаю",
   "/whoami — ваши ID",
   "/help — эта справка",
@@ -74,6 +76,38 @@ const HELP = [
   "«сделай таблицу в Excel по этим данным»",
   "«пришли ссылку разбери: https://youtu.be/…»",
   "«что мы решали про ремонт?»",
+].join('\n')
+
+/**
+ * Время `ЧЧ:ММ` из ввода человека.
+ *
+ * Принимает и `8:30`, и `08:30`; возвращает нормализованный вид, с которым
+ * работают правила проактивности, или `undefined` для мусора.
+ */
+const parseClock = (value) => {
+  const match = /^(\d{1,2}):(\d{2})$/.exec(String(value ?? '').trim())
+  if (!match) return undefined
+  const hours = Number(match[1])
+  const minutes = Number(match[2])
+  if (hours > 23 || minutes > 59) return undefined
+  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`
+}
+
+/** Минуты от полуночи из нормализованного `ЧЧ:ММ`. */
+const clockMinutes = (value) => {
+  const [hours, minutes] = value.split(':').map(Number)
+  return hours * 60 + minutes
+}
+
+/** Текст статуса `/proactive`: только чтение, настройки не меняет. */
+const proactiveStatusText = (status) => [
+  '**Проактивность**',
+  `Включена: **${status.enabled ? 'да' : 'нет'}**`,
+  `Общий выключатель: **${status.globalEnabled ? 'включён' : 'выключен (только журнал)'}**`,
+  `Время обзора: **${status.reviewAt}**`,
+  `Тихие часы: **${formatQuiet(status.quiet) || 'выключены'}**`,
+  `Отправлено сегодня: **${Number(status.sentToday?.count) || 0}** (обзоров: ${Number(status.sentToday?.reviews) || 0})`,
+  `Обзор за день (reviewDay): **${status.reviewDay ?? 'ещё не было'}**`,
 ].join('\n')
 
 /**
@@ -514,6 +548,67 @@ export function createCommandRouter(bot) {
         }
         await bot.history.setModel(chatId, overrides)
         await bot.send(chatId, `Модель для этого чата: \`${overrides}\``)
+        return
+      }
+      case 'proactive': {
+        if (!bot.proactive) {
+          await bot.send(chatId, 'Проактивность выключена в этой сборке.')
+          return
+        }
+        // Настройки принадлежат человеку, а не чату: в группе каждый управляет
+        // своими. Идентичность берётся из проверенного сообщения платформы.
+        const userId = message.from?.id
+        if (userId === undefined || userId === null || userId === '') {
+          await bot.send(chatId, 'Не удалось определить получателя: команда доступна от имени пользователя.')
+          return
+        }
+        const target = { userId }
+        const parts = String(args ?? '').trim().split(/\s+/).filter(Boolean)
+        const action = parts.shift()?.toLowerCase()
+        const rest = parts.join(' ')
+        if (action === undefined) {
+          const status = bot.proactive.statusFor(target)
+          await bot.send(chatId, proactiveStatusText(status))
+          return
+        }
+        if (action === 'вкл' || action === 'включить' || action === 'on') {
+          const status = await bot.proactive.setEnabled(true, target)
+          const quiet = formatQuiet(status.quiet) || 'выключены'
+          // Личный флаг не отменяет общий: без `PROACTIVE_ENABLED` сервис
+          // считает решения, но ничего не отправляет. Об этом честно говорим.
+          const globalNote = status.globalEnabled ? '' : ' Общий выключатель `PROACTIVE_ENABLED` пока выключен: сервис работает в режиме журнала.'
+          await bot.send(chatId, `Проактивность для вас включена. Обзор в ${status.reviewAt}, тихие часы ${quiet}.${globalNote}`)
+          return
+        }
+        if (action === 'выкл' || action === 'выключить' || action === 'off') {
+          await bot.proactive.setEnabled(false, target)
+          await bot.send(chatId, 'Проактивность для вас выключена: уведомления и обзор приходить не будут. Вернуть: `/proactive вкл`.')
+          return
+        }
+        if (action === 'обзор') {
+          const time = parseClock(rest)
+          if (!time) {
+            await bot.send(chatId, 'Не понял время. Пример: `/proactive обзор 08:30`.')
+            return
+          }
+          await bot.proactive.setReviewAt(time, target)
+          await bot.send(chatId, `Время обзора: **${time}**. Следующий обзор учтёт его.`)
+          return
+        }
+        if (action === 'тихие') {
+          const match = /^(\d{1,2}:\d{2})\s*[-–—]\s*(\d{1,2}:\d{2})$/.exec(rest)
+          const start = match ? parseClock(match[1]) : undefined
+          const end = match ? parseClock(match[2]) : undefined
+          if (!start || !end || start === end) {
+            await bot.send(chatId, 'Не понял окно. Пример: `/proactive тихие 23:00-08:00`.')
+            return
+          }
+          const quiet = { start: clockMinutes(start), end: clockMinutes(end) }
+          await bot.proactive.setQuiet(quiet, target)
+          await bot.send(chatId, `Тихие часы: **${formatQuiet(quiet)}**.`)
+          return
+        }
+        await bot.send(chatId, 'Не понял. Примеры: `/proactive`, `/proactive вкл`, `/proactive выкл`, `/proactive обзор 08:30`, `/proactive тихие 23:00-08:00`.')
         return
       }
       default:
