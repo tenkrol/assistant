@@ -19,7 +19,13 @@ const tool = path.join(root, 'tg-agent/tools/acceptance.mjs')
 const catalogPath = path.join(root, 'docs/acceptance/scenarios.json')
 const reportPath = path.join(root, 'docs/acceptance/report.json')
 const matrixPath = path.join(root, 'docs/ACCEPTANCE-MATRIX.md')
+// Деплой везёт на сервер только tg-agent/. Без каталога приёмки проверять нечего:
+// пропускаем файл целиком, иначе деплой падает на тестах, которых в релизе быть не может.
 const hasCatalog = fs.existsSync(catalogPath)
+if (!hasCatalog) {
+  // В релизе нет docs/ — этот файл целиком относится к репозиторию, а не к рантайму.
+  process.exit(0)
+}
 const catalog = hasCatalog ? JSON.parse(fs.readFileSync(catalogPath, 'utf8')) : null
 const scenarios = catalog?.scenarios ?? []
 const skip = hasCatalog ? false : 'каталог приёмки живёт в корне репозитория, в релиз не входит'
